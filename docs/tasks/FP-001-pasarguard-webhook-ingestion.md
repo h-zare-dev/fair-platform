@@ -3,6 +3,7 @@
 Status: Approved for implementation
 Target branch: `feature/fp-001-pasarguard-webhook-ingestion`
 Merge target: `development`
+PR mode: Draft until all merge gates pass
 
 ## Goal
 Build the first real Fair Platform vertical slice: receive Pasarguard webhooks, durably persist each batch once in PostgreSQL, asynchronously normalize child events, and expose normalized events ready for future accounting. No accounting or pricing is implemented in FP-001.
@@ -10,6 +11,7 @@ Build the first real Fair Platform vertical slice: receive Pasarguard webhooks, 
 ## Required reading
 Before coding, read:
 - `AGENTS.md`
+- `agents/feature-lifecycle.md`
 - `agents/implementation.md`
 - `docs/PROJECT_BLUEPRINT.md`
 - `docs/ARCHITECTURE.md`
@@ -304,7 +306,17 @@ Exact filenames are implementation details, but changes should remain within app
 The exact Pasarguard webhook authentication mechanism has not yet been frozen from a verified source contract. Implement a narrow `WebhookAuthenticator` boundary and fail closed in production if no valid auth strategy is configured. Do not invent a Pasarguard header/signature protocol. This does not block the rest of FP-001 implementation or tests.
 
 ## Definition of done
-FP-001 is not done until required migration, integration, E2E, duplicate, concurrency, encryption, sanitization, malformed-sibling, format, lint, typecheck, test, and build checks pass; CI is green; Review Agent approves; QA Agent passes; and a human approves merge to `development`.
+FP-001 is not done until required migration, integration, E2E, duplicate, concurrency, encryption, sanitization, malformed-sibling, format, lint, typecheck, test, and build checks pass; CI is green; Review Agent has posted `REVIEW_STATUS: PASS`; QA Agent has posted `QA_STATUS: PASS`; and a human approves merge to `development`.
 
 ## Agent workflow
-Implementation Agent implements and opens a PR from this feature branch to `development`. Review Agent reviews only. Implementation Agent fixes approved findings. QA Agent runs adversarial verification. Significant production-code fixes after QA require targeted re-review. Do not merge to `main` from this feature branch.
+Follow `agents/feature-lifecycle.md` exactly.
+
+Required lifecycle for FP-001:
+
+`feature branch created -> Draft PR to development -> Implementation commits -> Review -> Fix commits -> Re-review -> QA -> Fix commits -> QA retest -> targeted re-review if needed -> REVIEW_STATUS: PASS + QA_STATUS: PASS + CI green -> human approval -> merge to development`
+
+All implementation, review-fix, QA-fix, and re-verification work stays on `feature/fp-001-pasarguard-webhook-ingestion`. The branch may accumulate many commits; do not merge early merely because implementation is initially complete.
+
+The Draft PR must remain unmerged and should remain Draft until all merge gates pass. Review and QA agents post explicit status lines in the PR conversation. Later production-code changes can invalidate an earlier PASS and require targeted re-review or retest.
+
+Do not merge directly to `main` from this feature branch. After eventual merge to `development`, integration/operational testing happens on `development`; promotion from `development` to `main` is a separate human-approved PR.

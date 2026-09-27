@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   quality:
@@ -25,21 +25,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Commit generated lockfile
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          if git ls-files --error-unmatch pnpm-lock.yaml >/dev/null 2>&1; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml
-          git commit -m "chore: add pnpm lockfile"
-          git push
+        run: pnpm install --frozen-lockfile
 
       - name: Format check
         run: pnpm format:check

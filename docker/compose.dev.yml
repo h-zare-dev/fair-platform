@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fair_platform
+      POSTGRES_USER: fair_platform
+      POSTGRES_PASSWORD: fair_platform
+    ports:
+      - "5433:5432"
+    volumes:
+      - fair-platform-postgres-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fair_platform -d fair_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  fair-platform-postgres-dev:

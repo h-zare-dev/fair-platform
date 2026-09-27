@@ -1,0 +1,35 @@
+{
+  "name": "fair-platform",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Fair Platform monorepo",
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=12 <13"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @fair-platform/api --filter @fair-platform/worker --filter @fair-platform/web dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --passWithNoTests",
+    "test:unit": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --passWithNoTests tests/integration",
+    "test:e2e": "vitest run --passWithNoTests tests/e2e"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.0.2",
+    "eslint": "^9.39.1",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.2"
+  }
+}

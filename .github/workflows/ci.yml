@@ -15,8 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Setup pnpm 12.6.0
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+          run_install: false
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v4

@@ -21,7 +21,7 @@
     "test:e2e": "vitest run --passWithNoTests tests/e2e"
   },
   "devDependencies": {
-    "@types/node": "^24.13.6",
+    "@types/node": "^26.6.3",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^5.0.2",

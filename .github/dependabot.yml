@@ -9,11 +9,11 @@ updates:
     groups:
       nestjs:
         patterns:
-          - "@nestjs/*"
+          - '@nestjs/*'
       typescript-eslint:
         patterns:
-          - "typescript-eslint"
-          - "@typescript-eslint/*"
+          - 'typescript-eslint'
+          - '@typescript-eslint/*'
 
   - package-ecosystem: github-actions
     directory: /
@@ -24,5 +24,5 @@ updates:
     groups:
       ci-actions:
         patterns:
-          - "actions/*"
-          - "pnpm/action-setup"
+          - 'actions/*'
+          - 'pnpm/action-setup'

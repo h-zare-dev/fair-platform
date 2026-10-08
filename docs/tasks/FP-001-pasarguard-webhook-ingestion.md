@@ -23,6 +23,9 @@ Before coding, read:
 - `docs/DEFINITION_OF_DONE.md`
 - ADR 0002, 0004, 0008, 0010, 0011, 0012, 0014
 
+## Approved wire-contract input for FP-001
+Read `docs/integrations/PASARGUARD_WEBHOOK_WIRE_CONTRACT.md` and the synthetic fixtures under `tests/fixtures/pasarguard/` before implementing the parser, normalizer, or contract tests. Observed legacy array fields and timestamp units are mapped there. A top-level singleton is a supported FP-001 compatibility form, not separately proven source traffic. An unverified `next_plan` object or a new wrapper must never be silently guessed. Current production upstream envelope/authentication must be verified before activation.
+
 ## In scope
 - `POST /api/v1/webhooks/pasarguard`
 - top-level Zod validation

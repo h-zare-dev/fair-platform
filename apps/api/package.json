@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@fair-platform/pasarguard": "workspace:*",
-    "@nestjs/common": "^12.1.0",
-    "@nestjs/core": "^12.1.0",
-    "@nestjs/platform-fastify": "^12.1.0",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-fastify": "^12.1.2",
     "fastify": "^5.12.5",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",

@@ -8,7 +8,12 @@ const configSchema = z.object({
     .default('development'),
   DATABASE_URL: z.string().min(1),
   APP_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
-  PASARGUARD_SOURCE_INSTANCE_ID: z.string().min(1).max(100).default('primary'),
+  PASARGUARD_SOURCE_INSTANCE_ID: z
+    .string()
+    .min(1)
+    .max(100)
+    .refine((value) => !value.includes('\u0000'))
+    .default('primary'),
   RAW_WEBHOOK_RETENTION_DAYS: positive(14).refine((value) => value <= 36500),
   WEBHOOK_NORMALIZATION_MAX_ATTEMPTS: positive(5),
   WEBHOOK_WORKER_POLL_INTERVAL_MS: positive(1000).refine(

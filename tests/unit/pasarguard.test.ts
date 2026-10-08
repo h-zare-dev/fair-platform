@@ -18,7 +18,11 @@ import {
   DevelopmentWebhookAuthenticator,
 } from '../../apps/api/dist/modules/webhooks/application/authenticator.js';
 import { IngestionLoop } from '../../apps/worker/dist/modules/pasarguard-ingestion/loop.js';
-import { fixture } from '../helpers/fixtures.js';
+import {
+  fixture,
+  nulBearingEvent,
+  projectedTextPaths,
+} from '../helpers/fixtures.js';
 
 const key = '11'.repeat(32);
 describe('approved Pasarguard contract', () => {
@@ -245,4 +249,61 @@ it('production startup fails closed even if the development bypass is requested'
 });
 it('source timestamps preserve negative fractional Unix seconds', () => {
   expect(sourceTimestamp(-0.125)).toBe('1969-12-31T23:59:59.875Z');
+});
+
+it.each(projectedTextPaths.map((path) => [path.join('.'), path] as const))(
+  'FP001-R1: rejects NUL in projected source field %s with a sanitized child issue',
+  (_name, path) => {
+    const result = normalize(nulBearingEvent(path), 'primary');
+    expect(result.event).toBeNull();
+    expect(result.issues).toEqual([
+      {
+        code: 'INVALID_EVENT',
+        message: 'Child event failed the approved field contract',
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('synthetic-private');
+  },
+);
+it('FP001-R1: rejects NUL in the configured source identity before persistence', () => {
+  expect(() =>
+    readConfig({
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://localhost/unused',
+      APP_ENCRYPTION_KEY: key,
+      PASARGUARD_SOURCE_INSTANCE_ID: 'synthetic-private\u0000marker',
+    }),
+  ).toThrow('INVALID_INGESTION_CONFIGURATION');
+});
+
+it.each([
+  [-1e-21, '1970-01-01T00:00:00Z'],
+  [-Number.MIN_VALUE, '1970-01-01T00:00:00Z'],
+  [0, '1970-01-01T00:00:00Z'],
+  [-0, '1970-01-01T00:00:00Z'],
+  [1e-21, '1970-01-01T00:00:00Z'],
+  [Number.MIN_VALUE, '1970-01-01T00:00:00Z'],
+  [-0.125, '1969-12-31T23:59:59.875Z'],
+  [-1e-7, '1970-01-01T00:00:00Z'],
+  [1e-7, '1970-01-01T00:00:00Z'],
+  [-1.000001, '1969-12-31T23:59:58.999999Z'],
+  [1.000001, '1970-01-01T00:00:01.000001Z'],
+  [-0.0000005, '1970-01-01T00:00:00Z'],
+  [0.0000005, '1970-01-01T00:00:00Z'],
+  [-0.0000015, '1969-12-31T23:59:59.999998Z'],
+  [0.0000015, '1970-01-01T00:00:00.000002Z'],
+] as const)(
+  'FP001-R2: converts source seconds %s at microsecond precision across the epoch boundary',
+  (seconds, expected) => {
+    expect(sourceTimestamp(seconds)).toBe(expected);
+  },
+);
+it('FP001-R2: timestamp storage precision does not change numeric fingerprint identity', () => {
+  const results = [-1e-21, -Number.MIN_VALUE, 0, 1e-21, Number.MIN_VALUE].map(
+    (enqueued_at) =>
+      normalize({ ...fixture(), enqueued_at }, 'primary').event
+        ?.semantic_fingerprint,
+  );
+  expect(results.every(Boolean)).toBe(true);
+  expect(new Set(results).size).toBe(results.length);
 });

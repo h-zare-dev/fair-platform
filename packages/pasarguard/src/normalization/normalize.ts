@@ -17,7 +17,13 @@ const integer = z
   .number()
   .refine(Number.isSafeInteger)
   .refine((value) => value >= 0);
-const text = (max: number) => z.string().min(1).max(max);
+// PostgreSQL character columns cannot represent NUL; reject it at the child boundary.
+const text = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .max(max)
+    .refine((value) => !value.includes('\u0000'));
 const admin = z.object({ id: integer, username: text(255) });
 const sourceTime = z
   .number()
@@ -73,22 +79,47 @@ export interface NormalizedEvent {
   event_status: 'READY_FOR_ACCOUNTING' | 'NEEDS_REVIEW';
 }
 
-/** Preserve fractional source seconds beyond Date's millisecond precision. PostgreSQL stores microseconds. */
+/** Convert source seconds at PostgreSQL microsecond precision without locale or Date rounding. */
 export function sourceTimestamp(seconds: number): string {
-  const whole = Math.floor(seconds);
-  const base = new Date(whole * 1000).toISOString().slice(0, 19);
-  const decimal = seconds.toLocaleString('en-US', {
-    useGrouping: false,
-    maximumFractionDigits: 20,
-  });
-  const digits = decimal.split('.')[1] ?? '';
-  // Complement the exact decimal fraction for negative Unix seconds without floating subtraction.
+  // Number.toString is the same decimal representation used by JSON/fingerprinting.
+  // Expand its exponent before dividing so a tiny negative fraction cannot become -0.
+  const [coefficient = '0', exponent = '0'] = Math.abs(seconds)
+    .toString()
+    .split('e');
+  const [integerPart = '0', fractionalPart = ''] = coefficient.split('.');
+  const decimalPlaces = fractionalPart.length - Number(exponent);
+  const scale = Math.max(0, decimalPlaces);
+  const denominator = 10n ** BigInt(scale);
+  const magnitude =
+    BigInt(integerPart + fractionalPart) *
+    10n ** BigInt(Math.max(0, -decimalPlaces));
+  const numerator = seconds < 0 ? -magnitude : magnitude;
+  let whole = numerator / denominator;
+  let remainder = numerator % denominator;
+  // BigInt division truncates toward zero; timestamps need a floor and positive fraction.
+  if (remainder < 0n) {
+    whole -= 1n;
+    remainder += denominator;
+  }
+  const scaledFraction = remainder * 1000000n;
+  let microseconds = scaledFraction / denominator;
+  const roundingRemainder = scaledFraction % denominator;
+  // PostgreSQL rounds fractional seconds to the nearest microsecond, ties to even.
+  if (
+    roundingRemainder * 2n > denominator ||
+    (roundingRemainder * 2n === denominator && microseconds % 2n !== 0n)
+  ) {
+    microseconds += 1n;
+  }
+  if (microseconds === 1000000n) {
+    whole += 1n;
+    microseconds = 0n;
+  }
+  const base = new Date(Number(whole) * 1000).toISOString().slice(0, 19);
   const fraction =
-    seconds < 0 && digits
-      ? (10n ** BigInt(digits.length) - BigInt(digits))
-          .toString()
-          .padStart(digits.length, '0')
-      : digits;
+    microseconds === 0n
+      ? ''
+      : microseconds.toString().padStart(6, '0').replace(/0+$/, '');
   return `${base}${fraction ? `.${fraction}` : ''}Z`;
 }
 

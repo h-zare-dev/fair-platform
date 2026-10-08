@@ -9,7 +9,11 @@ import {
   PayloadEncryption,
   createDataSource,
 } from '@fair-platform/pasarguard/infrastructure';
-import { fixture } from '../helpers/fixtures.js';
+import {
+  fixture,
+  nulBearingEvent,
+  projectedTextPaths,
+} from '../helpers/fixtures.js';
 import {
   configFor,
   migratedDatabase,
@@ -338,4 +342,96 @@ it('abrupt worker connection loss rolls back its claim and leaves pending work r
   expect(batch.processing_attempts).toBe(0);
   expect(await processor().processNext()).toBe(true);
   expect(await database.getRepository(EventEntity).count()).toBe(1);
+});
+
+it.each(
+  projectedTextPaths.flatMap((path) =>
+    [0, 1].map((invalidIndex) => [path.join('.'), invalidIndex, path] as const),
+  ),
+)(
+  'FP001-R1: NUL in %s at index %s preserves its valid sibling',
+  async (_name, invalidIndex, path) => {
+    const invalid = nulBearingEvent(path);
+    const valid = fixture();
+    const payload = invalidIndex === 0 ? [invalid, valid] : [valid, invalid];
+    await inbox.receive(payload);
+    expect(await processor().processNext()).toBe(true);
+    const batch = await database
+      .getRepository(BatchEntity)
+      .findOneByOrFail({ id: '1' });
+    expect(batch.processing_status).toBe('NORMALIZED');
+    expect(batch.processing_attempts).toBe(1);
+    expect(batch.last_error_code).toBeNull();
+    const events = await database.getRepository(EventEntity).find();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.batch_index).toBe(1 - invalidIndex);
+    expect(events[0]?.username).toBe(
+      (valid.user as Record<string, unknown>).username,
+    );
+    const issues = await database.getRepository(IssueEntity).find();
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      batch_id: batch.id,
+      batch_index: invalidIndex,
+      issue_code: 'INVALID_EVENT',
+      issue_message: 'Child event failed the approved field contract',
+    });
+    expect(JSON.stringify({ events, issues })).not.toContain(
+      'synthetic-private',
+    );
+    expect(
+      encryption.decrypt({
+        ciphertext: batch.raw_payload_ciphertext!,
+        iv: batch.raw_payload_iv!,
+        authTag: batch.raw_payload_auth_tag!,
+        keyVersion: batch.raw_payload_key_version!,
+      }),
+    ).toEqual(payload);
+    expect(batch.raw_payload_ciphertext!.toString('utf8')).not.toContain(
+      'synthetic-private',
+    );
+    expect(await processor().processNext()).toBe(false);
+  },
+);
+it('FP001-R2: PostgreSQL rounds tiny fractions at the epoch to microseconds without collapsing identities', async () => {
+  const cases = [
+    [-1e-21, '1970-01-01 00:00:00.000000'],
+    [-Number.MIN_VALUE, '1970-01-01 00:00:00.000000'],
+    [0, '1970-01-01 00:00:00.000000'],
+    [1e-21, '1970-01-01 00:00:00.000000'],
+    [Number.MIN_VALUE, '1970-01-01 00:00:00.000000'],
+    [-0.125, '1969-12-31 23:59:59.875000'],
+    [-0.000001, '1969-12-31 23:59:59.999999'],
+    [0.000001, '1970-01-01 00:00:00.000001'],
+    [-0.0000005, '1970-01-01 00:00:00.000000'],
+    [0.0000005, '1970-01-01 00:00:00.000000'],
+    [-0.0000015, '1969-12-31 23:59:59.999998'],
+    [0.0000015, '1970-01-01 00:00:00.000002'],
+  ] as const;
+  await inbox.receive(
+    cases.map(([seconds]) => ({
+      ...fixture(),
+      enqueued_at: seconds,
+      send_at: seconds,
+    })),
+  );
+  await processor().processNext();
+  const rows = await database.query<
+    { enqueued: string; sent: string; semantic_fingerprint: string }[]
+  >(
+    "SELECT to_char(source_enqueued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS enqueued, to_char(source_send_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS sent, semantic_fingerprint FROM pasarguard_events ORDER BY batch_index",
+  );
+  expect(rows.map((row) => row.enqueued)).toEqual(
+    cases.map(([, expected]) => expected),
+  );
+  expect(rows.map((row) => row.sent)).toEqual(
+    cases.map(([, expected]) => expected),
+  );
+  expect(new Set(rows.map((row) => row.semantic_fingerprint)).size).toBe(
+    cases.length,
+  );
+  expect(
+    (await database.getRepository(BatchEntity).findOneByOrFail({ id: '1' }))
+      .processing_status,
+  ).toBe('NORMALIZED');
 });

@@ -9,6 +9,8 @@ Fair assigns its own `source_instance_id`. External identity is `(source_instanc
 `PASARGUARD_BASE_URL` is deployment configuration.
 
 ## Webhooks
+FP-001 field-level wire mapping and synthetic fixtures: [`PASARGUARD_WEBHOOK_WIRE_CONTRACT.md`](PASARGUARD_WEBHOOK_WIRE_CONTRACT.md). It distinguishes legacy stored-payload evidence from compatibility decisions and unverified current upstream HTTP behavior. Read it before implementing the FP-001 parser/normalizer.
+
 Webhooks are the primary realtime input in v1.0. Receiver requirements:
 1. Authenticate request.
 2. Accept supported Pasarguard batch/singleton envelope variants where required.

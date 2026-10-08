@@ -1,0 +1,58 @@
+[
+  {
+    "user": {
+      "id": 104,
+      "username": "fixture-user-104",
+      "admin": {
+        "id": 501,
+        "username": "fixture-admin-501"
+      },
+      "expire": "2026-12-01T00:00:00Z",
+      "status": "active",
+      "edit_at": null,
+      "created_at": "2026-08-01T00:00:00Z",
+      "data_limit": 53687091200,
+      "used_traffic": 0,
+      "lifetime_used_traffic": 21474836480,
+      "data_limit_reset_strategy": "no_reset",
+      "next_plan": null
+    },
+    "tries": 0,
+    "action": "user_updated",
+    "send_at": 1790000200.875,
+    "username": "fixture-user-104",
+    "enqueued_at": 1790000200.5,
+    "by": {
+      "id": 502,
+      "username": "fixture-actor-502"
+    }
+  },
+  {
+    "user": {
+      "id": 104,
+      "username": "fixture-user-104",
+      "admin": {
+        "id": 501,
+        "username": "fixture-admin-501"
+      },
+      "expire": "2026-12-01T00:00:00Z",
+      "status": "active",
+      "edit_at": null,
+      "created_at": "2026-08-01T00:00:00Z",
+      "data_limit": 53687091200,
+      "used_traffic": 0,
+      "lifetime_used_traffic": 21474836480,
+      "data_limit_reset_strategy": "no_reset",
+      "next_plan": null
+    },
+    "tries": 0,
+    "action": "data_usage_reset",
+    "send_at": 1790000200.5,
+    "username": "fixture-user-104",
+    "enqueued_at": 1790000200.125,
+    "by": {
+      "id": 502,
+      "username": "fixture-actor-502"
+    }
+  }
+]

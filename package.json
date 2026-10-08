@@ -11,25 +11,29 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @fair-platform/api --filter @fair-platform/worker --filter @fair-platform/web dev",
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "eslint .",
+    "typecheck": "pnpm test:prepare && pnpm -r --if-present typecheck && tsc -p tests/tsconfig.json",
+    "lint": "pnpm test:prepare && eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run --passWithNoTests",
-    "test:unit": "vitest run --passWithNoTests",
-    "test:integration": "vitest run --passWithNoTests tests/integration",
-    "test:e2e": "vitest run --passWithNoTests tests/e2e"
+    "test": "pnpm test:prepare && vitest run",
+    "test:unit": "pnpm test:prepare && vitest run tests/unit",
+    "test:integration": "pnpm test:prepare && vitest run tests/integration",
+    "test:e2e": "pnpm test:prepare && vitest run tests/e2e",
+    "test:prepare": "pnpm --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build"
   },
   "devDependencies": {
+    "@fair-platform/pasarguard": "workspace:*",
+    "@testcontainers/postgresql": "^12.2.0",
     "@types/node": "^24.13.6",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^5.0.2",
-    "eslint": "^10.11.0",
+    "eslint": "^10.12.0",
     "prettier": "^3.6.2",
+    "testcontainers": "^12.2.0",
     "tsx": "^4.20.6",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.71.1",
     "vitest": "^5.0.2"
   }
 }

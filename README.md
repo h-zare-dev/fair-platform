@@ -2,7 +2,7 @@
 
 Fair Platform is a production-focused modular platform for Pasarguard accounting, pricing, reporting, automation, and future sales services.
 
-> Status: early development. The architecture and domain baseline are frozen; repository foundation is being established before feature implementation.
+> Status: early development. FP-001 implements durable Pasarguard ingestion and normalization. Production webhook activation remains blocked pending verified authentication and deployed-source evidence.
 
 ## Technology
 - Node.js 24 LTS
@@ -49,8 +49,12 @@ Copy the example environment file, start development infrastructure, then instal
 cp .env.example .env
 docker compose -f docker/compose.dev.yml up -d
 pnpm install
+pnpm build
+pnpm --filter @fair-platform/pasarguard migration:run
 pnpm dev
 ```
+
+Provide a valid `APP_ENCRYPTION_KEY` and load environment variables before running migrations or processes. Webhooks are denied by default; the explicit development/test bypass and full operation details are documented in [FP-001 implementation](docs/tasks/FP-001-implementation.md).
 
 ## Quality Commands
 
@@ -58,6 +62,9 @@ pnpm dev
 pnpm format:check
 pnpm lint
 pnpm typecheck
+pnpm test:unit
+pnpm test:integration
+pnpm test:e2e
 pnpm test
 pnpm build
 ```

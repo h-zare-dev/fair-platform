@@ -19,8 +19,7 @@
     "test:unit": "pnpm test:prepare && vitest run tests/unit",
     "test:integration": "pnpm test:prepare && vitest run tests/integration",
     "test:e2e": "pnpm test:prepare && vitest run tests/e2e",
-    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build",
-    "replay:historical": "pnpm --filter @fair-platform/pasarguard build && tsx scripts/replay/cli.ts"
+    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build && tsc -p scripts/replay/tsconfig.json"
   },
   "devDependencies": {
     "@fair-platform/pasarguard": "workspace:*",

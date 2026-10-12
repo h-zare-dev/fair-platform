@@ -10,27 +10,24 @@ The approved [specification](FP-003A-historical-replay.md) governs this offline 
 4. Reconcile persisted batch/event statuses and issues into an aggregate report, distinguishing rejected children, accepted warnings, semantic duplicates and suppressed batch occurrences. Optionally import again into the same disposable database.
 5. Verify synthetic input, adversarial boundaries, retries, failure cleanup and repeatability; run all mandatory repository checks. Keep one Draft PR to `development` for independent Review and QA.
 
-## Local synthetic demonstration
+## Build and operator entry point
 
-Requirements: repository-supported Node.js and pnpm, local Docker and the `postgres:17-alpine` image (Testcontainers may pull it). No production secrets are needed.
+Requirements: repository-supported Node.js and pnpm, local Docker and the `postgres:17-alpine` image (Testcontainers may pull it). No production secrets are needed. Run from the repository root and build before invoking the compiled CLI:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm exec tsx scripts/replay/synthetic.ts
+pnpm build
 ```
 
-The generator prints a new directory under the operating system temporary directory and writes only the committed synthetic FP-001 fixture. Substitute that generated directory for `/tmp/fair-synthetic-replay-EXAMPLE`:
+The canonical entry point for private historical replay is `node scripts/replay/dist/cli.js`. Pass private input, manifest and report paths directly to Node. The former `replay:historical` package script has been removed: pnpm script logging echoes supplied arguments before the CLI starts, including on early failure. Do not pass private replay paths through pnpm scripts. The CLI's output privacy guarantees apply to the direct Node entry point.
+
+For a local synthetic demonstration, generate a new temporary directory containing only the committed synthetic FP-001 fixture:
 
 ```sh
-pnpm replay:historical \
-  --offline-disposable \
-  --input /tmp/fair-synthetic-replay-EXAMPLE/synthetic.jsonl.gz \
-  --manifest /tmp/fair-synthetic-replay-EXAMPLE/synthetic.manifest.json \
-  --out /tmp/fair-synthetic-replay-EXAMPLE/report.json \
-  --repeat
+node scripts/replay/dist/synthetic.js
 ```
 
-For execution after a full build, the equivalent direct command is:
+Substitute the directory printed by this synthetic-only generator for `/tmp/fair-synthetic-replay-EXAMPLE`. For private replay, substitute the Owner's local paths instead, keeping the same direct Node entry point:
 
 ```sh
 node scripts/replay/dist/cli.js \

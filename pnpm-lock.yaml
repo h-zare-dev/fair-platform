@@ -166,6 +166,9 @@ importers:
 
   .:
     devDependencies:
+      '@fair-platform/accounting':
+        specifier: workspace:*
+        version: link:packages/accounting
       '@fair-platform/pasarguard':
         specifier: workspace:*
         version: link:packages/pasarguard
@@ -275,7 +278,17 @@ importers:
         specifier: ^1.1.1
         version: 1.1.1(pg@8.23.1)
 
-  packages/accounting: {}
+  packages/accounting:
+    dependencies:
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+      typeorm:
+        specifier: ^1.1.1
+        version: 1.1.1(pg@8.23.1)
 
   packages/calendar: {}
 

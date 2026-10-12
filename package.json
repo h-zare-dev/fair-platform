@@ -19,7 +19,7 @@
     "test:unit": "pnpm test:prepare && vitest run tests/unit",
     "test:integration": "pnpm test:prepare && vitest run tests/integration",
     "test:e2e": "pnpm test:prepare && vitest run tests/e2e",
-    "test:prepare": "pnpm --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build"
+    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build"
   },
   "devDependencies": {
     "@fair-platform/pasarguard": "workspace:*",
@@ -34,6 +34,7 @@
     "tsx": "^4.20.6",
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.71.1",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "@fair-platform/accounting": "workspace:*"
   }
 }

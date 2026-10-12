@@ -1,11 +1,18 @@
-import { fail, type ErrorCode } from './errors.js';
+import { fail, ReplayError, type ErrorCode } from './errors.js';
 
 export function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** Validate JSON syntax first, then scan keys including escaped spellings. No raw diagnostics escape. */
-export function parseJson(text: string, code: ErrorCode): unknown {
+export type JsonPath = readonly (string | number)[];
+export type IntegerTokenRule = (path: JsonPath) => ErrorCode | undefined;
+
+/** Scan original tokens as well as duplicate keys. Integer rules apply only at selected contract paths. */
+export function parseJson(
+  text: string,
+  code: ErrorCode,
+  integerToken?: IntegerTokenRule,
+): unknown {
   try {
     const result: unknown = JSON.parse(text);
     let at = 0;
@@ -21,7 +28,7 @@ export function parseJson(text: string, code: ErrorCode): unknown {
       }
       return fail(code);
     };
-    const value = (depth: number): void => {
+    const value = (depth: number, path: JsonPath): void => {
       if (depth > 64) fail(code);
       whitespace();
       if (text[at] === '"') {
@@ -38,7 +45,7 @@ export function parseJson(text: string, code: ErrorCode): unknown {
           keys.add(key);
           whitespace();
           at++;
-          value(depth + 1);
+          value(depth + 1, [...path, key]);
           whitespace();
           if (text[at] !== ',') break;
           at++;
@@ -50,8 +57,9 @@ export function parseJson(text: string, code: ErrorCode): unknown {
       if (text[at] === '[') {
         at++;
         whitespace();
+        let index = 0;
         while (text[at] !== ']') {
-          value(depth + 1);
+          value(depth + 1, [...path, index++]);
           whitespace();
           if (text[at] !== ',') break;
           at++;
@@ -60,11 +68,20 @@ export function parseJson(text: string, code: ErrorCode): unknown {
         at++;
         return;
       }
+      const start = at;
       while (at < text.length && !/[\s,}\]]/.test(text[at]!)) at++;
+      const token = text.slice(start, at);
+      if (/^-?\d/.test(token)) {
+        const integerCode = integerToken?.(path);
+        // Replay integer fields are nonnegative decimal integers. In particular,
+        // binary64 rounding must not admit fractions, exponents, or negative zero.
+        if (integerCode && !/^(?:0|[1-9]\d*)$/.test(token)) fail(integerCode);
+      }
     };
-    value(0);
+    value(0, []);
     return result;
-  } catch {
+  } catch (error) {
+    if (error instanceof ReplayError) throw error;
     return fail(code);
   }
 }

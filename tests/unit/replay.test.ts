@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { writeFile, symlink, mkdir, stat, truncate } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ReplayInput, LIMITS } from '../../scripts/replay/input.js';
+import { actorNullSnapshot } from '../../scripts/replay/actor-null.js';
 import { manifestFrom } from '../../scripts/replay/manifest.js';
 import {
   parseJson,
@@ -133,6 +134,204 @@ describe('synthetic manifest contract', () => {
     expect(
       utcDate('2024-02-29 12:00:00.123456+00', 'INVALID_JSONL').toISOString(),
     ).toBe('2024-02-29T12:00:00.123Z');
+  });
+});
+
+// Keep adversarial tokens as literal strings: JSON.stringify(number) would erase the defect.
+const nonIntegerTokens = [
+  '1.0000000000000001',
+  '1.0',
+  '1e0',
+  '10e-1',
+  '1E+0',
+  '9007199254740991.1',
+  '9007199254740990.9',
+  '1e-400',
+  '-0',
+  '+1',
+  '01',
+  '1.',
+  'NaN',
+  'Infinity',
+  '9007199254740992',
+];
+const manifestIntegerFields = [
+  'manifest_version',
+  'window_days',
+  'distinct_payload_groups',
+  'legacy_stored_rows',
+  'replay_event_children',
+  'groups_with_repetition_mismatch',
+  'actor_object_null_id_events',
+  'action_counts',
+];
+function rawManifestToken(
+  metadata: Awaited<ReturnType<typeof inputFor>>['metadata'],
+  field: string,
+  token: string,
+): string {
+  const raw = JSON.stringify(metadata);
+  if (field === 'action_counts') {
+    const action = Object.keys(metadata.action_counts)[0]!;
+    return raw.replace(`"${action}":1`, `"${action}":${token}`);
+  }
+  const value = (metadata as unknown as Record<string, unknown>)[field];
+  return raw.replace(`"${field}":${String(value)}`, `"${field}":${token}`);
+}
+
+describe('P1: original JSON integer-token regression', () => {
+  it.each(
+    manifestIntegerFields.flatMap((field) =>
+      nonIntegerTokens.map((token) => [field, token] as const),
+    ),
+  )(
+    'rejects manifest %s token %s before any resource starts',
+    async (field, token) => {
+      const files = await inputFor();
+      const text = rawManifestToken(files.metadata, field, token);
+      const code = /^(INVALID_MANIFEST|UNSUPPORTED_MANIFEST_VERSION)$/;
+      expect(() => manifestFrom(text)).toThrow(code);
+      await writeFile(files.manifest, text);
+      const start = vi.fn();
+      const database = vi.fn();
+      await expect(
+        runReplay(files.input, files.manifest, false, { start, database }),
+      ).rejects.toThrow(code);
+      expect(start).not.toHaveBeenCalled();
+      expect(database).not.toHaveBeenCalled();
+    },
+  );
+  it.each(nonIntegerTokens)(
+    'rejects JSONL legacy row token %s with checksum-valid gzip before any resource starts',
+    async (token) => {
+      const files = await inputFor();
+      const text = JSON.stringify(syntheticLine()).replace(
+        '"legacy_stored_rows":1',
+        `"legacy_stored_rows":${token}`,
+      );
+      await files.writeInput(text);
+      const start = vi.fn();
+      const database = vi.fn();
+      await expect(
+        runReplay(files.input, files.manifest, false, { start, database }),
+      ).rejects.toThrow(/^INVALID_JSONL$/);
+      expect(start).not.toHaveBeenCalled();
+      expect(database).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['0', '1', '9007199254740991'])(
+    'accepts valid literal legacy row integer boundary %s',
+    async (count) => {
+      const line = syntheticLine();
+      line.legacy_stored_rows = Number(count);
+      const files = await inputFor([line]);
+      await files.writeInput(
+        JSON.stringify(line).replace(
+          `"legacy_stored_rows":${Number(count)}`,
+          `"legacy_stored_rows":${count}`,
+        ),
+      );
+      expect((await preflight(files)).legacyRows).toBe(Number(count));
+    },
+  );
+  it.each(['1', '7', '30'])(
+    'accepts literal integer window %s in legacy-unversioned manifests',
+    async (token) => {
+      const files = await inputFor(undefined, false);
+      const text = rawManifestToken(files.metadata, 'window_days', token);
+      await writeFile(files.manifest, text);
+      expect((await preflight(files)).groups).toBe(1);
+    },
+  );
+  it('rejects fractional counter tokens in legacy-unversioned manifests', async () => {
+    const files = await inputFor(undefined, false);
+    await writeFile(
+      files.manifest,
+      rawManifestToken(
+        files.metadata,
+        'legacy_stored_rows',
+        '1.0000000000000001',
+      ),
+    );
+    const start = vi.fn();
+    await expect(
+      runReplay(files.input, files.manifest, false, {
+        start,
+        database: createDataSource,
+      }),
+    ).rejects.toThrow(/^INVALID_MANIFEST$/);
+    expect(start).not.toHaveBeenCalled();
+  });
+  it('accepts maximum safe manifest counters and action values without numeric coercion', async () => {
+    const files = await inputFor();
+    let text = JSON.stringify(files.metadata);
+    for (const field of manifestIntegerFields.filter(
+      (key) => !['manifest_version', 'window_days'].includes(key),
+    )) {
+      // Replace raw tokens directly, including the nested action counter.
+      if (field === 'action_counts') {
+        const action = Object.keys(files.metadata.action_counts)[0]!;
+        text = text.replace(`"${action}":1`, `"${action}":9007199254740991`);
+      } else {
+        text = text.replace(
+          new RegExp(`"${field}":[0-9]+`),
+          `"${field}":9007199254740991`,
+        );
+      }
+    }
+    const result = manifestFrom(text);
+    expect(result.legacy_stored_rows).toBe(Number.MAX_SAFE_INTEGER);
+    expect(result.replay_event_children).toBe(Number.MAX_SAFE_INTEGER);
+    expect(Object.values(result.action_counts)).toEqual([
+      Number.MAX_SAFE_INTEGER,
+    ]);
+  });
+  it('validates escaped contract keys by their decoded paths', async () => {
+    const files = await inputFor();
+    const text = rawManifestToken(
+      files.metadata,
+      'legacy_stored_rows',
+      '1.0000000000000001',
+    ).replace('"legacy_stored_rows"', '"\\u006cegacy_stored_rows"');
+    expect(() => manifestFrom(text)).toThrow(/^INVALID_MANIFEST$/);
+    await files.writeInput(
+      JSON.stringify(syntheticLine()).replace(
+        '"legacy_stored_rows":1',
+        '"\\u006cegacy_stored_rows":1e0',
+      ),
+    );
+    await expect(preflight(files)).rejects.toThrow(/^INVALID_JSONL$/);
+  });
+  it('preserves fractional and exponent payload numbers, array order and nested same-named fields', async () => {
+    const child = fixture();
+    child.enqueued_at = 0;
+    child.send_at = 0;
+    child.legacy_stored_rows = 0;
+    child.window_days = 0;
+    const files = await inputFor([syntheticLine([child])]);
+    const text = JSON.stringify(syntheticLine([child]))
+      .replace('"enqueued_at":0', '"enqueued_at":1790000000.123456')
+      .replace('"send_at":0', '"send_at":1.790000001654321e9')
+      .replace(
+        '"legacy_stored_rows":0',
+        '"legacy_stored_rows":1.0000000000000001',
+      )
+      .replace('"window_days":0', '"window_days":1e0');
+    await files.writeInput(text);
+    const input = await ReplayInput.open(files.input, files.manifest);
+    try {
+      expect((await input.preflight()).children).toBe(1);
+      for await (const line of input.records()) {
+        expect(line.payload[0]).toMatchObject({
+          enqueued_at: 1790000000.123456,
+          send_at: 1790000001.654321,
+          legacy_stored_rows: 1,
+          window_days: 1,
+        });
+      }
+    } finally {
+      await input.close();
+    }
   });
 });
 
@@ -418,5 +617,36 @@ describe('safety, retries and resource cleanup', () => {
     ).toBe(1);
     expect(error).toHaveBeenCalledWith('OUTPUT_FAILED');
     expect((await stat(out)).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('P2: bounded Actor-null target aggregation', () => {
+  it('skips SQL for an empty subset and rejects excessive groups/children before querying', async () => {
+    const database = createDataSource(
+      'postgres://synthetic:synthetic@127.0.0.1:1/synthetic',
+    );
+    const query = vi.spyOn(database, 'query');
+    expect(await actorNullSnapshot(database, [])).toEqual({
+      storedChildOccurrences: 0,
+      accepted: 0,
+      rejected: 0,
+      unresolved: 0,
+      issues: {},
+    });
+    await expect(
+      actorNullSnapshot(
+        database,
+        Array.from({ length: LIMITS.groups + 1 }, () => ({
+          batch_id: '1',
+          indices: [],
+        })),
+      ),
+    ).rejects.toThrow('REPLAY_FAILED');
+    await expect(
+      actorNullSnapshot(database, [
+        { batch_id: '1', indices: Array<number>(LIMITS.children + 1).fill(0) },
+      ]),
+    ).rejects.toThrow('REPLAY_FAILED');
+    expect(query).not.toHaveBeenCalled();
   });
 });

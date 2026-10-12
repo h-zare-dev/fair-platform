@@ -12,6 +12,7 @@ import {
 } from '@fair-platform/pasarguard/infrastructure';
 import { fail, safeCode } from './errors.js';
 import { ReplayInput, type Preflight } from './input.js';
+import { actorNullSnapshot, type ActorBatch } from './actor-null.js';
 
 export type ReplayDatabase = ReturnType<typeof createDataSource>;
 export interface ReplayContainer {
@@ -125,13 +126,7 @@ export async function snapshot(
       "(EXISTS (SELECT 1 FROM pasarguard_events e WHERE e.batch_id = i.batch_id AND e.batch_index = i.batch_index) OR EXISTS (SELECT 1 FROM pasarguard_ingestion_issues d WHERE d.batch_id = i.batch_id AND d.batch_index = i.batch_index AND d.issue_code = 'DUPLICATE_EVENT'))",
     )
     .getRawOne<{ count: string }>();
-  const actor: Snapshot['actorNull'] = {
-    storedChildOccurrences: 0,
-    rejected: 0,
-    accepted: 0,
-    unresolved: 0,
-    issues: {},
-  };
+  const actorBatches: ActorBatch[] = [];
   const reasons: Record<string, number> = {};
   for (const batch of batches) {
     if (batch.processing_status === 'FAILED_PERMANENT') {
@@ -142,41 +137,10 @@ export async function snapshot(
       reasons[reason] = (reasons[reason] ?? 0) + 1;
     }
     const indices = input.batches.get(batch.payload_hash)!.actorIndices;
-    if (!indices.length) continue;
-    actor.storedChildOccurrences += indices.length;
-    const childIssues = await database
-      .getRepository(IssueEntity)
-      .createQueryBuilder('i')
-      .select(['i.batch_index', 'i.issue_code'])
-      .where('i.batch_id = :id AND i.batch_index IN (:...indices)', {
-        id: batch.id,
-        indices,
-      })
-      .getMany();
-    const accepted = await database
-      .getRepository(EventEntity)
-      .createQueryBuilder('e')
-      .select('e.batch_index')
-      .where('e.batch_id = :id AND e.batch_index IN (:...indices)', {
-        id: batch.id,
-        indices,
-      })
-      .getMany();
-    for (const index of indices) {
-      const codes = childIssues
-        .filter((issue) => issue.batch_index === index)
-        .map((issue) => issue.issue_code);
-      for (const code of codes)
-        actor.issues[code] = (actor.issues[code] ?? 0) + 1;
-      if (
-        accepted.some((event) => event.batch_index === index) ||
-        codes.includes('DUPLICATE_EVENT')
-      )
-        actor.accepted++;
-      else if (codes.length) actor.rejected++;
-      else actor.unresolved++;
-    }
+    if (indices.length) actorBatches.push({ batch_id: batch.id, indices });
   }
+  const actor = await actorNullSnapshot(database, actorBatches);
+
   return {
     batches: batches.length,
     batchChildren: batches.reduce((sum, b) => sum + b.event_count, 0),

@@ -28,7 +28,24 @@ const required = [
   'sha256_gzip',
 ];
 export function manifestFrom(text: string): Manifest {
-  const data = parseJson(text, 'INVALID_MANIFEST');
+  const integerFields = new Set([
+    'window_days',
+    'distinct_payload_groups',
+    'legacy_stored_rows',
+    'replay_event_children',
+    'groups_with_repetition_mismatch',
+    'actor_object_null_id_events',
+  ]);
+  const data = parseJson(text, 'INVALID_MANIFEST', (path) => {
+    if (path.length === 1 && path[0] === 'manifest_version')
+      return 'UNSUPPORTED_MANIFEST_VERSION';
+    if (
+      (path.length === 1 && integerFields.has(String(path[0]))) ||
+      (path.length === 2 && path[0] === 'action_counts')
+    )
+      return 'INVALID_MANIFEST';
+    return undefined;
+  });
   if (!object(data)) fail('INVALID_MANIFEST');
   if (Object.hasOwn(data, 'manifest_version') && data.manifest_version !== 1)
     fail('UNSUPPORTED_MANIFEST_VERSION');

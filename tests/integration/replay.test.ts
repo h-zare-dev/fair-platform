@@ -2,9 +2,28 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import { createDataSource } from '@fair-platform/pasarguard/infrastructure';
+import {
+  BatchEntity,
+  BatchProcessor,
+  DurableInbox,
+  IssueEntity,
+  PayloadEncryption,
+  createDataSource,
+} from '@fair-platform/pasarguard/infrastructure';
 import { main } from '../../scripts/replay/cli.js';
-import { runReplay, type Resources } from '../../scripts/replay/runner.js';
+import {
+  runReplay,
+  snapshot,
+  drain,
+  type Resources,
+} from '../../scripts/replay/runner.js';
+import { actorNullSnapshot } from '../../scripts/replay/actor-null.js';
+import { ReplayInput } from '../../scripts/replay/input.js';
+import {
+  configFor,
+  migratedDatabase,
+  startPostgres,
+} from '../helpers/postgres.js';
 import { fixture } from '../helpers/fixtures.js';
 import { syntheticReplay, syntheticLine } from '../helpers/replay.js';
 
@@ -231,5 +250,159 @@ describe('offline replay through original FP-001 PostgreSQL 17 inbox and worker'
     expect(log).toHaveBeenCalledOnce();
     expect(String(log.mock.calls[0])).toContain('Replay PASS');
     expect(String(log.mock.calls[0])).not.toContain(files.directory);
+  }, 120000);
+});
+
+describe('P2: set-based Actor-null PostgreSQL aggregation', () => {
+  it('keeps snapshot query count constant across more batches, semantic duplicates and sanitized collisions', async () => {
+    const lines = Array.from({ length: 40 }, (_, index) =>
+      syntheticLine([
+        {
+          ...fixture(),
+          by: { id: null, username: 'synthetic-private-actor' },
+          tries: index,
+        },
+        { ...fixture(), tries: index },
+      ]),
+    );
+    const firstFiles = await filesFor(lines.slice(0, 2));
+    const allFiles = await filesFor([...lines, lines[0]!, lines[15]!]);
+    const load = async (files: Awaited<ReturnType<typeof filesFor>>) => {
+      const input = await ReplayInput.open(files.input, files.manifest);
+      try {
+        return await input.preflight();
+      } finally {
+        await input.close();
+      }
+    };
+    const small = await load(firstFiles);
+    const large = await load(allFiles);
+    const container = await startPostgres();
+    let database: Awaited<ReturnType<typeof migratedDatabase>> | undefined;
+    try {
+      database = await migratedDatabase(container.getConnectionUri());
+      const encryption = new PayloadEncryption('11'.repeat(32));
+      const inbox = new DurableInbox(
+        database,
+        encryption,
+        configFor(container.getConnectionUri()),
+      );
+      const processor = new BatchProcessor(database, encryption, 3);
+      for (const line of lines.slice(0, 2)) await inbox.receive(line.payload);
+      await drain(processor, 2, 3);
+      const queries = vi
+        .spyOn(database.logger, 'logQuery')
+        .mockImplementation(() => undefined);
+      const first = await snapshot(database, small);
+      const count = queries.mock.calls.length;
+      expect(count).toBeGreaterThan(0);
+      expect(first.actorNull).toEqual({
+        storedChildOccurrences: 2,
+        rejected: 2,
+        accepted: 0,
+        unresolved: 0,
+        issues: { INVALID_EVENT: 2 },
+      });
+      for (const line of [...lines, lines[0]!, lines[15]!])
+        await inbox.receive(line.payload);
+      await drain(processor, 40, 3);
+      queries.mockClear();
+      const final = await snapshot(database, large);
+      expect(queries.mock.calls.length).toBe(count);
+      expect(final.actorNull).toEqual({
+        storedChildOccurrences: 40,
+        rejected: 40,
+        accepted: 0,
+        unresolved: 0,
+        issues: { INVALID_EVENT: 40 },
+      });
+      expect(large.actorNull).toBe(42);
+      expect(final.batches).toBe(40);
+      expect(final.events).toBe(1);
+      expect(final.duplicateChildren).toBe(39);
+      expect(final.eventOccurrences).toBe(40);
+      queries.mockClear();
+      expect(await snapshot(database, large)).toEqual(final);
+      expect(queries.mock.calls.length).toBe(count);
+    } finally {
+      try {
+        if (database?.isInitialized) await database.destroy();
+      } finally {
+        await container.stop();
+      }
+    }
+  }, 120000);
+  it('classifies accepted, rejected and unresolved targets without multiplying duplicate markers or warning issues', async () => {
+    const container = await startPostgres();
+    let database: Awaited<ReturnType<typeof migratedDatabase>> | undefined;
+    try {
+      database = await migratedDatabase(container.getConnectionUri());
+      const encryption = new PayloadEncryption('11'.repeat(32));
+      const inbox = new DurableInbox(
+        database,
+        encryption,
+        configFor(container.getConnectionUri()),
+      );
+      const processor = new BatchProcessor(database, encryption, 3);
+      const rejected = {
+        ...fixture(),
+        by: { id: null, username: 'synthetic' },
+      };
+      const accepted = fixture();
+      const warned = fixture();
+      (warned.user as Record<string, unknown>).id = 9001;
+      (warned.user as Record<string, unknown>).next_plan = { synthetic: true };
+      await inbox.receive([rejected, accepted, warned]);
+      await inbox.receive([
+        rejected,
+        { ...accepted, tries: 1 },
+        { ...warned, tries: 1 },
+      ]);
+      await drain(processor, 2, 3);
+      await inbox.receive([{ ...rejected, tries: 3 }]);
+      const batches = await database
+        .getRepository(BatchEntity)
+        .find({ select: { id: true }, order: { id: 'ASC' } });
+      await database.getRepository(IssueEntity).insert([
+        {
+          batch_id: batches[1]!.id,
+          batch_index: 1,
+          issue_code: 'DUPLICATE_EVENT',
+          issue_message: 'Synthetic repeated marker',
+        },
+        {
+          batch_id: batches[1]!.id,
+          batch_index: 1,
+          issue_code: 'INVALID_EVENT',
+          issue_message: 'Synthetic accepted warning',
+        },
+        {
+          batch_id: batches[2]!.id,
+          batch_index: null,
+          issue_code: 'NORMALIZATION_FAILED',
+          issue_message: 'Synthetic batch-only issue',
+        },
+      ]);
+      // Include accepted positions as synthetic unexpected outcomes: the reporting adapter
+      // must classify them accurately, without making Actor-null valid in normalization.
+      const result = await actorNullSnapshot(database, [
+        { batch_id: batches[0]!.id, indices: [0, 1, 2] },
+        { batch_id: batches[1]!.id, indices: [0, 1, 2] },
+        { batch_id: batches[2]!.id, indices: [0] },
+      ]);
+      expect(result).toEqual({
+        storedChildOccurrences: 7,
+        accepted: 4,
+        rejected: 2,
+        unresolved: 1,
+        issues: { DUPLICATE_EVENT: 3, INVALID_EVENT: 5 },
+      });
+    } finally {
+      try {
+        if (database?.isInitialized) await database.destroy();
+      } finally {
+        await container.stop();
+      }
+    }
   }, 120000);
 });

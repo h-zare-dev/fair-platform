@@ -50,7 +50,11 @@ function recordLine(bytes: Buffer): RecordLine {
   } catch {
     return fail('INVALID_JSONL');
   }
-  const data = parseJson(text, 'INVALID_JSONL');
+  const data = parseJson(text, 'INVALID_JSONL', (path) =>
+    path.length === 1 && path[0] === 'legacy_stored_rows'
+      ? 'INVALID_JSONL'
+      : undefined,
+  );
   if (
     !object(data) ||
     Object.keys(data).length !== 3 ||

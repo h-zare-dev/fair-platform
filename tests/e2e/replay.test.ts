@@ -63,11 +63,21 @@ function expectPrivateStreams(
 describe('standalone compiled historical replay CLI', () => {
   it('uses a disposable database, reports Actor-null validation, repeats import, and keeps both output streams private', async () => {
     const files = await syntheticReplay([
-      syntheticLine([
-        { ...fixture(), by: { id: null, username: 'synthetic-private-actor' } },
-      ]),
+      syntheticLine(
+        [
+          {
+            ...fixture(),
+            by: { id: null, username: 'synthetic-private-actor' },
+          },
+        ],
+        '2026-01-15 12:00:00.123456+00:00',
+      ),
     ]);
     cleanups.push(files.cleanup);
+    await files.writeManifest({
+      ...files.metadata,
+      cutoff_utc: '2026-01-16T00:00:00+00:00',
+    });
     const out = join(files.directory, 'summary.json');
     const result = await subprocess(process.execPath, [
       cli,
@@ -87,6 +97,7 @@ describe('standalone compiled historical replay CLI', () => {
     expect(report).toMatchObject({
       schema_version: 1,
       status: 'PASS',
+      input: { receiptPrecisionTruncated: 1 },
       first: { events: 0, rejectedChildren: 1, actorNull: { rejected: 1 } },
       differences: {
         repeatNewEvents: 0,

@@ -59,15 +59,10 @@ describe('offline replay through original FP-001 PostgreSQL 17 inbox and worker'
     };
     const invalid = { ...fixture(), enqueued_at: 'synthetic-private-invalid' };
     const unknown = { ...fixture(), action: 'future_action' };
-    const line = syntheticLine([
-      valid,
-      warn,
-      nullActor,
-      absentActor,
-      missingActorId,
-      invalid,
-      unknown,
-    ]);
+    const line = syntheticLine(
+      [valid, warn, nullActor, absentActor, missingActorId, invalid, unknown],
+      '2026-01-15 12:00:00.123456+00:00',
+    );
     const overlap = syntheticLine(
       [{ ...valid, tries: 2 }],
       '2026-01-15T13:00:00Z',
@@ -77,6 +72,10 @@ describe('offline replay through original FP-001 PostgreSQL 17 inbox and worker'
       { ...line, received_at: '2026-01-15T11:00:00Z' },
       overlap,
     ]);
+    await files.writeManifest({
+      ...files.metadata,
+      cutoff_utc: '2026-01-16T00:00:00+00:00',
+    });
     const report = await runReplay(files.input, files.manifest, true);
     expect(report.status).toBe('PASS');
     expect(report.failures).toEqual([]);

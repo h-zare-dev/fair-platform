@@ -103,7 +103,7 @@ export function integer(
 export function utcDate(value: unknown, code: ErrorCode): Date {
   if (typeof value !== 'string') fail(code);
   const match =
-    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00)$/.exec(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00(?::00)?)$/.exec(
       value,
     );
   if (!match) fail(code);

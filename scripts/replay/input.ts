@@ -70,7 +70,7 @@ function recordLine(bytes: Buffer): RecordLine {
     receivedAt: utcDate(data.received_at, 'INVALID_JSONL'),
     payload: data.payload,
     legacyRows: data.legacy_stored_rows,
-    receiptPrecisionTruncated: /\.\d{3}\d*[1-9]\d*(?:Z|\+00)$/.test(
+    receiptPrecisionTruncated: /\.\d{3}\d*[1-9]\d*(?:Z|\+00(?::00)?)$/.test(
       data.received_at as string,
     ),
   };

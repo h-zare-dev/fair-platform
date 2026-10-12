@@ -137,6 +137,103 @@ describe('synthetic manifest contract', () => {
   });
 });
 
+describe('approved UTC zero-offset spellings', () => {
+  const suffixes = ['Z', '+00', '+00:00'];
+  const fractions = [
+    '',
+    '.1',
+    '.12',
+    '.123',
+    '.1234',
+    '.12345',
+    '.123456',
+    '.123000',
+    '.000001',
+  ];
+  it.each(
+    suffixes.flatMap((suffix) =>
+      fractions.map((fraction) => [suffix, fraction]),
+    ),
+  )(
+    'normalizes and preflights suffix %s fraction %s without changing payload timestamps',
+    async (suffix, fraction) => {
+      const received = `2024-02-29 23:59:59${fraction}${suffix}`;
+      const expected = `2024-02-29T23:59:59.${fraction.slice(1).padEnd(3, '0').slice(0, 3)}Z`;
+      expect(utcDate(received, 'INVALID_JSONL').toISOString()).toBe(expected);
+      const child = { ...fixture(), enqueued_at: 1768482000.123456 };
+      const files = await inputFor([syntheticLine([child], received)]);
+      await files.writeManifest({ ...files.metadata, cutoff_utc: received });
+      const input = await ReplayInput.open(files.input, files.manifest);
+      try {
+        expect((await input.preflight()).receiptPrecisionTruncated).toBe(
+          /[1-9]/.test(fraction.slice(4)) ? 1 : 0,
+        );
+        for await (const line of input.records()) {
+          expect(line.receivedAt.toISOString()).toBe(expected);
+          expect(line.payload[0]?.enqueued_at).toBe(child.enqueued_at);
+        }
+      } finally {
+        await input.close();
+      }
+    },
+  );
+  it.each(
+    suffixes.flatMap((suffix) =>
+      ['2000-02-29T00:00:00', '2024-12-31T23:59:59', '2025-01-01T00:00:00'].map(
+        (base) => [base, suffix],
+      ),
+    ),
+  )('accepts calendar boundary %s%s', (base, suffix) => {
+    expect(utcDate(`${base}${suffix}`, 'INVALID_JSONL').toISOString()).toBe(
+      `${base}.000Z`,
+    );
+  });
+  it.each(
+    suffixes.flatMap((suffix) =>
+      [
+        '1900-02-29',
+        '2025-02-29',
+        '2024-04-31',
+        '2024-00-01',
+        '2024-13-01',
+        '2024-01-00',
+      ].map((date) => `${date}T12:00:00${suffix}`),
+    ),
+  )('rejects invalid calendar date %s', (value) => {
+    expect(() => utcDate(value, 'INVALID_JSONL')).toThrow('INVALID_JSONL');
+  });
+  it.each([
+    '+01:00',
+    '-01:00',
+    '-00:00',
+    '-00',
+    '+0000',
+    '+00:01',
+    '+00:0',
+    '+0:00',
+    '+00:00:00',
+    '+00:00Z',
+    'z',
+    '',
+  ])('rejects unsupported or malformed suffix %s', async (suffix) => {
+    const value = `2024-02-29T12:00:00${suffix}`;
+    const files = await inputFor([syntheticLine(undefined, value)]);
+    await expect(preflight(files)).rejects.toThrow('INVALID_JSONL');
+    expect(() =>
+      manifestFrom(JSON.stringify({ ...files.metadata, cutoff_utc: value })),
+    ).toThrow('INVALID_MANIFEST');
+  });
+  it.each(
+    suffixes.flatMap((suffix) =>
+      ['24:00:00', '23:60:00', '23:59:60', '12:00:00.', '12:00:00.1234567'].map(
+        (time) => `2024-02-29T${time}${suffix}`,
+      ),
+    ),
+  )('rejects invalid time or fractional precision %s', (value) => {
+    expect(() => utcDate(value, 'INVALID_JSONL')).toThrow('INVALID_JSONL');
+  });
+});
+
 // Keep adversarial tokens as literal strings: JSON.stringify(number) would erase the defect.
 const nonIntegerTokens = [
   '1.0000000000000001',

@@ -28,6 +28,8 @@ Owner-held real manifest metadata is intentionally **not published in this publi
 
 **JSONL contract from exporter v2 (inspected in full)**: one JSON object per line: `{ "received_at": "...", "legacy_stored_rows": <integer>, "payload": [<sanitized webhook event>, ...] }`. The actual JSONL line count is private and must equal the corresponding manifest field. The `received_at` value is **MIN(created_at)** for the legacy rows in a distinct raw-JSONB group; it is NOT a verified original HTTP arrival timestamp. The JSONB contents are not byte-identical original HTTP bodies.
 
+**UTC timestamp representation (Owner-approved compatibility amendment):** both JSONL `received_at` and manifest `cutoff_utc` must use `YYYY-MM-DD[T or space]HH:mm:ss` with an optional fractional part of one through six digits and exactly one of `Z`, `+00`, or `+00:00`. Equivalent suffixes normalize to the same UTC instant. Require a real calendar date/time, including leap-day validation; reject nonzero offsets (including `+01:00`), negative-zero offsets, malformed offsets, local times and other timezone spellings. Sub-millisecond receipt precision loss is reported for all three suffixes. This representation amendment does not alter source event timestamps or FP-001 normalization.
+
 **Never conflate** legacy stored rows, distinct legacy JSONB payload groups, sanitized payload hashes, physical HTTP deliveries, and FP-001 semantic-deduplicated events. Source distinct groups can collide *after* sanitization removes non-allowlisted fields. The runner must measure this explicitly; do not assert any Fair stored-batch count without verifying sanitized content hashes.
 
 ### 2.1. Approved manifest contract (FP-003A; v1 and existing unversioned exporter-v2 manifests)
@@ -47,7 +49,7 @@ This section resolves the previously unspecified manifest/schema-version boundar
 | --- | --- | --- |
 | `source` | string, exactly `legacy-pasarjew-postgresql` | Provenance label only; no network connection is authorized. |
 | `window_days` | JSON integer, exactly `1`, `7`, or `30` | Nested extraction window before `cutoff_utc`; no other windows approved. |
-| `cutoff_utc` | nonempty valid UTC timestamp string, e.g. `2026-01-15 12:00:00.000000+00` | Accept the exporter-v2 PostgreSQL UTC form `YYYY-MM-DD HH:mm:ss[.ffffff]+00` and equivalent ISO UTC `YYYY-MM-DDTHH:mm:ss[.ffffff]Z`; require a real date/time and UTC, not an arbitrary timezone or local time. The runner does not derive a new cutoff from its wall clock. |
+| `cutoff_utc` | nonempty valid UTC timestamp string, e.g. `2026-01-15 12:00:00.000000+00` | Accept the UTC timestamp representation defined above, with exactly `Z`, `+00`, or `+00:00` and zero through six fractional digits; require a real date/time and UTC, not an arbitrary timezone or local time. The runner does not derive a new cutoff from its wall clock. |
 | `distinct_payload_groups` | positive safe JSON integer | Number of JSONL lines / distinct pre-sanitization legacy JSONB groups. It is **not** guaranteed to equal distinct post-sanitization batches. |
 | `legacy_stored_rows` | nonnegative safe JSON integer | Sum of `legacy_stored_rows` across JSONL lines; historical duplicate rows, **not** independent HTTP deliveries. |
 | `replay_event_children` | positive safe JSON integer | Sum of `payload.length` across JSONL lines **before** FP-001 validation/deduplication. |

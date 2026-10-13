@@ -160,3 +160,9 @@ Human-operated **one-time prerequisites**: actual VPS provider/IP and whether IP
 **STOP/escalate** if real constraints demand opening TCP/80, introducing Cloudflare proxy, exposing a database port, bypassing webhook authentication, installing a privileged runner, making destructive migrations or changing the Owner-only merge policy. Such changes require the Owner's explicit new design approval.
 
 **Spec gate:** Implementation is authorized by the Owner’s explicit 2026-10-14 instruction. First staging activation, infrastructure changes, production activation and billing activation remain separately gated.
+
+## Owner-approved security build amendment — 2026-10-14
+
+The Owner explicitly authorized a reproducible Caddy rebuild using patched Go/x/net after the latest official Caddy 2.11.7 image failed the required scan (CVE-2026-78667, CVE-2026-78669, CVE-2026-97031). Use the pinned official Caddy runtime base with a pinned Caddy 2.11.7 source build, Go 1.27.2 and x/net 0.60.0; check in module locks, scan/test the result and publish/select it by immutable GHCR digest. This is the approved exception to the unmodified official-image requirement; it grants no deployment or infrastructure access.
+
+The Owner separately authorized rebuilding the same gosu 1.19 helper (upstream commit `6456aaa0f3c854d199d0f037f068eb97515b7513`) with pinned patched Go 1.27.2 on the official PostgreSQL 17.11 base after its bundled old Go binary failed scanning. PostgreSQL engine, official entrypoint and data format remain unchanged. See `docker/Dockerfile.postgres` and locked helper module checksums. This is the second explicit official-image hardening exception; no scan waiver, engine upgrade or deployment is authorized. All four runtime images are scanned and selected by digest. Application rollback retains the running PostgreSQL image, uses `--no-deps`, and records that retained digest rather than downgrading the database container.

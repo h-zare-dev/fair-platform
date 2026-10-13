@@ -1,0 +1,48 @@
+{
+	email {$ACME_EMAIL}
+	auto_https disable_redirects
+	admin off
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_body 10s
+			read_header 10s
+			write 30s
+			idle 2m
+		}
+	}
+}
+panel.fairisfair.ir {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+	request_body {
+		max_size 4KB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Cache-Control no-store
+		-Server
+	}
+	@owner path /api/v1/owner/* /health/live /health/ready
+	handle @owner {
+		reverse_proxy owner-api:3001 {
+			header_up -Forwarded
+			header_up -X-Forwarded-For
+			header_up -X-Forwarded-Host
+			header_up -X-Forwarded-Proto
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 10s
+			}
+		}
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

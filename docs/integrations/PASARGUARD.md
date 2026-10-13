@@ -3,7 +3,7 @@
 ## Scope
 v1.0 integrates with one Pasarguard instance through official Webhooks and API. Fair never depends on or modifies Pasarguard database schema.
 
-Feature order/status: [`ROADMAP.md`](../ROADMAP.md). FP-003A is completed offline replay only. FP-003B is now proposed as a **public HTTPS, Owner-authenticated STAGING dashboard** at `panel.fairisfair.ir`, backed by a persistent synthetic-only Fair PostgreSQL, with GitHub Actions automatic staging delivery after Owner merge. The detailed spec is pending Owner approval. **No live Pasarguard/Pasarjew connection, deployed webhook route, actual account data or automatic monetary classification** is authorized by this public website. Preserve the deployed webhook authenticator fail-closed guard.
+Feature order/status: [`ROADMAP.md`](../ROADMAP.md). FP-003A is completed offline replay only. FP-003B is Owner-approved for implementation as a **public HTTPS, Owner-authenticated STAGING dashboard** at `panel.fairisfair.ir`, backed by a persistent synthetic-only Fair PostgreSQL, with GitHub Actions automatic staging delivery after Owner merge. Implementation approval was given on 2026-10-14; first staging deployment/activation remains pending. **No live Pasarguard/Pasarjew connection, deployed webhook route, actual account data or automatic monetary classification** is authorized by this public website. Preserve the deployed webhook authenticator fail-closed guard.
 
 ## Source Identity
 Fair assigns its own `source_instance_id`. External identity is `(source_instance_id, pasarguard_user_id)` and similarly for admins. v1.0 exposes only one source, but schema remains future-ready.

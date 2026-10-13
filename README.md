@@ -2,7 +2,7 @@
 
 Fair Platform is a production-focused modular platform for Pasarguard accounting, pricing, reporting, automation, and future sales services.
 
-> Status: development. FP-001/FP-001B ingestion, FP-002 SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B public HTTPS staging Owner dashboard and automatic CI/CD — detailed spec pending Owner approval, not yet implemented.** Pricing and financial classification are not yet implemented; live webhook authentication/activation remains separately gated.
+> Status: development. FP-001/FP-001B ingestion, FP-002 SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B public HTTPS staging Owner dashboard and automatic CI/CD — implementation approved on 2026-10-14; implementation and verification in Draft PR #36. First staging deployment/activation remains pending.** Pricing and financial classification are not yet implemented; live webhook authentication/activation remains separately gated.
 
 ## Technology
 - Node.js 24 LTS
@@ -72,9 +72,9 @@ pnpm build
 ## Documentation
 Start with `AGENTS.md`, then read:
 - **[`docs/ROADMAP.md`](docs/ROADMAP.md) — canonical roadmap, current statuses and Owner-only merge gates.**
-- [`docs/tasks/FP-003B-operational-dashboard.md`](docs/tasks/FP-003B-operational-dashboard.md) — proposed **implementation-grade** FP-003B public HTTPS dashboard/CI-CD contract; Owner approval required before work.
+- [`docs/tasks/FP-003B-operational-dashboard.md`](docs/tasks/FP-003B-operational-dashboard.md) — **Owner-approved implementation** contract; first staging deployment/activation approval remains separate.
 - [`docs/deployment/FP-003B-staging-runbook.md`](docs/deployment/FP-003B-staging-runbook.md) — Docker/Caddy/DNS/SSH/UFW/GHCR delivery and operator recovery plan (**not deployed**).
-- [`docs/adr/0015-public-https-staging-and-controlled-delivery.md`](docs/adr/0015-public-https-staging-and-controlled-delivery.md) — public staging architecture decision proposed for Owner review.
+- [`docs/adr/0015-public-https-staging-and-controlled-delivery.md`](docs/adr/0015-public-https-staging-and-controlled-delivery.md) — accepted implementation architecture and explicit image-hardening approvals; not deployed.
 - `docs/PROJECT_BLUEPRINT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DOMAIN_RULES.md`

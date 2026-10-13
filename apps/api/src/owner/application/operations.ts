@@ -1,7 +1,7 @@
 import { z } from 'zod';
 const utc = z.iso
   .datetime({ offset: false })
-  .refine((v) => !/\.\d{7,}Z$/.test(v));
+  .refine((v) => !/\.\d{7,}Z$/.test(v) && new Date(v).getUTCFullYear() >= 1);
 const micros = (v: string) =>
   BigInt(Date.parse(v.replace(/\.\d+Z$/, 'Z'))) * 1000n +
   BigInt((/\.(\d+)Z$/.exec(v)?.[1] ?? '').padEnd(6, '0'));
@@ -67,6 +67,8 @@ export function operationFilter(
     query.start ??
     cursor?.start ??
     new Date(Date.parse(end) - hours * 3600000).toISOString();
+  utc.parse(start);
+  utc.parse(end);
   const span = micros(end) - micros(start);
   if (!(span > 0n && span <= 30n * 86400000000n))
     throw new Error('INVALID_RANGE');

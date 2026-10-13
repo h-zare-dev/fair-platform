@@ -198,13 +198,28 @@ export class PostgresOwnerOperations implements OperationsReader {
     };
   }
   async ready(): Promise<void> {
-    await this.db
-      .getRepository(EventEntity)
-      .createQueryBuilder('e')
-      .select('e.id')
-      .limit(1)
-      .getRawMany();
-    await this.db.query('SELECT token_hash FROM fair_owner_sessions LIMIT 1');
-    await this.db.query('SELECT id FROM fair_owner_login_budget LIMIT 1');
+    await Promise.all([
+      this.db
+        .getRepository(EventEntity)
+        .createQueryBuilder('e')
+        .select('e.id')
+        .limit(1)
+        .getRawMany(),
+      this.db
+        .getRepository(BatchEntity)
+        .createQueryBuilder('b')
+        .select('b.id')
+        .limit(1)
+        .getRawMany(),
+      this.db
+        .getRepository(IssueEntity)
+        .createQueryBuilder('i')
+        .select('i.id')
+        .limit(1)
+        .getRawMany(),
+      this.db.query('SELECT token_hash FROM fair_owner_sessions LIMIT 1'),
+      this.db.query('SELECT id FROM fair_owner_login_budget LIMIT 1'),
+      this.db.query('SELECT password_hash FROM fair_owner WHERE FALSE'),
+    ]);
   }
 }

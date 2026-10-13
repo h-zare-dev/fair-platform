@@ -1,0 +1,8 @@
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+WORKDIR /src
+COPY docker/gosu/go.mod docker/gosu/go.sum ./
+RUN go mod download && go mod verify
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gosu github.com/tianon/gosu
+
+FROM postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+COPY --from=build /out/gosu /usr/local/bin/gosu

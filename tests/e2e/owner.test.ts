@@ -375,6 +375,7 @@ it('strict pagination/range validation and database outage fail safely', async (
   await store.bootstrap(hash);
   const cookie = cookieOf(await login());
   for (const q of [
+    'start=0000-01-01T00%3A00%3A00Z&end=0000-01-02T00%3A00%3A00Z',
     'limit=101',
     'limit=-1',
     'cursor=e30',
@@ -462,6 +463,21 @@ it('runtime database role can authenticate and read operations but cannot mutate
       await expect(runtime.query(sql)).rejects.toThrow();
   } finally {
     await runtime.destroy();
+  }
+});
+
+it('readiness fails when any required operational table is unavailable', async () => {
+  for (const table of [
+    'pasarguard_webhook_batches',
+    'pasarguard_ingestion_issues',
+  ]) {
+    await db.query(`ALTER TABLE ${table} RENAME TO temporarily_unavailable`);
+    try {
+      expect((await app.inject('/health/ready')).statusCode).toBe(503);
+      expect((await app.inject('/health/live')).statusCode).toBe(200);
+    } finally {
+      await db.query(`ALTER TABLE temporarily_unavailable RENAME TO ${table}`);
+    }
   }
 });
 

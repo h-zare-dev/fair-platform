@@ -1,5 +1,7 @@
 # FP-001 — Durable Pasarguard Webhook Ingestion
 
+> **Historical approved FP-001 task specification.** Implemented and merged to `development` via PR #6; later FP-001B nullable-Actor amendment merged via PR #32. The original pre-merge instructions below are historical, not current status. See [`ROADMAP.md`](../ROADMAP.md). Production webhook auth/contract activation remains separately gated.
+
 Status: Approved for implementation
 Target branch: `feature/fp-001-pasarguard-webhook-ingestion`
 Merge target: `development`

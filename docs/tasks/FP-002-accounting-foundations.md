@@ -1,5 +1,7 @@
 # FP-002 — Accounting Foundations (owner/ChatGPT architecture specification)
 
+> **Historical approved FP-002 task specification.** Accounting foundations merged to `development` via PR #27. The status and future merge checklist below describe the original approval process, not the present milestone. FP-002 is SHADOW-only, with no pricing/classifier/live financial posting. See [`ROADMAP.md`](../ROADMAP.md).
+
 Status: Design prepared for implementation under Owner-controlled workflow
 Feature branch: `feature/fp-002-accounting-foundations`
 Target: `development`

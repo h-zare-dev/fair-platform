@@ -36,6 +36,7 @@ Read `AGENTS.md`, **`docs/ROADMAP.md`**, `agents/feature-lifecycle.md`, the **ex
 - Cite concrete files/lines and explain impact.
 - Distinguish confirmed defects from questions or suggestions.
 - Do not request out-of-scope features.
+- On FP-003B, check that GitHub PR events never expose deploy credentials; only protected `development` push may deploy STAGING after Owner enablement. Confirm Docker only publishes Caddy TCP/443 (SSH 22 belongs to Host), root-equivalent deploy privileges are not misrepresented, TLS-ALPN works with 80 closed, one-Owner CLI auth cannot be bypassed, and webhook fail-closed protections remain.
 - If docs conflict, flag the conflict for human resolution.
 - Review the current feature branch/PR state, not an earlier commit snapshot.
 - A previous PASS does not survive material changes to the reviewed production code; re-review the affected area.

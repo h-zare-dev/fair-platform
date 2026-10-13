@@ -2,7 +2,7 @@
 
 Every feature is developed on a dedicated feature branch created from `development`.
 
-Read `docs/ROADMAP.md` first: confirm the **next** feature and its **explicitly Owner-approved detailed implementation specification**. A draft design is not approval. FP-003B is next (pending design approval); do not skip to FP-007.
+Read `docs/ROADMAP.md` first: confirm the **next** feature and its **explicitly Owner-approved detailed implementation specification**. A draft design is not approval. FP-003B public HTTPS staging is next (**detailed specification pending Owner approval**); do not skip to FP-007. Its proposal includes build/publish/deploy workflows but **code and first staging deployment must await separate Owner approval**; documentation-only PR acceptance does not authorize Implementation.
 
 ## Branch flow
 

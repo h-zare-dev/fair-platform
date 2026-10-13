@@ -3,7 +3,7 @@
 ## Principles
 Financial correctness is more important than coverage vanity metrics. Tests must target invariants, boundaries, failure recovery, retries, and historical regressions.
 
-Follow [`ROADMAP.md`](ROADMAP.md): accepted offline FP-003A/FP-001B historical replay shows normalization/reproducibility, **not** live HTTP auth/delivery, pricing, financial posting or Next Plan activation. FP-003B's future Owner-approved tests must cover authorization denial, bounded safe responses, isolated persistent non-production source, pagination/time windows, empty/error states and secret leakage.
+Follow [`ROADMAP.md`](ROADMAP.md): accepted offline FP-003A/FP-001B historical replay shows normalization/reproducibility, **not** live HTTP auth/delivery, pricing, financial posting or Next Plan activation. The proposed [FP-003B specification](tasks/FP-003B-operational-dashboard.md) requires exhaustive one-Owner bootstrap/second-invocation/concurrency/recovery, Argon2id, same-origin session/CSRF/logout/expiry, auth-denied endpoints, bounded API/pagination/source timestamps, persistent synthetic PostgreSQL, Docker-only internal ports, public 443/TLS-ALPN with 80 closed, SSH 22 key-only, no unverified webhook mode, gated PR CI vs protected development staging releases, immutable GHCR digests, serialized deploy, compatible rollback, encrypted off-host backup/restore, phone + desktop acceptance, and no secret leaks. These are **tests to implement later**, not claims the server is configured or financial correctness is proven.
 
 ## Unit Tests
 Required for pure domain logic, especially Accounting, Pricing, Calendar, and Correlation.

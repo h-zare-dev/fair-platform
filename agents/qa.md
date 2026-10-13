@@ -9,6 +9,7 @@ Read `AGENTS.md`, **`docs/ROADMAP.md`**, `agents/feature-lifecycle.md`, the expl
 ## QA rules
 - Begin QA only after the current implementation has `REVIEW_STATUS: PASS`, unless a human explicitly requests exploratory QA earlier.
 - Test the acceptance criteria plus realistic failure modes.
+- For approved FP-003B: test one-Owner CLI/concurrency, session and CSRF, public domain/tls-only-443 with SSH 22 key-only, IPv4/IPv6 reachability, no Docker internal published ports, protected CI/GHCR deploy paths, safe migration/rollback and off-host backup restore. Do not access servers or private materials without the Owner's specific permission; report missing environment evidence as BLOCKED, never manufacture a PASS.
 - Prefer reproducible automated tests when practical.
 - Exercise duplicate delivery, retries, malformed input, race conditions, crashes/restarts, time boundaries, and dependency failures relevant to the task.
 - Never use production secrets or unsanitized production payloads.

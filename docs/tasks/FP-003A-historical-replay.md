@@ -1,5 +1,7 @@
 # Fair Platform — FP-003A Historical Replay Harness
 
+> **Historical approved task spec (2026-10-12).** FP-003A has since been merged to `development` (PR #31); the Owner's private 1/7/30-day offline acceptance was completed. The original future-tense steps below document the approved implementation contract, **not current status**. See [`ROADMAP.md`](../ROADMAP.md) for the next FP-003B milestone. FP-001B (PR #32) superseded the original Actor-object/null-ID rejection expectation. Do not publish private real-data evidence here.
+
 **Status:** Owner-approved implementation specification (public-repository-safe edition; 2026-10-12). Do not merge or deploy without separate explicit approval.
 
 **Privacy:** This is a PUBLIC repository. Do not commit the Owner's real replay data, manifests, private aggregate statistics, exact acquisition cutoff, or source-file checksum; only synthetic fixtures may be committed.

@@ -3,6 +3,8 @@
 ## Scope
 v1.0 integrates with one Pasarguard instance through official Webhooks and API. Fair never depends on or modifies Pasarguard database schema.
 
+Feature order/status: [`ROADMAP.md`](../ROADMAP.md). FP-003A is completed offline replay only; FP-003B is a design-pending, Owner-only read-only monitoring dashboard. Neither authorizes a live Pasarguard connection or automatic monetary classification.
+
 ## Source Identity
 Fair assigns its own `source_instance_id`. External identity is `(source_instance_id, pasarguard_user_id)` and similarly for admins. v1.0 exposes only one source, but schema remains future-ready.
 

@@ -31,6 +31,8 @@ Integer Toman only. Never float.
 ## Traffic
 Canonical normalized unit is bytes using integer-safe types.
 
+FP-002's approved pricing/display unit is binary GiB (1,073,741,824 bytes). Preserve integer bytes and represent fractional GiB quantities without floating-point money. The rounding method for any non-integral **final Toman** result is pending separate FP-004 Owner approval.
+
 ## Dates
 Persist UTC timestamps. Business/report calculations use `Asia/Tehran` and the single approved Jalali period service. Use half-open intervals `[start, end)`.
 

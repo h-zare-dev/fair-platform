@@ -13,7 +13,7 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 | 3a | **FP-003A — Offline Historical Replay** | Merged (PR #31); Owner-held private 1/7/30-day acceptance completed | Disposable PostgreSQL 17, real sanitized input locally; not live financial/HTTP verification |
 | Correction | **FP-001B — Nullable Actor** | Merged (PR #32); Owner-held 30-day regression accepted | `by.id=null` no longer loses otherwise valid events; no accounting posting |
 | Infrastructure | **CI after development merges** | Merged (PR #33) | GitHub `quality` on PR, pushes to `development`/`main`, manual dispatch |
-| **NEXT** | **FP-003B — Temporary Owner Operational Dashboard** | **Design approval pending; NOT implemented** | Secure compact Owner-only read-only monitoring UI/API, non-production data, no billing |
+| **NEXT** | **FP-003B — Public HTTPS Owner Dashboard + Staging CI/CD** | **Detailed spec proposed; Owner approval pending; NOT implemented** | Production-like dedicated public staging at `panel.fairisfair.ir`, Owner-only login/CLI, safe synthetic operations, Docker/Caddy/PostgreSQL, automatic post-merge staging deploy. No live billing/webhook |
 | Next | **FP-004 — Pricing Engine** | Planned; detailed spec pending | Per-GiB, Fixed, Mixed, precedence/overrides, effective-dated rules, integer-Toman output |
 | Next | **FP-005 — First Shadow Accounting: User Create** | Planned; detailed spec pending | User-create financial classification and **SHADOW** charges using FP-002 |
 | Next | **FP-006 — Existing-User Baselines and Update Accounting** | Planned; detailed spec pending | Reliable initial state, update increases/decreases, state and ownership/transfer handling |
@@ -25,8 +25,8 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 ## FP-003A is not FP-003B
 
 - **FP-003A is complete offline testing** with a disposable database that is removed after each run. It is not a persistent dashboard source and does not prove actual source HTTP/webhook delivery, pricing or monetary results.
-- **FP-003B is NEXT but its implementation specification is unapproved.** See [FP-003B design brief](tasks/FP-003B-operational-dashboard.md). Candidate MVP: secure Owner access, four operational counters, latest normalized events/issues, read-only API, unmistakable SHADOW/NO LIVE BILLING status. Exact metrics, API, authentication implementation, access channel and persistent safe data source need Owner approval.
-- Do not connect FP-003B directly to Pasarguard/Pasarjew database, activate a live webhook, deploy to production or expose private historical replay datasets without separate explicit human approval and verified upstream security/delivery evidence.
+- **FP-003B is NEXT and its detailed specification is awaiting Owner acceptance.** See [FP-003B implementation proposal](tasks/FP-003B-operational-dashboard.md), [ADR 0015](adr/0015-public-https-staging-and-controlled-delivery.md) and [staging runbook](deployment/FP-003B-staging-runbook.md). Owner chose public HTTPS on `panel.fairisfair.ir`, Cloudflare DNS-only, Dockerized Caddy with TLS-ALPN-01 on TCP/443, SSH key-only TCP/22, simple UFW, Owner CLI bootstrap and GitHub Actions → GHCR → automated staging deployment after human merge into `development`. The site remains Owner-authenticated, synthetic-data-only and **NO LIVE BILLING**; Owner must approve implementation and initial staging enablement separately.
+- Do not connect FP-003B directly to Pasarguard/Pasarjew database, activate a live webhook, deploy **the later financial production environment**, or expose private historical replay datasets without separate explicit human approval and verified upstream security/delivery evidence. Public **staging** on its own VPS is not a production cutover. Dockerized staging deployment is automated only after the Owner approves one-time secure setup/go-live.
 
 ## Financial design decisions already established
 
@@ -44,13 +44,13 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 3. The exact PR head must pass independent `REVIEW_STATUS: PASS`, `QA_STATUS: PASS`, required GitHub `quality`, DoD and any **separately Owner-authorized private verification** before release recommendation.
 4. **Only the human Owner may change a PR from Draft to Ready or execute Merge.** Assistants/agents **never** perform either action, even after green gates or generic requests to "finish". The Owner personally reviews and merges.
 5. GitHub Actions triggers: PRs targeting `development`/`main`; pushes after Owner merges into these branches; manual dispatch. Post-merge CI on the actual new `development` commit must pass before promotion.
-6. Promotion from `development` to `main` is an independent Owner-controlled PR. No automatic live webhook enablement, financial activation, production access or deployment.
+6. Promotion from `development` to `main` is an independent Owner-controlled PR. After approved FP-003B staging activation, Owner-merged `development` commits **may deploy automatically to isolated public STAGING after CI**; this is not an automated merge, production deployment, live webhook enablement or financial activation.
 
 ## Evidence boundaries and unanswered design questions
 
 - Verified Owner-held historical 1/7/30-day offline replay and nullable Actor regression demonstrate normalization integrity/reproducibility **only**. No private counters, identities, HMAC keys, cutoffs, manifests or artifact paths belong in this public repository.
 - Deployed upstream webhook HTTP envelope/authentication, actual origin of missing Actors, and non-null Next Plan fields/activation behavior remain unverified. Source action labels alone do not determine financial semantics.
-- FP-003B access route, persistent safe source, counters/auth boundaries; FP-004 fractional-Toman final rounding; FP-006 baseline provenance; lateness/closure policy and FP-007 state-aware correlation need task-level human decisions.
+- FP-003B public access architecture is selected, but its detailed specification remains Owner-review pending; actual staging host/IP, DNS/IPv6, SSH privileges, backup target and initial enablement remain operator prerequisites. FP-004 fractional-Toman final rounding; FP-006 baseline provenance; lateness/closure policy and FP-007 state-aware correlation still need task-level human decisions.
 - P2 historical replay runtime scaling is deferred, not a reason to bypass financial or production gates.
 - `main` intentionally has a separate promotion lifecycle and can lag `development`.
 

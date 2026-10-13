@@ -12,10 +12,10 @@ Never log Pasarguard API tokens, Telegram bot tokens, webhook secrets, session s
 ## Authentication
 Owner authentication uses strong password hashing (Argon2id direction), server-side sessions, Secure/HttpOnly/SameSite cookies, CSRF protection where relevant, rate limiting, session rotation, and audit logging. Do not store JWTs in localStorage.
 
-The proposed FP-003B temporary dashboard needs explicit Owner approval of the access channel (private tunnel/network versus protected HTTPS), session/bootstrap implementation and isolated persistent safe source. These security requirements are **not proof that authentication is implemented**. Every read API must enforce Owner authorization, bounded allowlisted responses and private-data redaction; read-only access by itself is not secure.
+For FP-003B the Owner selected **public HTTPS** on `panel.fairisfair.ir` (Cloudflare DNS-only, Docker Caddy automatic TLS-ALPN-01, no HTTP/80, no public UDP/443), **not** private tunnel/VPN. The specification still awaits formal Owner acceptance and implementation. No Owner dashboard data/API is public: deny all unauthenticated access, apply bounded allowlisted responses, session/cookie security, rate limiting and CSRF protections. Use a dedicated Owner API runtime that **does not register any webhook routes**; do not weaken the production webhook authenticator fail-closed behavior. Login/logout/session writes are allowed; operational and financial business data remain read-only.
 
 ## Bootstrap
-The first Owner is created through a one-time bootstrap/CLI flow. Permanent Owner passwords do not live in `.env`.
+Create **exactly one** Owner through an interactive, one-time, **non-public CLI** after migrations; enforce singleton in PostgreSQL atomically. No Registration/Create Account or public password-reset endpoints. Password is Argon2id-hashed; never accept a password in CLI argv, `.env`, GitHub Secrets or logs. Only trusted administrator CLI operations can reset the password and revoke sessions. Password reset revokes all sessions. Store only hashed opaque session tokens in PostgreSQL, with HttpOnly/Secure/SameSite cookies, rotation, inactivity/absolute expiry and server-side logout. Permanent Owner passwords do not live in `.env`.
 
 ## Application Secrets
 Runtime integration secrets may be stored encrypted with an external master key/environment secret. UI masks secrets and changes are audited.
@@ -29,5 +29,10 @@ Fair has its own bot token. Pasarguard admin Telegram destination remains source
 ## Dependency / CI Security
 Use dependency updates, CodeQL, secret scanning, Trivy/container scanning, and package audit as CI evolves.
 
+## Public Staging SSH, Network and CI/CD
+FP-003B SSH remains **TCP/22, key-only**, with password/keyboard-interactive login disabled after key access and provider rescue are verified. TCP/443 is the only web ingress; TCP/80 remains closed. Host UFW default deny inbound allows 22 and 443. **UFW does not reliably filter Docker-published ports**: FP-003B publishes **only Caddy TCP/443**; database, API, Web, Docker socket and other services remain un-published. No custom Docker firewall chains in FP-003B. Check external IPv4 and IPv6 listeners.
+
+GitHub Actions publishes reviewed images to GHCR and deploys STAGING automatically **only after an Owner merge to protected `development` and successful CI**, following an Owner-approved one-time setup/go-live. PR/fork workflows never access SSH deploy secrets. Use a dedicated deploy key and SSH known-host pinning; do not use Owner's personal key. **Docker group / unrestricted Compose access is effectively root**: the deploy account must be restricted or its high privilege separately accepted by the Owner. Secrets reside off-repository; no self-hosted runner is authorized here. Failure/rollback must not destroy or automatically restore DB data. See [FP-003B spec](tasks/FP-003B-operational-dashboard.md).
+
 ## Production Access
-AI agents do not receive autonomous production SSH/deploy authority. Production actions remain human-controlled.
+AI agents do not receive autonomous production SSH/deploy authority. **Automatic public STAGING deployment is not later live production deployment.** The human Owner controls initial staging activation, all PR merges, production credentials and any future actual production deployment.

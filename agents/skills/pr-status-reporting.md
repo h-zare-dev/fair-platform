@@ -28,4 +28,5 @@ After each QA/retest cycle, post results and exactly one status line:
 - Green CI does not imply Review PASS or QA PASS.
 - Review PASS does not imply QA PASS.
 - QA PASS does not authorize merge by itself.
-- Human approval is always required for merge to `development`.
+- **Only the human Owner** may mark a PR Ready or execute Merge; no agent/assistant is permitted to do so even with general approval.
+- A staging deployment result is separate from Review/QA/CI and from production/live webhook or financial activation.

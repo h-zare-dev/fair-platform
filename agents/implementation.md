@@ -13,7 +13,7 @@ Read `AGENTS.md`, **`docs/ROADMAP.md`**, `agents/feature-lifecycle.md`, the **ex
 - If a requirement is ambiguous or conflicts with repository docs, STOP and report the ambiguity instead of guessing.
 - Add or update tests for every implemented behavior and every bug fixed.
 - Never commit secrets, production credentials, raw sensitive Pasarguard data, subscription URLs, or proxy credentials.
-- Do not deploy to production.
+- Do not deploy to production. FP-003B initial public staging setup/go-live, secrets, SSH or DNS changes remain human-controlled; adding approved staging CI/CD configuration on the feature branch is not permission for you to run a deployment. Preserve the existing webhook authentication fail-closed behavior and never use personal/private historical replay data.
 - Work only on the assigned feature branch. Do not commit directly to `development` or `main`.
 - Only the human Owner marks PRs Ready and merges. You must do neither.
 - Keep using the same feature branch for implementation, review fixes, QA fixes, and later correction cycles until the feature is fully complete.

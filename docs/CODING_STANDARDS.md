@@ -42,8 +42,14 @@ Do not hard-code the correlation window. Read the Owner-configured setting with 
 ## Errors
 Differentiate technical processing success from business resolution. Ambiguous financial state creates explicit exceptions.
 
+## FP-003B public Owner runtime and delivery
+- Keep a separate Owner-only NestJS/Fastify runtime/module from the FP-001 production webhook bootstrap; **never** remove the existing fail-closed webhook guard or enable unauthenticated development bypass on staging.
+- Reuse existing TypeORM/PostgreSQL infrastructure and explicit migrations for Owner/session records; do not put application SQL or authentication in Next.js client components. Only auth/session writes are in scope; no new financial posting or ingestion business mutation.
+- All Owner data API outputs use fixed allowlists, bounded filter/page sizes, cursor pagination and decimal-string BIGINT fields. Distinguish `source_enqueued_at`, `received_at` and persisted-row creation timestamps.
+- Docker: use multi-stage production images, non-root runtime where feasible, immutable image digests, safe health endpoints and no internal published ports. Only Caddy TCP/443 is mapped; SSH 22 is Host OpenSSH, not a Docker service. CI deploy is protected-branch staging-only and never runs for PRs.
+
 ## Logging
-Structured logs; never log secrets, sensitive webhook fields, subscription URLs, proxy credentials, passwords, or tokens.
+Structured logs; never log secrets, sensitive webhook fields, subscription URLs, proxy credentials, passwords, session cookies/IDs, or tokens.
 
 ## Comments
 Explain non-obvious invariants and reasons, not line-by-line mechanics.

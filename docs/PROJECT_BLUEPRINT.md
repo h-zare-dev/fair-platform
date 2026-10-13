@@ -33,7 +33,12 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 - Report resend, regenerate, and revisions.
 - Shadow-mode comparison with Pasarjew before cutover.
 
-## Roadmap
+## Current phased roadmap
+
+The **authoritative feature sequence, status and release gates** are maintained in [`ROADMAP.md`](ROADMAP.md). As of 2026-10-13: FP-001/FP-001B ingestion, FP-002 immutable SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B temporary Owner-only operational dashboard (design pending)**. Subsequent stages: FP-004 pricing, FP-005 first user-create SHADOW accounting, FP-006 existing-user baselines/update accounting, FP-007 automatic/manual reset and renewal/Next Plan correlation. Each needs its own Owner-approved detailed task specification.
+
+FP-003B is **not** the full v1.0 Owner accounting UI. It cannot reuse FP-003A's disposable database as a persistent source. `packages/pricing` is still a placeholder; FP-002 does not classify events or post live charges. See [FP-003B design brief](tasks/FP-003B-operational-dashboard.md).
+
 ### v1.1+
 - Pasarguard state reconciliation and integrity tooling.
 - Pasarguard-admin login and admin-facing dashboard/report history/preferences.

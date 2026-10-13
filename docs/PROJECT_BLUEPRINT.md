@@ -35,9 +35,9 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 
 ## Current phased roadmap
 
-The **authoritative feature sequence, status and release gates** are maintained in [`ROADMAP.md`](ROADMAP.md). As of 2026-10-13: FP-001/FP-001B ingestion, FP-002 immutable SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B temporary Owner-only operational dashboard (design pending)**. Subsequent stages: FP-004 pricing, FP-005 first user-create SHADOW accounting, FP-006 existing-user baselines/update accounting, FP-007 automatic/manual reset and renewal/Next Plan correlation. Each needs its own Owner-approved detailed task specification.
+The **authoritative feature sequence, status and release gates** are maintained in [`ROADMAP.md`](ROADMAP.md). As of 2026-10-13: FP-001/FP-001B ingestion, FP-002 immutable SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B public HTTPS Owner-only operational dashboard with full staging CI/CD (spec pending Owner approval)**. Subsequent stages: FP-004 pricing, FP-005 first user-create SHADOW accounting, FP-006 existing-user baselines/update accounting, FP-007 automatic/manual reset and renewal/Next Plan correlation. Each needs its own Owner-approved detailed task specification.
 
-FP-003B is **not** the full v1.0 Owner accounting UI. It cannot reuse FP-003A's disposable database as a persistent source. `packages/pricing` is still a placeholder; FP-002 does not classify events or post live charges. See [FP-003B design brief](tasks/FP-003B-operational-dashboard.md).
+FP-003B is **not** the full v1.0 Owner accounting UI. It cannot reuse FP-003A's disposable database as a persistent source. `packages/pricing` is still a placeholder; FP-002 does not classify events or post live charges. See the [FP-003B detailed proposal](tasks/FP-003B-operational-dashboard.md) and [staging runbook](deployment/FP-003B-staging-runbook.md).
 
 ### v1.1+
 - Pasarguard state reconciliation and integrity tooling.
@@ -60,7 +60,9 @@ Receives reports according to billing ownership. No self-service settings in v1.
 Node.js 24 LTS, TypeScript, NestJS 12, Next.js 16, TypeORM, PostgreSQL 17, Redis only for ephemeral concerns, pnpm, Zod, Vitest, Testcontainers, Supertest, Stryker, Docker/Compose, GitHub Actions, Prometheus/Grafana.
 
 ## Deployment
-v1.0 runs on the same VPS as Pasarguard in an isolated Docker stack with a separate PostgreSQL database. Fair never reads or writes Pasarguard database tables directly. HAProxy routing is reviewed before production deployment.
+**Next, FP-003B STAGING** is an independently isolated public Docker deployment on a *separate* VPS at `https://panel.fairisfair.ir`: Caddy HTTPS/TLS-ALPN-01 via Cloudflare DNS-only, Owner-authenticated Next.js/NestJS API, PostgreSQL 17 with synthetic-only persistent data, and GitHub Actions→GHCR→SSH post-merge auto-delivery. Public ingress TCP/443 and key-only SSH TCP/22; internal services publish no ports. A one-time Owner bootstrap CLI creates the sole account; no public registration. No Pasarguard production integration or live billing. This plan requires Owner-approved implementation and first-deploy enablement.
+
+**Later v1.0 production** remains separately planned for an isolated stack on/near the Pasarguard VPS, with separate PostgreSQL and HAProxy routing review. Fair never reads or writes Pasarguard database tables directly. It is not activated by FP-003B.
 
 ## Shadow Mode
 Fair and Pasarjew run side-by-side for at least 7–14 days and longer if needed. Compare events, accounting totals, traffic, money, admin totals, reports, and exceptions. Historical Pasarjew financial data is not migrated into the Fair ledger.

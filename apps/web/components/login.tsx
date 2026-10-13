@@ -1,6 +1,8 @@
 'use client';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 export function Login() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -18,7 +20,14 @@ export function Login() {
         signal: AbortSignal.timeout(10000),
       });
       form.reset();
-      if (r.ok) {
+      const result: unknown = await r.json();
+      if (
+        r.ok &&
+        typeof result === 'object' &&
+        result !== null &&
+        'authenticated' in result &&
+        result.authenticated === true
+      ) {
         window.location.assign('/dashboard');
         return;
       }
@@ -37,6 +46,8 @@ export function Login() {
   }
   return (
     <form
+      method="post"
+      action="/api/v1/owner/auth/login"
       onSubmit={(e) => {
         void submit(e);
       }}
@@ -49,11 +60,12 @@ export function Login() {
         autoComplete="current-password"
         maxLength={1024}
         required
-        disabled={busy}
+        disabled={!ready || busy}
       />
-      <button type="submit" disabled={busy}>
-        {busy ? 'Signing in…' : 'Sign in →'}
+      <button type="submit" disabled={!ready || busy}>
+        {!ready ? 'Preparing sign in…' : busy ? 'Signing in…' : 'Sign in →'}
       </button>
+      <p hidden={ready}>JavaScript is required for secure sign in.</p>
       <p role="alert" className="error">
         {error}
       </p>

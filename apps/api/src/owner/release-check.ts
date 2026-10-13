@@ -16,6 +16,14 @@ async function main() {
       'PasarguardInbox1790000000000',
       'OwnerDashboard1791000000000',
     ];
+    const configuredMigrations = db.migrations
+      .map((m) => m.name ?? m.constructor.name)
+      .sort();
+    if (
+      configuredMigrations.length !== approved.length ||
+      configuredMigrations.some((name) => !approved.includes(name))
+    )
+      throw new Error('UNAPPROVED_MIGRATIONS');
     if (rows.some((r) => !approved.includes(r.name)))
       throw new Error('UNKNOWN_SCHEMA');
     const files = [
@@ -31,6 +39,7 @@ async function main() {
       JSON.stringify({
         schema: 'fp003b-v1',
         migrations: rows.map((r) => r.name),
+        configuredMigrations,
         hashes,
       }),
     );

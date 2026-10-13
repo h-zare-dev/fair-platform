@@ -28,7 +28,7 @@ class Commands:
     def compose(self, env, *args, capture=False):
         self.calls.append(args)
         if 'dist/owner/release-check.js' in args:
-            return json.dumps({'schema': release.SCHEMA, 'hashes': {'approved': 'hash' if self.failure != 'compatibility' else 'changed'}})
+            return json.dumps({'schema': release.SCHEMA, 'configuredMigrations': ['approved', 'new-unreviewed'] if self.failure == 'pending-migration' else ['approved'], 'migrations':['approved'], 'hashes': {'approved': 'hash' if self.failure != 'compatibility' else 'changed'}})
         if self.failure == 'migration' and args == ('run', '--rm', '-T', 'migrate'):
             raise release.ReleaseError('COMMAND_FAILED')
         if self.failure in ['health', 'rollback'] and args[0] == 'up':
@@ -52,7 +52,7 @@ class ReleaseTests(unittest.TestCase):
         (self.root/'current.json').write_text(json.dumps(self.previous))
         (self.root/'current.env').write_text('known-good')
         (self.settings/'activation.json').write_text(json.dumps({'approval': 'owner-approved-v1', 'schema':release.SCHEMA, 'acmeEmail':'operator@example.invalid','secretsDir':'/etc/fair-staging/secrets'}))
-        (self.settings/'compatible-migrations.json').write_text(json.dumps({'hashes':{'approved':'hash'}}))
+        (self.settings/'compatible-migrations.json').write_text(json.dumps({'configuredMigrations':['approved'],'hashes':{'approved':'hash'}}))
         (self.settings/'restore-verified.json').write_text(json.dumps({'verifiedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}))
 
     def manifest(self, sha):
@@ -88,6 +88,10 @@ class ReleaseTests(unittest.TestCase):
 
     def test_incompatible_migrations_stop_before_backup(self):
         with self.assertRaisesRegex(release.ReleaseError,'MIGRATION_COMPATIBILITY_UNPROVEN'): self.deploy('compatibility')
+        self.assertFalse(any('backup-with-settings.sh' in str(c) for c in self.commands.calls))
+
+    def test_unapproved_pending_migration_stops_even_when_prior_file_hashes_match(self):
+        with self.assertRaisesRegex(release.ReleaseError,'MIGRATION_COMPATIBILITY_UNPROVEN'): self.deploy('pending-migration')
         self.assertFalse(any('backup-with-settings.sh' in str(c) for c in self.commands.calls))
 
     def test_failed_migration_does_not_rollback_or_launch_app(self):

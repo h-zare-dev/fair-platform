@@ -15,11 +15,15 @@ export async function ownerSession(): Promise<
         signal: AbortSignal.timeout(5000),
       },
     );
-    return response.ok
+    const result: unknown = await response.json();
+    if (response.status === 401) return 'anonymous';
+    return response.ok &&
+      typeof result === 'object' &&
+      result !== null &&
+      'authenticated' in result &&
+      result.authenticated === true
       ? 'authenticated'
-      : response.status === 401
-        ? 'anonymous'
-        : 'unavailable';
+      : 'unavailable';
   } catch {
     return 'unavailable';
   }

@@ -51,6 +51,11 @@ def atomic(path, content):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(name, path)
+        directory = os.open(path.parent, os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         if os.path.exists(name):
             os.unlink(name)
@@ -111,7 +116,10 @@ def deploy(root, settings_dir, release, commands):
             raise ReleaseError('IMAGE_PROVENANCE_MISMATCH')
     compatibility = json.loads(commands.compose(env, 'run', '--rm', '-T', 'migrate', 'node', 'dist/owner/release-check.js', capture=True))
     approved = json.loads((settings_dir / 'compatible-migrations.json').read_text())
-    if compatibility.get('schema') != SCHEMA or compatibility.get('hashes') != approved.get('hashes'):
+    configured = compatibility.get('configuredMigrations')
+    if (compatibility.get('schema') != SCHEMA or compatibility.get('hashes') != approved.get('hashes')
+            or not isinstance(configured, list) or configured != approved.get('configuredMigrations')
+            or any(name not in configured for name in compatibility.get('migrations', []))):
         raise ReleaseError('MIGRATION_COMPATIBILITY_UNPROVEN')
     # Back up off-host before ALL migrations. Backup failure stops before database changes.
     commands.run([str(root / 'tooling' / 'backup-with-settings.sh')])
@@ -159,7 +167,9 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ReleaseError('DEPLOYMENT_BUSY') from None
-        print(deploy(ROOT, SETTINGS, release, Commands(ROOT)))
+        result = deploy(ROOT, SETTINGS, release, Commands(ROOT))
+        print('STAGING_SMOKE_OK')
+        print(result)
 
 
 if __name__ == '__main__':

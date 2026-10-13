@@ -320,8 +320,8 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.STAGING_DEPLOY_KNOWN_HOSTS }}
         run: bash scripts/staging/ci-ssh.sh
       - name: Release evidence
-        if: success()
-        run: cat release.json >> "$GITHUB_STEP_SUMMARY"
+        if: always()
+        run: if [ -f release.json ]; then cat release.json >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Sanitized failure alert
         if: failure()
         run: echo 'STAGING_DEPLOY_FAILED — Owner intervention may be required. See restricted host diagnostics.' >> "$GITHUB_STEP_SUMMARY"

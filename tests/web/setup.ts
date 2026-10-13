@@ -56,6 +56,7 @@ export default async function setup() {
     .withExposedPorts({ container: 443, host: 443 })
     .withWaitStrategy(Wait.forListeningPorts())
     .start();
+  process.env.UI_DATABASE_URL = postgres.getConnectionUri();
   process.env.UI_API_CONTAINER = api.getId();
   process.env.UI_CADDY_CONTAINER = caddy.getId();
 

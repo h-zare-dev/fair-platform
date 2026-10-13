@@ -1,8 +1,13 @@
+import { createOwnerDataSource } from '../../apps/api/dist/owner/infrastructure/database.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { connect } from 'node:tls';
 import { test, expect } from '@playwright/test';
 const docker = promisify(execFile);
+// Chromium debounces Linux interface notifications for 2s. Disposable Docker
+// network creation/restarts must settle before navigation; never retry app errors.
+const settleLocalNetwork = () =>
+  new Promise((resolve) => setTimeout(resolve, 2500));
 // Only the disposable loopback Caddy's internal test CA is untrusted.
 function certificate(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,7 +29,22 @@ function certificate(): Promise<string> {
     socket.on('error', reject);
   });
 }
-test.beforeEach(async ({ context }) => {
+test.beforeEach(async ({ context, page }) => {
+  const db = createOwnerDataSource(process.env.UI_DATABASE_URL!);
+  await db.initialize();
+  try {
+    await db.query('TRUNCATE fair_owner_login_budget');
+  } finally {
+    await db.destroy();
+  }
+  page.on('requestfailed', (r) =>
+    console.info(
+      'LOCAL_REQUEST_FAILED',
+      new URL(r.url()).pathname,
+      r.failure()?.errorText,
+    ),
+  );
+  await settleLocalNetwork();
   // Intercept every browser request; never contact real public DNS or staging.
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url());
@@ -122,6 +142,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
       { timeout: 10000 },
     )
     .toBe(cert);
+  await settleLocalNetwork();
   await page.reload();
   await expect(
     page.getByRole('heading', { name: 'Operations', exact: true }),
@@ -150,7 +171,16 @@ test('wrong password and failed operations show safe errors, never zero substitu
   await page
     .getByLabel('Owner password')
     .fill('synthetic-browser-test-password');
+  const submitted = page.waitForResponse((r) =>
+    r.url().endsWith('/api/v1/owner/auth/login'),
+  );
   await page.getByRole('button', { name: 'Sign in →' }).click();
+  const response = await submitted;
+  expect(
+    response.status(),
+    `origin=${response.request().headers()['origin'] ?? 'absent'}`,
+  ).toBe(201);
+
   await expect(
     page.getByRole('heading', { name: 'Operations', exact: true }),
   ).toBeVisible();
@@ -167,4 +197,33 @@ test('wrong password and failed operations show safe errors, never zero substitu
     'Counts could not be loaded',
   );
   await expect(page.locator('.kpi .number').first()).toHaveText('—');
+});
+
+test('server-rendered login cannot submit a password through a GET URL before hydration', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    javaScriptEnabled: false,
+    ignoreHTTPSErrors: true,
+  });
+  try {
+    await context.route('**/*', async (route) => {
+      if (
+        new URL(route.request().url()).origin !== 'https://panel.fairisfair.ir'
+      )
+        await route.abort();
+      else await route.continue();
+    });
+    const page = await context.newPage();
+    await page.goto('https://panel.fairisfair.ir/login');
+    await expect(page.getByLabel('Owner password')).toBeDisabled();
+    await expect(page.getByRole('button')).toBeDisabled();
+    await expect(page.locator('form')).toHaveAttribute('method', 'post');
+    await expect(
+      page.getByText('JavaScript is required for secure sign in.'),
+    ).toBeVisible();
+    expect(new URL(page.url()).search).toBe('');
+  } finally {
+    await context.close();
+  }
 });

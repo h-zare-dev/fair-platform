@@ -1,5 +1,7 @@
 # FP-003A implementation plan and operator guide
 
+> **Historical implementation guide.** FP-003A has merged (PR #31); FP-001B (PR #32) later updated the valid nullable-Actor rule. Consult [`ROADMAP.md`](../ROADMAP.md) for current work: FP-003B is next but its detailed implementation spec is not yet Owner-approved.
+
 The approved [specification](FP-003A-historical-replay.md) governs this offline verification tool. The runner uses synthetic fixtures in development and CI. The Owner runs private historical files separately after independent Review and QA.
 
 ## Implementation plan

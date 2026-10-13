@@ -2,7 +2,7 @@
 
 Fair Platform is a production-focused modular platform for Pasarguard accounting, pricing, reporting, automation, and future sales services.
 
-> Status: early development. FP-001 implements durable Pasarguard ingestion and normalization. Production webhook activation remains blocked pending verified authentication and deployed-source evidence.
+> Status: development. FP-001/FP-001B ingestion, FP-002 SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B temporary Owner operational dashboard — design pending.** Pricing and financial classification are not yet implemented; live webhook authentication/activation remains separately gated.
 
 ## Technology
 - Node.js 24 LTS
@@ -71,6 +71,8 @@ pnpm build
 
 ## Documentation
 Start with `AGENTS.md`, then read:
+- **[`docs/ROADMAP.md`](docs/ROADMAP.md) — canonical roadmap, current statuses and Owner-only merge gates.**
+- [`docs/tasks/FP-003B-operational-dashboard.md`](docs/tasks/FP-003B-operational-dashboard.md) — next stage's **unapproved design brief**.
 - `docs/PROJECT_BLUEPRINT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DOMAIN_RULES.md`

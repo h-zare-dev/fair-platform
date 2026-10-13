@@ -2,6 +2,8 @@
 
 Every feature is developed on a dedicated feature branch created from `development`.
 
+Read `docs/ROADMAP.md` first: confirm the **next** feature and its **explicitly Owner-approved detailed implementation specification**. A draft design is not approval. FP-003B is next (pending design approval); do not skip to FP-007.
+
 ## Branch flow
 
 `main` -> `development` -> `feature/<task>`
@@ -22,11 +24,10 @@ A feature branch must not be merged into `development` until the full implementa
 10. QA Agent retests. Repeat until QA is PASS.
 11. If a QA-driven fix materially changes production code, Review Agent performs a targeted re-review of the affected code. Review must return to PASS.
 12. The PR stays Draft until all merge gates are satisfied.
-13. When `REVIEW_STATUS=PASS`, `QA_STATUS=PASS`, and CI is green, the PR may be marked Ready for Review.
-14. Human approval is required before merge.
-15. Only then may the feature branch be merged into `development`.
-16. After merge, perform integration/operational testing on `development`.
-17. Promotion from `development` to `main` is a separate PR and requires its own final verification and human approval.
+13. After Review PASS, QA PASS, CI green and applicable private acceptance, report readiness **to the Owner**. Keep the PR Draft.
+14. **Only the human Owner** marks a PR Ready and executes Merge personally; an assistant/agent never performs either transition, even on generic approval to finish.
+15. After Owner merge, verify post-merge `quality` on the actual `development` push. Investigate any failures before promotion.
+16. `development` -> `main` is a separate Owner-controlled PR/release.
 
 ## Status protocol
 
@@ -56,4 +57,4 @@ Merge to `development` is forbidden unless all are true:
 - no unresolved QA failures
 - human approval is present
 
-Agents must never merge a feature PR unless the human explicitly instructs them to do so.
+**Only the human Owner may mark PRs Ready or Merge. Agents and assistants never perform these transitions.**

@@ -4,7 +4,7 @@
 Implement only the approved task specification on the assigned feature branch. The architecture and business rules are owned by the human team and the authoritative repository documents.
 
 ## Required reading
-Read `AGENTS.md`, `agents/feature-lifecycle.md`, the approved task spec, and every document it references before editing code.
+Read `AGENTS.md`, **`docs/ROADMAP.md`**, `agents/feature-lifecycle.md`, the **explicitly Owner-approved detailed task spec**, and its references before editing code. A design draft alone is not authorization.
 
 ## Rules
 - Do not invent or change architecture, accounting semantics, pricing rules, security policy, or persistence strategy.
@@ -15,7 +15,7 @@ Read `AGENTS.md`, `agents/feature-lifecycle.md`, the approved task spec, and eve
 - Never commit secrets, production credentials, raw sensitive Pasarguard data, subscription URLs, or proxy credentials.
 - Do not deploy to production.
 - Work only on the assigned feature branch. Do not commit directly to `development` or `main`.
-- Do not merge the feature PR. Merge is human-controlled.
+- Only the human Owner marks PRs Ready and merges. You must do neither.
 - Keep using the same feature branch for implementation, review fixes, QA fixes, and later correction cycles until the feature is fully complete.
 
 ## Workflow
@@ -30,7 +30,7 @@ Read `AGENTS.md`, `agents/feature-lifecycle.md`, the approved task spec, and eve
 9. If QA Agent reports `QA_STATUS: FAIL`, fix the reproduced failures and push new commits to the same feature branch.
 10. After any substantial QA-driven production-code change, expect targeted re-review.
 11. Repeat implementation/fix cycles until Review is PASS, QA is PASS, and CI is green.
-12. Never mark the PR ready or merge it unless the human explicitly instructs that action after all gates pass.
+12. Report all gates to the Owner; **never** mark Ready or merge the PR yourself.
 
 ## Completion report
 Report: files added/changed, migrations, tests, commands run, results, known limitations, and any unresolved human decision. Do not claim completion while required checks are failing.

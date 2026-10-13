@@ -12,6 +12,8 @@ Never log Pasarguard API tokens, Telegram bot tokens, webhook secrets, session s
 ## Authentication
 Owner authentication uses strong password hashing (Argon2id direction), server-side sessions, Secure/HttpOnly/SameSite cookies, CSRF protection where relevant, rate limiting, session rotation, and audit logging. Do not store JWTs in localStorage.
 
+The proposed FP-003B temporary dashboard needs explicit Owner approval of the access channel (private tunnel/network versus protected HTTPS), session/bootstrap implementation and isolated persistent safe source. These security requirements are **not proof that authentication is implemented**. Every read API must enforce Owner authorization, bounded allowlisted responses and private-data redaction; read-only access by itself is not secure.
+
 ## Bootstrap
 The first Owner is created through a one-time bootstrap/CLI flow. Permanent Owner passwords do not live in `.env`.
 

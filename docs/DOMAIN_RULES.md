@@ -13,11 +13,13 @@ This document is the authoritative source for v1.0 business/accounting semantics
 - Store integer Toman amounts as `BIGINT`-compatible values.
 - Never use floating point for money.
 - No Rial or multi-currency in v1.0.
+- Use exact integer/rational arithmetic. A **final** non-integral Toman outcome needs a separately Owner-approved rounding rule in FP-004; do not silently choose a rounding mode or use floating-point money.
 
 ## Traffic
 - Canonical normalized unit: bytes (`BIGINT`).
 - Preserve Pasarguard raw values without rounding in integration data.
 - UI/report presentation may format GB/TB.
+- FP-002's currently approved billing/display basis is **1 GiB = 1,073,741,824 bytes**. Quantities may be fractional GiB; preserve integer bytes without whole-GiB rounding. This supersedes an earlier decimal-GB proposal.
 
 ## Pricing Modes
 ### Per-GB
@@ -76,8 +78,12 @@ Do not represent these as separate charge/refund transactions.
 ## Automatic Reset Strategy
 Configuring `data_limit_reset_strategy` does not itself create a charge. When the automatic reset actually occurs, charge the full resulting/current package.
 
+A real monthly/automatic reset may have missing/null human Actor identity. Actor absence alone must not discard a valid event or force individual manual approval; the Billing Admin remains the debtor. Actual operation, final package, correlation, pricing and financial idempotency still must be verified.
+
 ## Next Plan
 Defining a Next Plan does not create a charge. When Next Plan actually activates and Pasarguard applies/reset to the resulting plan, charge that resulting package.
+
+Do not infer activation or resulting-package values from unverified non-null `next_plan` fields or an action label alone. Verified normal activations should be charged automatically without per-event Owner approval.
 
 ## Delete
 No refund in v1.0. Preserve an audit event with financial effect `0`.

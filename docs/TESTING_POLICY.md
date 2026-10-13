@@ -3,6 +3,8 @@
 ## Principles
 Financial correctness is more important than coverage vanity metrics. Tests must target invariants, boundaries, failure recovery, retries, and historical regressions.
 
+Follow [`ROADMAP.md`](ROADMAP.md): accepted offline FP-003A/FP-001B historical replay shows normalization/reproducibility, **not** live HTTP auth/delivery, pricing, financial posting or Next Plan activation. FP-003B's future Owner-approved tests must cover authorization denial, bounded safe responses, isolated persistent non-production source, pagination/time windows, empty/error states and secret leakage.
+
 ## Unit Tests
 Required for pure domain logic, especially Accounting, Pricing, Calendar, and Correlation.
 

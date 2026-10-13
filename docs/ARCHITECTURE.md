@@ -13,6 +13,8 @@ Fair Platform starts as a **modular monolith with separate runtime processes**. 
 
 Domain packages remain pure TypeScript and must not depend on NestJS, TypeORM, PostgreSQL, Redis, Telegram, or HTTP.
 
+Feature order and authorization are documented in [`ROADMAP.md`](ROADMAP.md). FP-001/001B ingestion, FP-002 SHADOW ledger and FP-003A offline replay are distinct; the next FP-003B is a design-pending Owner-only read-only interface, **not** a financial classifier.
+
 ## Source of Truth
 PostgreSQL is authoritative for all critical state: normalized events, accounting transactions, pricing, report state, delivery obligations, settings, and exceptions.
 
@@ -54,6 +56,8 @@ Guarantee is **at-least-once ingestion + idempotent financial processing**, not 
 
 ## Event Model
 Fair uses auditable event ingestion and an immutable financial ledger; it is **not full Event Sourcing**. The complete application state is not reconstructed by replaying all events.
+
+The FP-003A offline replay's PostgreSQL Testcontainers database is **disposable** and removed. It cannot be the persistent FP-003B dashboard source. An FP-003B instance needs a separately Owner-approved, persistent, isolated non-production Fair source. No direct Pasarguard/Pasarjew database access or exposure of Owner private replay data.
 
 ## Correlation
 Correlation uses stable user identity, source event timestamps, relevant state changes, and a configurable time window. Default correlation window is 120 seconds, stored in Owner settings and never hard-coded. Changing it affects future correlation behavior only unless an explicit reprocessing workflow is invoked.

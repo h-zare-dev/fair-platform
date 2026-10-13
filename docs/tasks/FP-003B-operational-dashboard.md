@@ -1,6 +1,6 @@
 # FP-003B — Public HTTPS Staging Owner Dashboard and Automatic Delivery
 
-**Status:** DRAFT IMPLEMENTATION SPECIFICATION — prepared for human Owner review, **not yet approved for Implementation or server changes**. This proposal supersedes the original *private-access design brief*, not the canonical financial/domain rules. See [ROADMAP](../ROADMAP.md), [ADR 0015](../adr/0015-public-https-staging-and-controlled-delivery.md), and [staging operations](../deployment/FP-003B-staging-runbook.md).
+**Status:** IMPLEMENTATION APPROVED by explicit human Owner instruction on 2026-10-14. First staging deployment/setup/activation approval remains PENDING; no server changes are authorized. This proposal supersedes the original *private-access design brief*, not the canonical financial/domain rules. See [ROADMAP](../ROADMAP.md), [ADR 0015](../adr/0015-public-https-staging-and-controlled-delivery.md), and [staging operations](../deployment/FP-003B-staging-runbook.md).
 
 **Target:** one public-facing, production-like **STAGING** website at **https://panel.fairisfair.ir**, serving a single authenticated Owner from desktop and mobile. The UI/API operate on safe persistent synthetic Fair data; the service is **not** connected to production Pasarguard or Pasarjew and **does not post financial charges**. Staging delivery becomes automatic *after the Owner's one-time staging enablement* and after the Owner merges approved code to `development`.
 
@@ -159,4 +159,4 @@ Human-operated **one-time prerequisites**: actual VPS provider/IP and whether IP
 
 **STOP/escalate** if real constraints demand opening TCP/80, introducing Cloudflare proxy, exposing a database port, bypassing webhook authentication, installing a privileged runner, making destructive migrations or changing the Owner-only merge policy. Such changes require the Owner's explicit new design approval.
 
-**Spec gate:** DRAFT until Owner accepts its implementation details separately; documentation PR merge alone does not imply production activation, billing activation or agent implementation authorization.
+**Spec gate:** Implementation is authorized by the Owner’s explicit 2026-10-14 instruction. First staging activation, infrastructure changes, production activation and billing activation remain separately gated.

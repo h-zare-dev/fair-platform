@@ -25,6 +25,7 @@ const text = (max: number) =>
     .max(max)
     .refine((value) => !value.includes('\u0000'));
 const admin = z.object({ id: integer, username: text(255) });
+const actor = z.object({ id: integer.nullable(), username: text(255) });
 const sourceTime = z
   .number()
   .finite()
@@ -44,7 +45,7 @@ const schema = z.object({
     data_limit_reset_strategy: text(64).nullish(),
     next_plan: z.unknown().optional(),
   }),
-  by: admin.nullish(),
+  by: actor.nullish(),
 });
 export type IssueCode =
   | 'INVALID_EVENT'
@@ -188,7 +189,7 @@ export function normalize(
       lifetime_used_bytes: String(user.lifetime_used_traffic),
       billing_admin_id: String(user.admin.id),
       billing_admin_username: user.admin.username,
-      actor_admin_id: input.by ? String(input.by.id) : null,
+      actor_admin_id: input.by?.id == null ? null : String(input.by.id),
       actor_admin_username: input.by?.username ?? null,
       source_enqueued_at: sourceTimestamp(input.enqueued_at),
       source_send_at:

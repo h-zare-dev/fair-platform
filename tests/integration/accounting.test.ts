@@ -550,3 +550,37 @@ it('FP-001 normalizes and deduplicates after accounting migrations without creat
       .occurrence_count,
   ).toBeGreaterThan(1);
 });
+
+it('FP-001B normalization never posts money or accounting exceptions for nullable Actor resets/deletes', async () => {
+  const before = await count('accounting_transactions');
+  const exceptions = await count('accounting_exceptions');
+  const reset: Record<string, unknown> = {
+    ...fixture(),
+    action: 'data_usage_reset',
+    by: { id: null, username: 'synthetic-actor' },
+  };
+  (reset.user as Record<string, unknown>).id = 99123;
+  (reset.user as Record<string, unknown>).data_limit_reset_strategy = 'month';
+  const inbox = new DurableInbox(
+    ingestion,
+    encryption,
+    configFor(container.getConnectionUri()),
+  );
+  const payload = [reset, { ...reset, action: 'user_deleted' }];
+  await inbox.receive(payload);
+  await inbox.receive(payload);
+  await new BatchProcessor(ingestion, encryption, 3).processNext();
+  const rows = await ingestion
+    .getRepository(EventEntity)
+    .findBy({ external_user_id: '99123' });
+  expect(rows).toHaveLength(2);
+  expect(
+    rows.every(
+      (row) =>
+        row.actor_admin_id === null &&
+        row.event_status === 'READY_FOR_ACCOUNTING',
+    ),
+  ).toBe(true);
+  expect(await count('accounting_transactions')).toBe(before);
+  expect(await count('accounting_exceptions')).toBe(exceptions);
+});

@@ -67,7 +67,7 @@ Processing is designed for at-least-once delivery. Reprocessing the same logical
 Event ordering cannot be assumed. Correlation is scoped to stable user identity, state semantics, and the Owner-configurable correlation window (default 120 seconds). The setting must not be hard-coded.
 
 ## Actor vs Billing Admin
-`by`/actor may differ from `user.admin`. Use Billing Admin for financial ownership and Actor Admin for audit.
+`by`/actor may differ from `user.admin`. Use Billing Admin for financial ownership and Actor Admin for audit. Actor may be missing, null, or an object with an explicit null ID and valid username; preserve null identity and independent username attribution. Missing Actor alone does not require human approval for otherwise valid actual resets. Automatic accounting still requires separately verified reset occurrence, final package, correlation, pricing and financial idempotency; ingestion does not post money.
 
 ## Automatic Reset
 Actual reset events are billable according to Domain Rules; merely configuring reset strategy is not.

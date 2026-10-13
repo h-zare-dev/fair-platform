@@ -91,25 +91,25 @@ describe('offline replay through original FP-001 PostgreSQL 17 inbox and worker'
       batches: 2,
       batchChildren: 8,
       events: 3,
-      eventOccurrences: 4,
-      rejectedChildren: 4,
-      duplicateChildren: 1,
+      eventOccurrences: 5,
+      rejectedChildren: 3,
+      duplicateChildren: 2,
       acceptedWithWarnings: 1,
       batchStatuses: { NORMALIZED: 2 },
     });
     expect(report.first.issues).toEqual({
-      DUPLICATE_EVENT: 1,
-      INVALID_EVENT: 2,
+      DUPLICATE_EVENT: 2,
+      INVALID_EVENT: 1,
       INVALID_SOURCE_TIMESTAMP: 1,
       MISSING_REQUIRED_FIELD: 1,
       UNKNOWN_ACTION: 1,
     });
     expect(report.first.actorNull).toMatchObject({
       storedChildOccurrences: 1,
-      rejected: 1,
-      accepted: 0,
+      rejected: 0,
+      accepted: 1,
       unresolved: 0,
-      issues: { INVALID_EVENT: 1 },
+      issues: { DUPLICATE_EVENT: 1 },
     });
     expect(report.differences).toEqual({
       suppressedChildOccurrences: 7,
@@ -297,10 +297,10 @@ describe('P2: set-based Actor-null PostgreSQL aggregation', () => {
       expect(count).toBeGreaterThan(0);
       expect(first.actorNull).toEqual({
         storedChildOccurrences: 2,
-        rejected: 2,
-        accepted: 0,
+        rejected: 0,
+        accepted: 2,
         unresolved: 0,
-        issues: { INVALID_EVENT: 2 },
+        issues: { DUPLICATE_EVENT: 1 },
       });
       for (const line of [...lines, lines[0]!, lines[15]!])
         await inbox.receive(line.payload);
@@ -310,16 +310,16 @@ describe('P2: set-based Actor-null PostgreSQL aggregation', () => {
       expect(queries.mock.calls.length).toBe(count);
       expect(final.actorNull).toEqual({
         storedChildOccurrences: 40,
-        rejected: 40,
-        accepted: 0,
+        rejected: 0,
+        accepted: 40,
         unresolved: 0,
-        issues: { INVALID_EVENT: 40 },
+        issues: { DUPLICATE_EVENT: 39 },
       });
       expect(large.actorNull).toBe(42);
       expect(final.batches).toBe(40);
       expect(final.events).toBe(1);
-      expect(final.duplicateChildren).toBe(39);
-      expect(final.eventOccurrences).toBe(40);
+      expect(final.duplicateChildren).toBe(79);
+      expect(final.eventOccurrences).toBe(80);
       queries.mockClear();
       expect(await snapshot(database, large)).toEqual(final);
       expect(queries.mock.calls.length).toBe(count);
@@ -345,7 +345,7 @@ describe('P2: set-based Actor-null PostgreSQL aggregation', () => {
       const processor = new BatchProcessor(database, encryption, 3);
       const rejected = {
         ...fixture(),
-        by: { id: null, username: 'synthetic' },
+        by: { id: null, username: '' },
       };
       const accepted = fixture();
       const warned = fixture();
@@ -382,8 +382,7 @@ describe('P2: set-based Actor-null PostgreSQL aggregation', () => {
           issue_message: 'Synthetic batch-only issue',
         },
       ]);
-      // Include accepted positions as synthetic unexpected outcomes: the reporting adapter
-      // must classify them accurately, without making Actor-null valid in normalization.
+      // Include all positions to verify accepted, malformed and pending outcomes.
       const result = await actorNullSnapshot(database, [
         { batch_id: batches[0]!.id, indices: [0, 1, 2] },
         { batch_id: batches[1]!.id, indices: [0, 1, 2] },

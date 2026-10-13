@@ -3,7 +3,13 @@ packages:
   - packages/*
 
 allowBuilds:
+  argon2: true
   cpu-features: false
   esbuild: true
   protobufjs: false
   ssh2: false
+
+# Patched transitive versions required by FP-003B public-facing security gates.
+overrides:
+  source-map-js: ^1.2.2
+  sharp: ^0.35.5

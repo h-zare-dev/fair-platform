@@ -1,8 +1,4 @@
-export default function HomePage() {
-  return (
-    <main>
-      <h1>Fair Platform</h1>
-      <p>Development build</p>
-    </main>
-  );
+import { redirect } from 'next/navigation';
+export default function Home() {
+  redirect('/dashboard');
 }

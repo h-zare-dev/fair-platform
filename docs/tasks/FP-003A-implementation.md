@@ -64,6 +64,16 @@ Actor-null reporting uses one PostgreSQL set-based query over target batch/index
 
 `received_at` is the legacy group's minimum storage timestamp. Receipt and manifest cutoff timestamps accept exactly the UTC suffixes `Z`, `+00`, and `+00:00`, with a real calendar date/time and at most six fractional digits. JavaScript Date truncates sub-millisecond receipt precision for every accepted suffix; `receiptPrecisionTruncated` counts affected input lines. Numeric event source timestamps and array order remain unchanged. Worker processing order follows the existing inbox semantics, independently of event chronology.
 
-Correctly declared nonzero repetition mismatches are analytical findings. Failed or hanging batches, child reconciliation failures, unexpected Actor-null acceptance, and repeat stored-entity changes are operational failures. Repeat issue-count changes are recorded separately rather than assumed equal.
+Correctly declared nonzero repetition mismatches are analytical findings. Failed or hanging batches, child reconciliation failures, unresolved Actor-null outcomes, and repeat stored-entity changes are operational failures. Repeat issue-count changes are recorded separately rather than assumed equal.
 
 The private cutoff, input checksum, manifest notes, paths, identities and payload values are omitted. Counts and action maps remain private analysis results when derived from the Owner's data. Seven-/thirty-day windows validate their own manifests; this tool neither generates exports nor verifies cutoff equality across separate runs. It does not establish pricing, accounting, correlation, financial balances, physical deliveries, or live upstream wire/auth compatibility. No FP-001/FP-002 source, migration, production configuration or live service is modified.
+
+
+## FP-001B compatibility update
+
+The original diagnostic expectation of Actor-object/null-ID rejection is
+superseded by the Owner-approved nullable Actor wire-contract amendment.
+The replay runner still measures accepted, rejected and unresolved outcomes
+from PostgreSQL; valid Actor-null acceptance is no longer an operational failure.
+Malformed Actor objects remain rejected, and unresolved outcomes remain failures.
+No replay input access, financial posting or historical branch change is involved.

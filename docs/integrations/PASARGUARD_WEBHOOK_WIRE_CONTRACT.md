@@ -51,8 +51,8 @@ Evidence: historical, user-provided, production-derived `webhook_events.raw_payl
 | `event.user.expire` | UTC datetime string | Source user expiry time, if required later |
 | `event.user.edit_at` | datetime string or null | Optional source edit time |
 | `event.user.next_plan` | null in inspected records | Map both normalized next-plan columns to null **only for source null/absent**; non-null object requires verified mapping |
-| `event.by` | object or null | Actor metadata, independent of billing admin |
-| `event.by.id` | integer (if object) | Actor admin ID; null when `by` is null |
+| `event.by` | object, null or absent | Optional Actor metadata, independent of Billing Admin |
+| `event.by.id` | integer or explicit null (if object) | Actor admin ID; preserve SQL NULL for explicit null |
 | `event.by.username` | string (if object) | Actor admin username; null when `by` is null |
 | `event.tries` | number | Transport retry metadata; **not** used as business identity |
 
@@ -102,3 +102,34 @@ All files under `tests/fixtures/pasarguard/` created for this contract are **ful
 ## Verification gate
 
 These inputs resolve the FP-001 **local wire-field mapping and test-fixture blocker for observed shapes**. Before real webhook activation, obtain a fresh sanitized capture or checked upstream implementation from the deployed Pasarguard version to confirm singleton/batch HTTP envelopes, authentication, and non-null `next_plan` cases. A mismatch must be escalated as a contract change; Agent must not guess.
+
+## FP-001B nullable Actor amendment
+
+Owner-confirmed private diagnostics established an additional valid structure:
+`by: { id: null, username: "synthetic-actor" }`. The example is synthetic;
+implementation does not access historical datasets. The previous shared Admin
+schema rejected this structure because it required a numeric Actor ID. Automatic
+origin is plausible but is not independently proven by that shape.
+
+Missing or entirely null `by` projects both Actor columns to SQL NULL. An Actor
+object requires both fields: a nonnegative safe numeric integer or explicit null
+`id`, and a valid nonempty username within the existing text limits. Missing
+object fields, invalid non-null IDs and invalid usernames remain invalid children.
+A null ID projects to SQL NULL, never the string `"null"`; a valid username is
+preserved independently. Billing Admin is never substituted for Actor, and User
+and Billing Admin identities retain strict numeric validation.
+
+Ingestion validity, Actor attribution, Billing Admin financial ownership,
+automatic accounting eligibility and monetary posting are separate concerns.
+Missing Actor identity alone does not reject a valid reset or require per-event
+human approval. Real monthly/automatic resets and real Next Plan activation/reset
+are billable under Domain Rules even without a human Actor. A future separately
+verified classifier must establish actual reset occurrence, final package,
+correlation, pricing and financial idempotency before posting. Merely configuring
+reset strategy or Next Plan is not billable. Non-null Next Plan still requires
+verified source mapping and remains NEEDS_REVIEW; activation is never inferred
+from an unverified payload structure.
+
+FP-001B creates no charges or accounting exceptions and authorizes no production
+financial activation. Existing nullable Actor columns fully support this correction;
+no migration is required and historical migrations remain unchanged.

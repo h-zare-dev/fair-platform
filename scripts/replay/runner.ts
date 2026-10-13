@@ -226,7 +226,7 @@ export function reportFor(
     first.eventOccurrences !== first.events + first.duplicateChildren
   )
     failures.push('CHILD_RECONCILIATION_FAILED');
-  if (first.actorNull.accepted || first.actorNull.unresolved)
+  if (first.actorNull.unresolved)
     failures.push('ACTOR_NULL_OUTCOME_DISCREPANCY');
   const totalIssues = (s: Snapshot) =>
     Object.values(s.issues).reduce((sum, count) => sum + count, 0);

@@ -98,7 +98,7 @@ describe('standalone compiled historical replay CLI', () => {
       schema_version: 1,
       status: 'PASS',
       input: { receiptPrecisionTruncated: 1 },
-      first: { events: 0, rejectedChildren: 1, actorNull: { rejected: 1 } },
+      first: { events: 1, rejectedChildren: 0, actorNull: { accepted: 1 } },
       differences: {
         repeatNewEvents: 0,
         repeatNewBatches: 0,

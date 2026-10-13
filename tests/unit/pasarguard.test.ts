@@ -307,3 +307,86 @@ it('FP001-R2: timestamp storage precision does not change numeric fingerprint id
   expect(results.every(Boolean)).toBe(true);
   expect(new Set(results).size).toBe(results.length);
 });
+
+describe('FP-001B independent nullable Actor contract', () => {
+  it.each([
+    [{ id: 502, username: 'synthetic-actor' }, '502', 'synthetic-actor'],
+    [{ id: null, username: 'synthetic-actor' }, null, 'synthetic-actor'],
+    [null, null, null],
+    [undefined, null, null],
+  ])(
+    'accepts Actor shape %# without substituting Billing Admin',
+    (by, id, username) => {
+      const input: Record<string, unknown> = { ...fixture(), by };
+      if (by === undefined) delete input.by;
+      const result = normalize(input, 'primary');
+      expect(result.issues).toEqual([]);
+      expect(result.event).toMatchObject({
+        actor_admin_id: id,
+        actor_admin_username: username,
+        billing_admin_id: '501',
+        event_status: 'READY_FOR_ACCOUNTING',
+      });
+    },
+  );
+  it.each([
+    {},
+    { username: 'synthetic' },
+    { id: null },
+    { id: 502 },
+    { id: null, username: '' },
+    { id: null, username: null },
+    { id: null, username: 'x'.repeat(256) },
+    { id: null, username: 'synthetic\u0000actor' },
+    { id: '502', username: 'synthetic' },
+    { id: 'null', username: 'synthetic' },
+    { id: -1, username: 'synthetic' },
+    { id: 0.5, username: 'synthetic' },
+    { id: Number.MAX_SAFE_INTEGER + 1, username: 'synthetic' },
+    [],
+    'synthetic',
+  ])('rejects malformed Actor %#', (by) => {
+    expect(normalize({ ...fixture(), by }, 'primary').event).toBeNull();
+  });
+  it.each([
+    undefined,
+    null,
+    {},
+    { id: null, username: 'billing' },
+    { id: '501', username: 'billing' },
+    { id: 501 },
+  ])('keeps Billing Admin required and strict %#', (admin) => {
+    const input = fixture();
+    (input.user as Record<string, unknown>).admin = admin;
+    expect(
+      normalize({ ...input, by: { id: null, username: 'actor' } }, 'primary')
+        .event,
+    ).toBeNull();
+  });
+  it.each(['data_usage_reset', 'user_deleted'])(
+    'accepts %s with null Actor ID',
+    (action) => {
+      const input = fixture();
+      (input.user as Record<string, unknown>).data_limit_reset_strategy =
+        'month';
+      const result = normalize(
+        { ...input, action, by: { id: null, username: 'actor' } },
+        'primary',
+      );
+      expect(result.issues).toEqual([]);
+      expect(result.event).toMatchObject({
+        actor_admin_id: null,
+        actor_admin_username: 'actor',
+        reset_strategy: 'month',
+        event_status: 'READY_FOR_ACCOUNTING',
+      });
+      (input.user as Record<string, unknown>).next_plan = { unverified: true };
+      expect(
+        normalize(
+          { ...input, action, by: { id: null, username: 'actor' } },
+          'primary',
+        ).event?.event_status,
+      ).toBe('NEEDS_REVIEW');
+    },
+  );
+});

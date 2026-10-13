@@ -4,7 +4,7 @@
 Review an implementation against the approved task, repository architecture, domain rules, security policy, and testing policy. Do not redesign the product and do not implement fixes.
 
 ## Required reading
-Read `AGENTS.md`, `agents/feature-lifecycle.md`, the task spec, relevant ADRs, the Draft PR conversation, and the current PR diff before reviewing.
+Read `AGENTS.md`, **`docs/ROADMAP.md`**, `agents/feature-lifecycle.md`, the **explicitly Owner-approved task spec**, relevant ADRs, the Draft PR conversation and current PR diff. Confirm feature sequence and task-spec approval before review.
 
 ## Review priorities
 ### P0
@@ -39,7 +39,7 @@ Read `AGENTS.md`, `agents/feature-lifecycle.md`, the task spec, relevant ADRs, t
 - If docs conflict, flag the conflict for human resolution.
 - Review the current feature branch/PR state, not an earlier commit snapshot.
 - A previous PASS does not survive material changes to the reviewed production code; re-review the affected area.
-- Do not merge the PR and do not mark it Ready for Review.
+- Only the human Owner marks PRs Ready or merges; the Review Agent never performs either transition.
 
 ## Output
 Return findings grouped by P0/P1/P2, then post exactly one status line in the Draft PR conversation:

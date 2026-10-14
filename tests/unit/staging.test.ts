@@ -25,6 +25,8 @@ it('CI deploy is gated, PR-safe and pinned; only publish receives package write'
   const deploy = ci.split('  deploy:')[1]!;
   expect(deploy).toContain("github.event_name == 'push'");
   expect(deploy).toContain("github.ref == 'refs/heads/development'");
+  expect(deploy).toContain('POSTGRES: ${{ vars.FP003B_POSTGRES_IMAGE }}');
+  expect(deploy).toContain('Scan operator-selected immutable PostgreSQL image');
   expect(deploy).toContain('environment: staging');
   expect(deploy).toContain('cancel-in-progress: false');
   expect(ci.split('  deploy:')[0]).not.toContain('secrets.STAGING_');

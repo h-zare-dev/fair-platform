@@ -54,18 +54,18 @@ try:
          '-c', 'chown 70:70 /secrets/backup_pgpass && chown 1000:1000 /secrets/admin_database_url /secrets/runtime_database_url /secrets/seed_encryption_key'],
         'SECRET_OWNERSHIP')
     run(compose+['up', '-d', '--wait', 'postgres'], 'POSTGRES_START')
-    run(compose+['run', '--rm', '-T', 'migrate'], 'MIGRATION')
-    proof = json.loads(run(compose+['run', '--rm', '-T', 'migrate', 'node',
+    run(compose+['run', '--rm', '--no-deps', '-T', 'migrate'], 'MIGRATION')
+    proof = json.loads(run(compose+['run', '--rm', '--no-deps', '-T', 'migrate', 'node',
                                    'dist/owner/release-check.js'], 'RELEASE_PROOF').stdout)
     assert proof['schema'] == 'fp003b-v1'
-    assert proof['configuredMigrations'] == ['OwnerDashboard1791000000000', 'PasarguardInbox1790000000000']
+    assert proof['configuredMigrations'] == ['OwnerDashboard1791000000000', 'OwnerGlobalTimeIndexes1791100000000', 'PasarguardInbox1790000000000']
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 2 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == 3 and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
     grants += "\nALTER ROLE fair_backup PASSWORD 'synthetic-backup-test-only';\n"
     run(compose+['exec', '-T', 'postgres', 'psql', '-U', 'fair_migrator', '-d', 'fair_staging',
                  '-v', 'ON_ERROR_STOP=1'], 'GRANTS', grants)
-    run(compose+['run', '--rm', '-T', 'migrate', 'node', 'dist/owner/cli.js', 'seed'], 'SEED')
+    run(compose+['run', '--rm', '--no-deps', '-T', 'migrate', 'node', 'dist/owner/cli.js', 'seed'], 'SEED')
     # Generate a disposable unknown password entirely in process memory, never argv/env/logs.
     bootstrap = """
 import {randomBytes} from 'node:crypto';
@@ -76,7 +76,7 @@ const db=createOwnerDataSource(process.env.DATABASE_URL);await db.initialize();
 await new PostgresOwnerAuth(db).bootstrap(await passwords.hash(randomBytes(32).toString('base64url')));
 await db.destroy();
 """
-    run(compose+['run', '--rm', '-T', 'migrate', 'node', '--input-type=module', '-e', bootstrap],
+    run(compose+['run', '--rm', '--no-deps', '-T', 'migrate', 'node', '--input-type=module', '-e', bootstrap],
         'SYNTHETIC_OWNER')
     identity = root/'identity'
     run(['age-keygen', '-o', str(identity)], 'AGE_KEY')

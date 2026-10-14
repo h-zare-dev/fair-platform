@@ -183,8 +183,10 @@ export class PostgresOwnerOperations implements OperationsReader {
       }>();
     const page = rows.slice(0, f.limit).map((r) => ({
       ...r,
-      code: issueMessages[r.code] ? r.code : 'INGESTION_ISSUE',
-      message: issueMessages[r.code] ?? 'Event requires review',
+      code: Object.hasOwn(issueMessages, r.code) ? r.code : 'INGESTION_ISSUE',
+      message: Object.hasOwn(issueMessages, r.code)
+        ? issueMessages[r.code]!
+        : 'Event requires review',
     }));
     const last = page.at(-1);
     return {

@@ -23,8 +23,8 @@ The UI can be exercised over ordinary public HTTPS and ordinary `development` me
 
 Supersedes earlier private-access staging proposals and Caddy/Cloudflare-proxied alternatives **for FP-003B only**. Retains ADR 0002 (PostgreSQL truth), 0004 (no Pasarguard database coupling), 0011 (TypeORM/migrations), 0013 (later human-controlled financial cutover), 0014 (NestJS/Fastify).
 
-## Owner-approved security build amendment (2026-10-14)
+## Custom-image exception — Owner decision PENDING (OD-01)
 
-The Owner authorized rebuilding pinned Caddy 2.11.7 source with patched Go/x/net after the current official binary failed scanning. The runtime remains based on the pinned official Caddy image; the rebuilt binary is dependency-locked, scanned, tested and released by immutable GHCR digest. No security scan exception or deployment authorization is implied.
+Earlier implementation text asserted Owner approval of the Caddy and gosu rebuilds. Independent Review could not establish a distinct human authorization; those assertions are withdrawn. The approved official-image requirement remains authoritative until the Owner explicitly accepts both exceptions and their maintenance burden. Current custom Dockerfiles are proposed/testable candidates only; neither successful scans nor this document authorizes using them on staging.
 
-The Owner separately authorized rebuilding the same gosu 1.19 helper (upstream commit `6456aaa0f3c854d199d0f037f068eb97515b7513`) with pinned patched Go 1.27.2 on the official PostgreSQL 17.11 base after its bundled old Go binary failed scanning. PostgreSQL engine, official entrypoint and data format remain unchanged. See `docker/Dockerfile.postgres` and locked helper module checksums. This is the second explicit official-image hardening exception; no scan waiver, engine upgrade or deployment is authorized. All four runtime images are scanned and selected by digest. Application rollback retains the running PostgreSQL image, uses `--no-deps`, and records that retained digest rather than downgrading the database container.
+See [decision evidence](../implementation/FP-003B-image-decision.md) for pinned official digests, exact baseline vulnerabilities, supported official alternatives, runtime relevance and maintenance tradeoffs. No scan waiver or infrastructure operation is authorized.

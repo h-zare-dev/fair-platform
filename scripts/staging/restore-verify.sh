@@ -29,4 +29,4 @@ with os.fdopen(fd,'w') as handle:
 os.replace(name,path)
 PYEVIDENCE
 fi
-printf 'ISOLATED_RESTORE_OK\n' 
+printf 'ISOLATED_RESTORE_OK\n'

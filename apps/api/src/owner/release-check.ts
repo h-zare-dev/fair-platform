@@ -15,6 +15,7 @@ async function main() {
     const approved = [
       'PasarguardInbox1790000000000',
       'OwnerDashboard1791000000000',
+      'OwnerGlobalTimeIndexes1791100000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -29,6 +30,7 @@ async function main() {
     const files = [
       'node_modules/@fair-platform/pasarguard/dist/infrastructure/migration.js',
       'dist/owner/infrastructure/migration.js',
+      'dist/owner/infrastructure/query-indexes.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

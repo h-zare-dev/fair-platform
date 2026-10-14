@@ -149,6 +149,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y age rclone
           pnpm test:backup
+          RELEASE_TEST_POSTGRES_IMAGE=ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} FAIR_RELEASE_DOCKER_TEST=1 python3 -m unittest discover -s tests/release -p test_compose.py
       - name: Scan API image
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
@@ -303,7 +304,7 @@ jobs:
           API: ${{ needs.publish.outputs.api }}
           WEB: ${{ needs.publish.outputs.web }}
           CADDY: ${{ needs.publish.outputs.caddy }}
-          POSTGRES: ${{ needs.publish.outputs.postgres }}
+          POSTGRES: ${{ vars.FP003B_POSTGRES_IMAGE }}
           CONFIG_HASH: ${{ needs.containers.outputs.config-hash }}
         run: |
           python3 - <<'PYMANIFEST'
@@ -311,6 +312,14 @@ jobs:
           from pathlib import Path
           Path('release.json').write_text(json.dumps({'sha':os.environ['GITHUB_SHA'],'api':os.environ['API'],'web':os.environ['WEB'],'caddy':os.environ['CADDY'],'postgres':os.environ['POSTGRES'],'schema':'fp003b-v1','configHash':os.environ['CONFIG_HASH']}))
           PYMANIFEST
+      - name: Scan operator-selected immutable PostgreSQL image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          version: v0.75.0
+          image-ref: ${{ vars.FP003B_POSTGRES_IMAGE }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
       - name: Protected staging activation and pinned SSH delivery
         env:
           STAGING_ACTIVATION: ${{ secrets.STAGING_ACTIVATION }}

@@ -371,6 +371,29 @@ it('microsecond/tied timestamp cursors never skip rows and projections omit priv
   const issues = await reader.issues(operationFilter(query, 'issues'));
   expect(JSON.stringify(issues)).not.toContain('synthetic-private-marker');
 });
+it('unknown stored issue codes always project fixed string code and message', async () => {
+  await seedSynthetic(db, '11'.repeat(32));
+  for (const code of [
+    '__proto__',
+    'constructor',
+    'toString',
+    '',
+    'unrecognized',
+  ]) {
+    await db.query('UPDATE pasarguard_ingestion_issues SET issue_code=$1', [
+      code,
+    ]);
+    const issues = await reader.issues(
+      operationFilter({ window: '24h' }, 'issues'),
+    );
+    expect(issues.rows.length).toBeGreaterThan(0);
+    for (const row of issues.rows) {
+      expect(row.code).toBe('INGESTION_ISSUE');
+      expect(row.message).toBe('Event requires review');
+      expect(typeof row.message).toBe('string');
+    }
+  }
+});
 it('strict pagination/range validation and database outage fail safely', async () => {
   await store.bootstrap(hash);
   const cookie = cookieOf(await login());
@@ -411,8 +434,17 @@ it('strict pagination/range validation and database outage fail safely', async (
     );
   }
 });
-it('additive migration upgrades prior schema and reverses only in disposable DB', async () => {
+it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
   await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('owner_events_all_source_time')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query("SELECT to_regclass('fair_owner')::text AS name"),
+  ).toEqual([{ name: null }]);
   expect(
     await db.query("SELECT to_regclass('pasarguard_events')::text AS name"),
   ).toEqual([{ name: 'pasarguard_events' }]);

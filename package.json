@@ -21,7 +21,7 @@
     "test:e2e": "pnpm test:prepare && vitest run tests/e2e",
     "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build && tsc -p scripts/replay/tsconfig.json",
     "test:web": "pnpm exec playwright test -c tests/web/playwright.config.ts",
-    "test:backup": "python3 tests/operations/backup-drill.py"
+    "test:backup": "python3 tests/operations/restore-readiness.py && python3 tests/operations/backup-drill.py"
   },
   "devDependencies": {
     "@fair-platform/accounting": "workspace:*",

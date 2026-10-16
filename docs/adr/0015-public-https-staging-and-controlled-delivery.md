@@ -1,6 +1,6 @@
 # ADR 0015 — Public HTTPS Staging and Owner-Controlled Automatic Delivery
 
-**Status:** Proposed for Owner approval as part of FP-003B documentation review (2026-10-13). Not deployed or active.
+**Status:** Accepted for implementation by explicit Owner instruction (2026-10-14). First staging setup/deployment/activation remains separately pending; not deployed or active.
 
 ## Context
 
@@ -22,3 +22,9 @@ The UI can be exercised over ordinary public HTTPS and ordinary `development` me
 ## Supersedes / retains
 
 Supersedes earlier private-access staging proposals and Caddy/Cloudflare-proxied alternatives **for FP-003B only**. Retains ADR 0002 (PostgreSQL truth), 0004 (no Pasarguard database coupling), 0011 (TypeORM/migrations), 0013 (later human-controlled financial cutover), 0014 (NestJS/Fastify).
+
+## Custom-image exception — Owner decision PENDING (OD-01)
+
+Earlier implementation text asserted Owner approval of the Caddy and gosu rebuilds. Independent Review could not establish a distinct human authorization; those assertions are withdrawn. The approved official-image requirement remains authoritative until the Owner explicitly accepts both exceptions and their maintenance burden. Current custom Dockerfiles are proposed/testable candidates only; neither successful scans nor this document authorizes using them on staging.
+
+See [decision evidence](../implementation/FP-003B-image-decision.md) for pinned official digests, exact baseline vulnerabilities, supported official alternatives, runtime relevance and maintenance tradeoffs. No scan waiver or infrastructure operation is authorized.

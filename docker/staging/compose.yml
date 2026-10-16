@@ -1,0 +1,138 @@
+name: fair-staging
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: '10m', max-file: '3' }
+  security_opt: [no-new-privileges:true]
+services:
+  caddy:
+    <<: *common
+    image: ${CADDY_IMAGE:?immutable hardened Caddy digest required}
+    ports: ['443:443/tcp']
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?operator must configure ACME contact}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      web: { condition: service_healthy }
+      owner-api: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          CMD,
+          caddy,
+          validate,
+          --config,
+          /etc/caddy/Caddyfile,
+          --adapter,
+          caddyfile,
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+  web:
+    <<: *common
+    image: ${WEB_IMAGE:?immutable digest required}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    networks: [edge]
+    depends_on:
+      owner-api: { condition: service_healthy }
+    mem_limit: 512m
+  owner-api:
+    <<: *common
+    image: ${API_IMAGE:?immutable digest required}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    environment:
+      OWNER_ORIGIN: https://panel.fairisfair.ir
+      DATABASE_URL_FILE: /run/secrets/runtime_database_url
+    secrets: [runtime_database_url]
+    networks: [edge, backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+  postgres:
+    <<: *common
+    image: ${POSTGRES_IMAGE:?immutable hardened PostgreSQL digest required}
+    environment:
+      POSTGRES_DB: fair_staging
+      POSTGRES_USER: fair_migrator
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U fair_migrator -d fair_staging]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 1g
+  migrate: &tools
+    image: ${API_IMAGE:?immutable digest required}
+    profiles: [tools]
+    entrypoint: [sh, /app/entrypoint.sh]
+    command: [node, dist/owner/cli.js, migrate]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/admin_database_url
+      APP_ENCRYPTION_KEY_FILE: /run/secrets/seed_encryption_key
+      FAIR_DATA_MODE: synthetic
+    secrets: [admin_database_url, seed_encryption_key]
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+  smoke:
+    <<: *tools
+    command: [node, dist/owner/smoke.js]
+    networks: [edge, backend]
+  backup:
+    image: ${POSTGRES_IMAGE:?immutable hardened PostgreSQL digest required}
+    profiles: [tools]
+    user: postgres
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      PGPASSFILE: /run/secrets/backup_pgpass
+    secrets: [backup_pgpass]
+    networks: [backend]
+    command:
+      [
+        pg_dump,
+        --host=postgres,
+        --username=fair_backup,
+        --dbname=fair_staging,
+        --format=custom,
+        --no-owner,
+        --no-acl,
+      ]
+networks:
+  edge:
+  backend:
+    internal: true
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+secrets:
+  runtime_database_url:
+    file: ${SECRETS_DIR:?}/runtime_database_url
+  admin_database_url:
+    file: ${SECRETS_DIR:?}/admin_database_url
+  seed_encryption_key:
+    file: ${SECRETS_DIR:?}/seed_encryption_key
+  postgres_password:
+    file: ${SECRETS_DIR:?}/postgres_password
+  backup_pgpass:
+    file: ${SECRETS_DIR:?}/backup_pgpass

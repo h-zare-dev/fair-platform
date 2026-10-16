@@ -19,10 +19,14 @@
     "test:unit": "pnpm test:prepare && vitest run tests/unit",
     "test:integration": "pnpm test:prepare && vitest run tests/integration",
     "test:e2e": "pnpm test:prepare && vitest run tests/e2e",
-    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build && tsc -p scripts/replay/tsconfig.json"
+    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build && tsc -p scripts/replay/tsconfig.json",
+    "test:web": "pnpm exec playwright test -c tests/web/playwright.config.ts",
+    "test:backup": "python3 tests/operations/restore-readiness.py && python3 tests/operations/backup-drill.py"
   },
   "devDependencies": {
+    "@fair-platform/accounting": "workspace:*",
     "@fair-platform/pasarguard": "workspace:*",
+    "@playwright/test": "^1.64.0",
     "@testcontainers/postgresql": "^12.2.0",
     "@types/node": "^24.13.6",
     "@types/react": "^19.2.2",
@@ -34,7 +38,6 @@
     "tsx": "^4.20.6",
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.71.1",
-    "vitest": "^5.0.2",
-    "@fair-platform/accounting": "workspace:*"
+    "vitest": "^5.0.2"
   }
 }

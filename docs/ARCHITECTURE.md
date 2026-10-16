@@ -13,7 +13,7 @@ Fair Platform starts as a **modular monolith with separate runtime processes**. 
 
 Domain packages remain pure TypeScript and must not depend on NestJS, TypeORM, PostgreSQL, Redis, Telegram, or HTTP.
 
-Feature order and authorization are documented in [`ROADMAP.md`](ROADMAP.md). FP-001/001B ingestion, FP-002 SHADOW ledger and FP-003A offline replay are distinct; FP-003B is a **proposed, Owner-approval-pending** public HTTPS, authenticated Owner-only STAGING dashboard with automatic release delivery, **not** a financial classifier. See [FP-003B spec](tasks/FP-003B-operational-dashboard.md) and [ADR 0015](adr/0015-public-https-staging-and-controlled-delivery.md).
+Feature order and authorization are documented in [`ROADMAP.md`](ROADMAP.md). FP-001/001B ingestion, FP-002 SHADOW ledger and FP-003A offline replay are distinct; FP-003B is a **Owner-approved for implementation (2026-10-14), not deployed** public HTTPS, authenticated Owner-only STAGING dashboard with automatic release delivery, **not** a financial classifier. See [FP-003B spec](tasks/FP-003B-operational-dashboard.md) and [ADR 0015](adr/0015-public-https-staging-and-controlled-delivery.md).
 
 ## Source of Truth
 PostgreSQL is authoritative for all critical state: normalized events, accounting transactions, pricing, report state, delivery obligations, settings, and exceptions.
@@ -69,7 +69,7 @@ Reports aggregate accounting transactions only. They never reinterpret raw webho
 Pasarguard API reconciliation is intentionally **not part of v1.0**. The architecture must leave room for v1.1+ reconciliation without coupling accounting to direct Pasarguard DB access.
 
 ## Deployment
-**FP-003B staging (proposed, not yet deployed):** a dedicated public VPS, Dockerized Caddy (only published TCP/443), Next.js Web, separate NestJS/Fastify Owner API mode (no webhook routes), and persistent PostgreSQL 17 on private Docker networks. Cloudflare is DNS-only; TLS-ALPN-01 on TCP/443 with TCP/80 closed; SSH key-only TCP/22 remains for human operations/SSH-based GitHub Actions staging deployment. UFW rules are intentionally simple; private containers publish **no** host ports because Docker publishing can bypass UFW. No live Pasarguard webhook/worker or financial posting. See [runbook](deployment/FP-003B-staging-runbook.md).
+**FP-003B staging (implementation approved, not yet deployed):** a dedicated public VPS, Dockerized Caddy (only published TCP/443), Next.js Web, separate NestJS/Fastify Owner API mode (no webhook routes), and persistent PostgreSQL 17 on private Docker networks. Cloudflare is DNS-only; TLS-ALPN-01 on TCP/443 with TCP/80 closed; SSH key-only TCP/22 remains for human operations/SSH-based GitHub Actions staging deployment. UFW rules are intentionally simple; private containers publish **no** host ports because Docker publishing can bypass UFW. No live Pasarguard webhook/worker or financial posting. See [runbook](deployment/FP-003B-staging-runbook.md).
 
 **Later production topology (not authorized by FP-003B):** the previously proposed isolated stack on the Pasarguard VPS (`fair-api`, `fair-worker`, `fair-web`, `fair-postgres`, optional `fair-redis`) remains a **separate later deployment decision**, with verified upstream webhook authentication, financial shadow cutover, HAProxy and release review. Fair PostgreSQL must remain separate from Pasarguard/TimescaleDB.
 

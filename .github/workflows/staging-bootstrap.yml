@@ -1,0 +1,117 @@
+name: First staging VPS bootstrap (Owner only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type BOOTSTRAP_TEST_VPS to initialize an empty isolated Ubuntu 26.04 server'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: fair-staging-first-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.ref == 'refs/heads/development' && github.actor == 'h-zare-dev' && inputs.confirmation == 'BOOTSTRAP_TEST_VPS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging-bootstrap
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify configuration, DNS and pinned SSH host identity
+        env:
+          HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+          ROOT_PASSWORD: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
+          HOSTKEY_SHA256: ${{ secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256 }}
+          ACME_EMAIL: ${{ secrets.STAGING_ACME_EMAIL }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ipaddress,os,re,socket
+          ip=ipaddress.ip_address(os.environ['HOST'])
+          assert ip.version==4 and ip.is_global
+          assert os.environ['ROOT_PASSWORD'] and re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}',os.environ['HOSTKEY_SHA256'])
+          assert re.fullmatch(r'[A-Za-z0-9_.+@-]+',os.environ['ACME_EMAIL'])
+          ips={v[4][0] for v in socket.getaddrinfo('panel.fairisfair.ir',443,family=socket.AF_INET,type=socket.SOCK_STREAM)}
+          assert str(ip) in ips, 'A record must point to this VPS with Cloudflare DNS-only'
+          PY
+          mkdir -p -m 700 "$RUNNER_TEMP/fair-ssh"
+          ssh-keyscan -T 12 -p 22 -t ed25519 "$HOST" > "$RUNNER_TEMP/fair-ssh/known_hosts" 2>/dev/null
+          fingerprint=$(ssh-keygen -lf "$RUNNER_TEMP/fair-ssh/known_hosts" -E sha256 | awk '{print $2}')
+          [[ "$fingerprint" == "$HOSTKEY_SHA256" ]] || { echo 'PINNED_SSH_HOST_KEY_MISMATCH'; exit 1; }
+          echo 'DNS_AND_PINNED_HOST_KEY_OK'
+      - name: Resolve previously published, approved immutable images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACME_EMAIL: ${{ secrets.STAGING_ACME_EMAIL }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u h-zare-dev --password-stdin >/dev/null
+          mkdir -p "$RUNNER_TEMP/fair-staging"
+          python3 - <<'PY'
+          import os
+          with open(os.environ['RUNNER_TEMP']+'/fair-staging/images.txt','w') as f:
+            for k in ('owner-api','web','caddy','postgres'):
+              f.write(f'ghcr.io/h-zare-dev/fair-platform-{k}:{os.environ["GITHUB_SHA"]}\n')
+          PY
+          while IFS= read -r tag; do
+            docker pull "$tag" >/dev/null
+            source=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$tag")
+            revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$tag")
+            [[ "$source" == 'https://github.com/h-zare-dev/fair-platform' && "$revision" == "$GITHUB_SHA" ]] || exit 1
+          done < "$RUNNER_TEMP/fair-staging/images.txt"
+          python3 - <<'PY'
+          import json,os,subprocess,hashlib
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'fair-staging'
+          tags=(root/'images.txt').read_text().splitlines()
+          out={}
+          for name,tag in zip(('api','web','caddy','postgres'),tags):
+            digest=subprocess.check_output(['docker','image','inspect','--format','{{index .RepoDigests 0}}',tag],text=True).strip()
+            assert digest.startswith('ghcr.io/h-zare-dev/fair-platform-') and '@sha256:' in digest
+            out[name]=digest
+          h=hashlib.sha256()
+          for name,p in [('compose.yml',Path('docker/staging/compose.yml')),('Caddyfile',Path('docker/staging/Caddyfile'))]:
+            h.update(name.encode()+b'\0'+p.read_bytes())
+          out.update(sha=os.environ['GITHUB_SHA'],schema='fp003b-v1',configHash=h.hexdigest(),acmeEmail=os.environ['ACME_EMAIL'])
+          (root/'bootstrap-release.json').write_text(json.dumps(out))
+          PY
+          echo 'IMMUTABLE_PUBLISHED_IMAGES_VERIFIED'
+      - name: Initialize disposable test VPS using pinned password-authenticated SSH
+        env:
+          HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+          SSHPASS: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          ssh_opts=(-o StrictHostKeyChecking=yes -o BatchMode=no -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password -o PubkeyAuthentication=no -o "UserKnownHostsFile=$RUNNER_TEMP/fair-ssh/known_hosts" -o ConnectTimeout=15)
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" 'mkdir -p -m 700 /opt/fair-staging/tooling'
+          sshpass -e scp -q "${ssh_opts[@]}" docker/staging/compose.yml docker/staging/Caddyfile docker/staging/runtime-grants.sql "$RUNNER_TEMP/fair-staging/bootstrap-release.json" "root@$HOST:/opt/fair-staging/"
+          sshpass -e scp -q "${ssh_opts[@]}" scripts/staging/bootstrap-test-vps.sh "root@$HOST:/opt/fair-staging/tooling/bootstrap-test-vps.sh"
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" 'bash /opt/fair-staging/tooling/bootstrap-test-vps.sh prepare'
+          printf '%s' "$GH_TOKEN" | sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" 'bash /opt/fair-staging/tooling/bootstrap-test-vps.sh pull'
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" 'bash /opt/fair-staging/tooling/bootstrap-test-vps.sh start'
+      - name: Verify real public HTTPS login using GitHub runner
+        env:
+          HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --max-time 10 --resolve "panel.fairisfair.ir:443:$HOST" https://panel.fairisfair.ir/login --output /dev/null 2>/dev/null; then
+              echo 'PUBLIC_HTTPS_LOGIN_AVAILABLE__OWNER_NOT_CREATED__NO_SEED'
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'PUBLIC_TLS_OR_LOGIN_NOT_READY'
+          exit 1

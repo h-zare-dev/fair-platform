@@ -100,7 +100,7 @@ fi
 ready=false
 for _ in $(seq 1 90); do
   if "${compose[@]}" exec -T postgres pg_isready -h 127.0.0.1 -U fair_migrator -t 1 >/dev/null 2>&1 &&
-     "${compose[@]}" exec -T postgres psql -h 127.0.0.1 -U fair_migrator -d fair_staging -w -v ON_ERROR_STOP=1 -Atc 'SELECT 1' >/dev/null 2>&1; then
+     "${compose[@]}" exec -T postgres sh -c 'PGPASSWORD="$(cat /run/secrets/postgres_password)" exec psql -h 127.0.0.1 -U fair_migrator -d fair_staging -w -v ON_ERROR_STOP=1 -Atc "SELECT 1"' >/dev/null 2>&1; then
     ready=true; break
   fi
   sleep 1

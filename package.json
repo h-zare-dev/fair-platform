@@ -28,7 +28,7 @@
     "@fair-platform/pasarguard": "workspace:*",
     "@playwright/test": "^1.64.0",
     "@testcontainers/postgresql": "^12.2.0",
-    "@types/node": "^24.13.6",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^5.0.2",

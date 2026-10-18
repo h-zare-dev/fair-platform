@@ -69,7 +69,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level high
       - name: Dependency and secret scan
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           scan-type: fs
@@ -151,7 +151,7 @@ jobs:
           pnpm test:backup
           RELEASE_TEST_POSTGRES_IMAGE=ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} FAIR_RELEASE_DOCKER_TEST=1 python3 -m unittest discover -s tests/release -p test_compose.py
       - name: Scan API image
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
@@ -159,7 +159,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: Scan Web image
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }}
@@ -167,7 +167,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: Scan Caddy
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }}
@@ -175,7 +175,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: Scan PostgreSQL
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
@@ -183,28 +183,28 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: SBOM API
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
           format: cyclonedx
           output: api.sbom.json
       - name: SBOM Web
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }}
           format: cyclonedx
           output: web.sbom.json
       - name: SBOM Caddy
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }}
           format: cyclonedx
           output: caddy.sbom.json
       - name: SBOM PostgreSQL
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
@@ -313,7 +313,7 @@ jobs:
           Path('release.json').write_text(json.dumps({'sha':os.environ['GITHUB_SHA'],'api':os.environ['API'],'web':os.environ['WEB'],'caddy':os.environ['CADDY'],'postgres':os.environ['POSTGRES'],'schema':'fp003b-v1','configHash':os.environ['CONFIG_HASH']}))
           PYMANIFEST
       - name: Scan operator-selected immutable PostgreSQL image
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           version: v0.75.0
           image-ref: ${{ vars.FP003B_POSTGRES_IMAGE }}

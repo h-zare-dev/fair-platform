@@ -205,9 +205,7 @@ export function verifyExactCi(
         job.run_id! < 1
       )
         continue;
-      const run = api.get(
-        `/repos/${repo}/actions/runs/${job.run_id}`,
-      ) as {
+      const run = api.get(`/repos/${repo}/actions/runs/${job.run_id}`) as {
         path?: string;
         name?: string;
         event?: string;

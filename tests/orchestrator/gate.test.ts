@@ -61,6 +61,7 @@ describe('Codex gate', () => {
         worktree: repo,
         sourceRepo: repo,
         codexExecutable: fake,
+        pnpmExecutable: '/bin/true',
       });
       expect(output.verdict).toBe('PASS');
       expect(output.sha).toBe(head);

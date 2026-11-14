@@ -50,7 +50,7 @@ describe('GitHub approval gate', () => {
       sha('a'),
     );
   });
-  it('requires an exact Owner comment for an unmerged pilot spec commit', () => {
+  it('requires Owner approval for external pilot spec', () => {
     let approvedBase = sha('b');
     const api: GitHubTransport = {
       get(path) {

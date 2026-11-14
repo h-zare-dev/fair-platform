@@ -24,7 +24,12 @@ export type RoleStatus = {
   role: Role;
   model: string;
   effort: ModelRoute['effort'];
-  activity: 'IDLE' | 'LAST_PASS' | 'LAST_FAIL' | 'LAST_BLOCKED' | 'IN_FLIGHT_UNVERIFIED';
+  activity:
+    | 'IDLE'
+    | 'LAST_PASS'
+    | 'LAST_FAIL'
+    | 'LAST_BLOCKED'
+    | 'IN_FLIGHT_UNVERIFIED';
   testedSha?: string;
 };
 
@@ -132,7 +137,9 @@ function main(): void {
   const task = new StateStore(stateFile).load();
   const snapshot = createStatusSnapshot(task, loadModelRoutes(modelFile));
   process.stdout.write(
-    json ? `${JSON.stringify(snapshot, null, 2)}\n` : `${renderStatus(snapshot)}\n`,
+    json
+      ? `${JSON.stringify(snapshot, null, 2)}\n`
+      : `${renderStatus(snapshot)}\n`,
   );
 }
 
@@ -140,7 +147,9 @@ if (process.argv[1]?.endsWith('/status.js')) {
   try {
     main();
   } catch (error) {
-    process.stderr.write(`Agent status unavailable: ${(error as Error).message}\n`);
+    process.stderr.write(
+      `Agent status unavailable: ${(error as Error).message}\n`,
+    );
     process.exitCode = 1;
   }
 }

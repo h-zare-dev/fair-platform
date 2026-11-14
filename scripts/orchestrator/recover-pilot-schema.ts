@@ -12,7 +12,8 @@ import { StateStore, type TaskState } from './state.js';
  * published, produced durable evidence, or modified its worktree.
  */
 export function isSchemaPilotRetrySafe(state: TaskState): boolean {
-  const expectedKey = `${state.taskId}:${state.attempt}:IMPLEMENTATION:${state.baseSha}:-`;
+  const expectedKey =
+    `${state.taskId}:${state.attempt}:IMPLEMENTATION:${state.baseSha}:-`;
   const latest = state.transitions.at(-1);
   const allowedPhase =
     (state.phase === 'IMPLEMENTING' && latest?.phase === 'IMPLEMENTING') ||
@@ -71,7 +72,14 @@ export async function recoverPilotSchema(configPath: string): Promise<string> {
       throw new Error('Existing execution evidence requires manual review');
     const remote = execFileSync(
       '/usr/bin/git',
-      ['-C', config.sourceRepo, 'ls-remote', '--heads', 'origin', expectedBranch],
+      [
+        '-C',
+        config.sourceRepo,
+        'ls-remote',
+        '--heads',
+        'origin',
+        expectedBranch,
+      ],
       { encoding: 'utf8', timeout: 20_000 },
     ).trim();
     if (remote !== '')

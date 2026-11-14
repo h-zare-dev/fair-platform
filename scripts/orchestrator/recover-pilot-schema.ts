@@ -17,8 +17,7 @@ export function isSchemaPilotRetrySafe(state: TaskState): boolean {
   const latest = state.transitions.at(-1);
   const allowedPhase =
     (state.phase === 'IMPLEMENTING' && latest?.phase === 'IMPLEMENTING') ||
-    (state.phase === 'BLOCKED' &&
-      latest?.errorCode === 'UNRESOLVED_INFLIGHT');
+    (state.phase === 'BLOCKED' && latest?.errorCode === 'UNRESOLVED_INFLIGHT');
   return (
     state.taskId === 57 &&
     allowedPhase &&

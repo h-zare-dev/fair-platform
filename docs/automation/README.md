@@ -18,6 +18,7 @@ Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 1. [Orchestration state machine and recursive fix loop](AGENT_ORCHESTRATION.md)
 2. [Blank VPS SSH/host bootstrap and isolation](LAB_VPS_BOOTSTRAP.md)
 3. [GitHub Issue/PR/evidence contract](GITHUB_TASK_AND_EVIDENCE.md)
+4. [Codex model routing and Plus usage budget](MODEL_ROUTING.md)
 
 ## First activation sequence
 

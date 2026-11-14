@@ -271,6 +271,7 @@ export function approvedIssue(
   api: GitHubTransport,
   number: number,
   ownerLogin: string,
+  pilotMode = false,
 ): TaskState {
   const issue = api.get(`/repos/${repo}/issues/${number}`) as Issue;
   if (
@@ -287,21 +288,31 @@ export function approvedIssue(
     );
   const base = /^Base development SHA: ([a-f0-9]{40})$/m.exec(issue.body);
   if (!spec || !base) throw new Error('Issue lacks pinned spec/base');
+  const pilotSpec = /^Pilot spec commit SHA: ([a-f0-9]{40})$/m.exec(issue.body);
+  if (pilotMode && !pilotSpec)
+    throw new Error('Pilot requires an immutable spec commit');
   const comments = allComments(api, number);
   const approvedSpec = `OWNER_APPROVED_SPEC: ${spec[1]} @ ${spec[2]}`;
   const approvedBase = `BASE_DEVELOPMENT_SHA: ${base[1]}`;
+  const pilotApproval = pilotSpec
+    ? `\nPILOT_SPEC_COMMIT_SHA: ${pilotSpec[1]}`
+    : '';
   const approval = comments.find(
     (comment) =>
       comment.user.login === ownerLogin &&
-      comment.body.trim() === `${approvedSpec}\n${approvedBase}`,
+      comment.body.trim() ===
+        `${approvedSpec}\n${approvedBase}${pilotApproval}`,
   );
   if (!approval)
     throw new Error('Missing authenticated Owner approval of exact spec');
-  const tree = api.get(`/repos/${repo}/git/trees/${base[1]}?recursive=1`) as {
+  const specTreeSha = pilotMode ? pilotSpec![1] : base[1];
+  const tree = api.get(
+    `/repos/${repo}/git/trees/${specTreeSha}?recursive=1`,
+  ) as {
     tree?: { path: string; sha: string }[];
   };
   if (!tree.tree?.some((item) => item.path === spec[1] && item.sha === spec[2]))
-    throw new Error('Pinned spec is not on approved base');
+    throw new Error('Pinned spec is not on its approved Git tree');
   const blob = api.get(`/repos/${repo}/git/blobs/${spec[2]}`) as {
     sha?: string;
     encoding?: string;

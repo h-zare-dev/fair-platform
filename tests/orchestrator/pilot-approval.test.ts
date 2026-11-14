@@ -30,8 +30,7 @@ describe('pinned pilot spec authorization', () => {
           };
         if (path.includes('/comments'))
           return [{ user: { login: 'h-zare-dev' }, body: comment }];
-        if (path.includes('/git/commits/'))
-          return { tree: { sha: sha('f') } };
+        if (path.includes('/git/commits/')) return { tree: { sha: sha('f') } };
         if (path.includes('/git/trees/'))
           return { tree: [{ path: 'docs/tasks/PILOT-001.md', sha: sha('a') }] };
         return {

@@ -104,7 +104,9 @@ describe('one-time pilot #57 runtime recovery', () => {
         Object.assign(value.state, { inFlight: { gate: 'IMPLEMENTATION' } });
         break;
       case 'pending report':
-        Object.assign(value.state, { pendingReport: { gate: 'IMPLEMENTATION' } });
+        Object.assign(value.state, {
+          pendingReport: { gate: 'IMPLEMENTATION' },
+        });
         break;
       case 'changed implementation head':
         Object.assign(value.state, { headSha: 'a'.repeat(40) });

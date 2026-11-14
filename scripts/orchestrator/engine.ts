@@ -219,7 +219,7 @@ export class Orchestrator {
     state.verdicts = {};
     this.transition(state, 'REWORK', 'orchestrator', evidence);
   }
-  async ownerMerged(
+  private async ownerMerged(
     state: TaskState,
     verify: () => Promise<string>,
   ): Promise<void> {

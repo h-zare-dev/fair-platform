@@ -28,6 +28,8 @@ describe('GitHub approval gate', () => {
             html_url: 'https://example.test',
           },
         ];
+      if (path.includes('/git/commits/'))
+        return { tree: { sha: sha('f') } };
       if (path.includes('/trees/'))
         return { tree: [{ path: 'docs/tasks/ISSUE-53.md', sha: sha('a') }] };
       return {
@@ -48,6 +50,49 @@ describe('GitHub approval gate', () => {
       sha('a'),
     );
   });
+  it('requires an exact Owner comment for an unmerged pilot spec commit', () => {
+    let approvedBase = sha('b');
+    const api: GitHubTransport = {
+      get(path) {
+        if (path.endsWith('/issues/57'))
+          return {
+            number: 57,
+            state: 'open',
+            labels: [{ name: 'agent:approved' }],
+            body: `Approved spec: docs/tasks/PILOT-001.md @ ${sha('a')}\nBase development SHA: ${approvedBase}\nPilot spec commit SHA: ${sha('d')}`,
+          };
+        if (path.includes('/comments'))
+          return [
+            {
+              user: { login: 'h-zare-dev' },
+              body: `OWNER_APPROVED_SPEC: docs/tasks/PILOT-001.md @ ${sha('a')}\nBASE_DEVELOPMENT_SHA: ${sha('b')}\nPILOT_SPEC_COMMIT_SHA: ${sha('d')}`,
+              html_url: 'https://example.test/approval',
+            },
+          ];
+        if (path.includes('/git/commits/'))
+          return { tree: { sha: sha('f') } };
+        if (path.includes('/trees/'))
+          return { tree: [{ path: 'docs/tasks/PILOT-001.md', sha: sha('a') }] };
+        return {
+          sha: sha('a'),
+          encoding: 'base64',
+          content: Buffer.from('approved pilot content').toString('base64'),
+        };
+      },
+      post() {
+        throw new Error('unexpected mutation');
+      },
+    };
+    expect(approvedIssue(api, 57, 'h-zare-dev', true).baseSha).toBe(sha('b'));
+    approvedBase = sha('c');
+    expect(() => approvedIssue(api, 57, 'h-zare-dev', true)).toThrow(
+      'Missing authenticated Owner approval',
+    );
+    expect(() => approvedIssue(api, 57, 'h-zare-dev')).toThrow(
+      'Missing authenticated Owner approval',
+    );
+  });
+
   it('creates only a Draft PR and reuses it on retry', () => {
     const state = newTask(57, 'docs/tasks/TASK-57.md', sha('a'), sha('b'));
     state.headSha = sha('c');
@@ -248,7 +293,9 @@ describe('GitHub approval gate', () => {
               html_url: 'https://example.test',
             },
           ];
-        if (path.includes('/trees/'))
+        if (path.includes('/git/commits/'))
+        return { tree: { sha: sha('f') } };
+      if (path.includes('/trees/'))
           return { tree: [{ path: 'docs/tasks/ISSUE-53.md', sha: sha('a') }] };
         return {
           sha: sha('a'),

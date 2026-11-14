@@ -118,6 +118,14 @@ describe('GitHub approval gate', () => {
                 html_url: 'https://example.test/check',
                 pull_requests: [{ number: 101 }],
               },
+              ...(['security', 'containers'] as const).map((name) => ({
+                head_sha: sha('c'),
+                name,
+                status: 'completed',
+                conclusion: 'success',
+                html_url: `https://example.test/${name}`,
+                pull_requests: [{ number: 101 }],
+              })),
             ],
           };
         return {
@@ -137,6 +145,39 @@ describe('GitHub approval gate', () => {
       sha('e'),
     );
   });
+  it('blocks on a failed security audit or container image scan', () => {
+    const green = (name: string) => ({
+      head_sha: sha('c'),
+      name,
+      status: 'completed',
+      conclusion: 'success',
+      html_url: `https://example.test/${name}`,
+      pull_requests: [{ number: 101 }],
+    });
+    const checks = [green('quality'), green('security'), green('containers')];
+    const api: GitHubTransport = {
+      get: () => ({ check_runs: checks }),
+      post: () => ({}),
+    };
+    expect(verifyExactCi(api, sha('c'), 101).url).toBe(
+      'https://example.test/quality',
+    );
+    checks[1] = { ...green('security'), conclusion: 'failure' };
+    expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
+      'security CI is not green',
+    );
+    checks[1] = green('security');
+    checks[2] = { ...green('containers'), status: 'in_progress' };
+    expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
+      'containers CI is not green',
+    );
+    checks[2] = green('containers');
+    checks[2] = { ...checks[2], head_sha: sha('d') };
+    expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
+      'containers CI is not green',
+    );
+  });
+
   it('does not repost the same verdict after a reporting restart', () => {
     const state = newTask(57, 'docs/tasks/TASK-57.md', sha('a'), sha('b'));
     state.headSha = sha('c');

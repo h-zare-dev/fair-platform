@@ -79,7 +79,7 @@ export function commitApprovedPilotFiles(
     ['-C', input.worktree, 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
     { encoding: 'utf8', timeout: 30_000 },
   );
-  const actual = status.split('\\0').filter(Boolean).sort();
+  const actual = status.split('\0').filter(Boolean).sort();
   const expected = PILOT_57_FILES.map((file) => `?? ${file}`).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected))
     throw new Error('Pilot changed unexpected paths or omitted approved files');
@@ -112,7 +112,7 @@ export function commitApprovedPilotFiles(
   if (git(['rev-parse', 'HEAD']) !== initialHead)
     throw new Error('Pilot HEAD moved during verification');
   git(['add', '--', ...PILOT_57_FILES]);
-  const staged = git(['diff', '--cached', '--name-only']).split('\\n').filter(Boolean).sort();
+  const staged = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).sort();
   if (
     JSON.stringify(staged) !==
     JSON.stringify([...PILOT_57_FILES].sort())

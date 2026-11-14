@@ -53,8 +53,7 @@ export async function runPilot(
 
 if (process.argv[1]?.endsWith('/pilot.js')) {
   const path =
-    process.argv[2] ??
-    join(homedir(), '.config/fair-platform/pilot.json');
+    process.argv[2] ?? join(homedir(), '.config/fair-platform/pilot.json');
   runPilot(path).catch((error) => {
     process.stderr.write(`Pilot stopped: ${(error as Error).message}\n`);
     process.exitCode = 1;

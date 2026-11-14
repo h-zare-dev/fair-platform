@@ -6,6 +6,7 @@ published a branch. No token, config, worktree, or GitHub content is modified.
 """
 import fcntl
 import hashlib
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -96,7 +97,7 @@ def recover(config_path):
         state.pop("inFlight")
         state["phase"] = "IMPLEMENTING"
         state["transitions"].append({
-            "at": latest["at"],
+            "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "attempt": 1,
             "phase": "IMPLEMENTING",
             "actor": "owner-verified-schema-retry",

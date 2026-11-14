@@ -120,6 +120,88 @@ function privateFile(path: string): void {
     throw new Error('Unsafe private configuration file');
 }
 
+type Receipt = {
+  key: string;
+  gate: Gate;
+  taskId: number;
+  attempt: number;
+  specSha: string;
+  baseSha: string;
+  headSha?: string | undefined;
+  candidateSha?: string | undefined;
+  evidence: Evidence;
+};
+
+function receiptFor(
+  state: Readonly<import('./state.js').TaskState>,
+  gate: Gate,
+  key: string,
+  evidence: Evidence,
+): Receipt {
+  return {
+    key,
+    gate,
+    taskId: state.taskId,
+    attempt: state.attempt,
+    specSha: state.specSha,
+    baseSha: state.baseSha,
+    headSha: state.headSha,
+    candidateSha: state.candidateSha,
+    evidence,
+  };
+}
+
+function verifiedWorktreeHead(path: string): string {
+  return execFileSync('/usr/bin/git', ['-C', path, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    timeout: 20_000,
+    env: { PATH: '/usr/bin:/bin' },
+  }).trim();
+}
+
+function verifyReceipt(
+  config: Config,
+  state: Readonly<import('./state.js').TaskState>,
+  gate: Gate,
+  key: string,
+  receipt: Receipt,
+): Evidence {
+  const expected = receiptFor(state, gate, key, receipt.evidence);
+  if (JSON.stringify(receipt) !== JSON.stringify(expected))
+    throw new Error('Stale or untrusted gate recovery receipt');
+  const evidence = receipt.evidence;
+  if (
+    !['PASS', 'FAIL', 'BLOCKED'].includes(evidence?.verdict) ||
+    !isSha(evidence?.sha ?? '') ||
+    !/^[a-zA-Z0-9_.:-]{1,120}$/.test(evidence?.evidenceId ?? '')
+  )
+    throw new Error('Invalid saved gate evidence');
+  if (gate === 'IMPLEMENTATION' && evidence.verdict === 'PASS') {
+    if (verifiedWorktreeHead(config.worktrees.IMPLEMENTATION) !== evidence.sha)
+      throw new Error('Implementation result no longer matches worktree HEAD');
+  } else if (gate === 'REVIEW' || gate === 'QA') {
+    if (
+      evidence.sha !== state.headSha ||
+      verifiedWorktreeHead(config.worktrees[gate]) !== state.headSha
+    )
+      throw new Error('Independent gate result no longer matches HEAD');
+  } else if (gate === 'CANDIDATE') {
+    if (
+      evidence.sha !== state.headSha ||
+      (evidence.verdict === 'PASS' &&
+        (!isSha(evidence.candidateSha ?? '') ||
+          verifiedWorktreeHead(config.candidateWorktree) !==
+            evidence.candidateSha))
+    )
+      throw new Error('Candidate result is stale');
+  } else {
+    // Lab and post-merge side effects require remote reconciliation and
+    // must not be trusted from a local file until these gates are built.
+    throw new Error('Remote gate recovery requires independent verification');
+  }
+  return evidence;
+}
+
 export function commandPorts(config: Config): Ports {
   const token = readFileSync(config.githubTokenFile, 'utf8').trim();
   const api = new GhTransport(token, config.ghExecutable);
@@ -182,6 +264,7 @@ export function commandPorts(config: Config): Ports {
           config.ownerLogin,
           state.headSha,
           development,
+          state.baseSha,
         ),
       );
     },
@@ -260,7 +343,11 @@ export function commandPorts(config: Config): Ports {
         `${createHash('sha256').update(key).digest('hex')}.json`,
       );
       const temp = `${path}.${process.pid}.tmp`;
-      writeFileSync(temp, JSON.stringify(evidence), { mode: 0o600 });
+      writeFileSync(
+        temp,
+        JSON.stringify(receiptFor(state, gate, key, evidence)),
+        { mode: 0o600 },
+      );
       renameSync(temp, path);
       return Promise.resolve(evidence);
     },
@@ -282,8 +369,9 @@ export function commandPorts(config: Config): Ports {
         `${createHash('sha256').update(key).digest('hex')}.json`,
       );
       try {
+        const receipt = JSON.parse(readFileSync(path, 'utf8')) as Receipt;
         return Promise.resolve(
-          JSON.parse(readFileSync(path, 'utf8')) as Evidence,
+          verifyReceipt(config, _state, _gate, key, receipt),
         );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT')

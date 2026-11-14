@@ -214,7 +214,12 @@ export function commandPorts(config: Config): Ports {
   const branch = `agent/${config.issue}-`;
   return {
     reconcile(state) {
-      const current = approvedIssue(api, state.taskId, config.ownerLogin);
+      const current = approvedIssue(
+        api,
+        state.taskId,
+        config.ownerLogin,
+        config.pilotMode === true,
+      );
       if (
         current.specSha !== state.specSha ||
         current.baseSha !== state.baseSha
@@ -426,7 +431,12 @@ export async function runOnce(configPath: string): Promise<void> {
     readFileSync(config.githubTokenFile, 'utf8').trim(),
     config.ghExecutable,
   );
-  const approved = approvedIssue(api, config.issue, config.ownerLogin);
+  const approved = approvedIssue(
+    api,
+    config.issue,
+    config.ownerLogin,
+    config.pilotMode === true,
+  );
   const state = store.load() ?? approved;
   if (state.taskId !== approved.taskId || state.specSha !== approved.specSha)
     throw new Error('Active task differs from approved issue');

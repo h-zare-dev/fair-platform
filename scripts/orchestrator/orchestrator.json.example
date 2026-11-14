@@ -1,0 +1,49 @@
+{
+  "issue": 53,
+  "ownerLogin": "h-zare-dev",
+  "stateFile": "/home/OWNER/.local/state/fair-platform/task.json",
+  "modelFile": "/home/OWNER/.local/bin/fair-agent-models.conf",
+  "labActivated": false,
+  "commands": {
+    "IMPLEMENTATION": {
+      "executable": "/opt/fair-agent-gates/implementation",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "REVIEW": {
+      "executable": "/opt/fair-agent-gates/review",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "QA": {
+      "executable": "/opt/fair-agent-gates/qa",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "CI": {
+      "executable": "/opt/fair-agent-gates/ci",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "CANDIDATE": {
+      "executable": "/opt/fair-agent-gates/candidate",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "LAB_DEPLOY": {
+      "executable": "/opt/fair-agent-gates/lab-deploy",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "LAB_E2E": {
+      "executable": "/opt/fair-agent-gates/lab-e2e",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "POST_MERGE": {
+      "executable": "/opt/fair-agent-gates/post-merge",
+      "args": [],
+      "timeoutMs": 3600000
+    }
+  }
+}

@@ -86,6 +86,67 @@ describe('orchestrator', () => {
     }
   });
 
+  it('invalidates completed Lab evidence when development advances during Owner review', async () => {
+    const state = newTask(57, 'docs/tasks/TASK-57.md', sha('a'), sha('b'));
+    state.phase = 'READY_FOR_OWNER_REVIEW';
+    state.headSha = sha('c');
+    state.candidateSha = sha('d');
+    state.verdicts.REVIEW = {
+      verdict: 'PASS',
+      sha: sha('c'),
+      evidenceId: 'old-review',
+    };
+    const ports: Ports = {
+      reconcile: () => Promise.resolve(),
+      developmentSha: () => Promise.resolve(sha('e')),
+      verifyOwnerMerge: () => Promise.resolve(undefined),
+      report: () => Promise.resolve(),
+      run: () => {
+        throw new Error('stale task must not run');
+      },
+    };
+    const engine = new Orchestrator(ports, () => {});
+    await engine.step(state);
+    expect(state.phase).toBe('REWORK');
+    expect(state.attempt).toBe(2);
+    expect(state.reworks).toBe(1);
+    expect(state.verdicts).toEqual({});
+    expect(state.candidateSha).toBeUndefined();
+    expect(state.transitions.at(-1)?.errorCode).toBe('BASE_DRIFT');
+  });
+
+  it('refuses a pending recovery report once the approved base drifts', async () => {
+    const state = newTask(58, 'docs/tasks/TASK-58.md', sha('a'), sha('b'));
+    state.phase = 'QA';
+    state.headSha = sha('c');
+    state.pendingReport = {
+      gate: 'REVIEW',
+      key: 'previous-review',
+      evidence: {
+        verdict: 'PASS',
+        sha: sha('c'),
+        evidenceId: 'stale-review',
+      },
+    };
+    let reported = false;
+    const ports: Ports = {
+      reconcile: () => Promise.resolve(),
+      developmentSha: () => Promise.resolve(sha('e')),
+      report: () => {
+        reported = true;
+        return Promise.resolve();
+      },
+      run: () => {
+        throw new Error('no stale gate run');
+      },
+    };
+    await new Orchestrator(ports, () => {}).step(state);
+    expect(reported).toBe(false);
+    expect(state.pendingReport).toBeUndefined();
+    expect(state.phase).toBe('REWORK');
+    expect(state.transitions.at(-1)?.errorCode).toBe('BASE_DRIFT');
+  });
+
   it('blocks after the bounded rework budget is exhausted', async () => {
     const state = newTask(53, 'docs/tasks/ISSUE-53.md', sha('a'), sha('b'), 1);
     const ports: Ports = {

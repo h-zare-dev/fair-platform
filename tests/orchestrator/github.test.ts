@@ -28,8 +28,7 @@ describe('GitHub approval gate', () => {
             html_url: 'https://example.test',
           },
         ];
-      if (path.includes('/git/commits/'))
-        return { tree: { sha: sha('f') } };
+      if (path.includes('/git/commits/')) return { tree: { sha: sha('f') } };
       if (path.includes('/trees/'))
         return { tree: [{ path: 'docs/tasks/ISSUE-53.md', sha: sha('a') }] };
       return {
@@ -250,8 +249,7 @@ describe('GitHub approval gate', () => {
               html_url: 'https://example.test',
             },
           ];
-        if (path.includes('/git/commits/'))
-          return { tree: { sha: sha('f') } };
+        if (path.includes('/git/commits/')) return { tree: { sha: sha('f') } };
         if (path.includes('/trees/'))
           return { tree: [{ path: 'docs/tasks/ISSUE-53.md', sha: sha('a') }] };
         return {

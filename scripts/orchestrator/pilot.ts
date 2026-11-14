@@ -46,8 +46,7 @@ export async function runPilot(
     const state = store.load();
     if (!state) throw new Error('Pilot did not persist an active task');
     onProgress(pilotSummary(state));
-    if (new Set<string>(PILOT_TERMINAL_PHASES).has(state.phase))
-      return state;
+    if (new Set<string>(PILOT_TERMINAL_PHASES).has(state.phase)) return state;
   }
   throw new Error('Pilot reached bounded transition limit');
 }

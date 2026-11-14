@@ -15,8 +15,7 @@ export function isSchemaPilotRetrySafe(state: TaskState): boolean {
   const expectedKey = `${state.taskId}:${state.attempt}:IMPLEMENTATION:${state.baseSha}:-`;
   const latest = state.transitions.at(-1);
   const allowedPhase =
-    (state.phase === 'IMPLEMENTING' &&
-      latest?.phase === 'IMPLEMENTING') ||
+    (state.phase === 'IMPLEMENTING' && latest?.phase === 'IMPLEMENTING') ||
     (state.phase === 'BLOCKED' &&
       latest?.errorCode === 'UNRESOLVED_INFLIGHT');
   return (
@@ -60,7 +59,9 @@ export async function recoverPilotSchema(configPath: string): Promise<string> {
       git(['branch', '--show-current']) !== expectedBranch ||
       git(['status', '--porcelain']) !== ''
     )
-      throw new Error('Implementation worktree is not pristine at approved base');
+      throw new Error(
+        'Implementation worktree is not pristine at approved base',
+      );
     const key = state.inFlight!.key;
     const receiptFile = join(
       config.evidenceDir,
@@ -95,8 +96,7 @@ export async function recoverPilotSchema(configPath: string): Promise<string> {
 
 if (process.argv[1]?.endsWith('/recover-pilot-schema.js')) {
   const path =
-    process.argv[2] ??
-    join(homedir(), '.config/fair-platform/pilot.json');
+    process.argv[2] ?? join(homedir(), '.config/fair-platform/pilot.json');
   recoverPilotSchema(path)
     .then((line) => process.stdout.write(`${line}\n`))
     .catch((error) => {

@@ -39,7 +39,8 @@ type Config = {
   githubTokenFile: string;
   ghExecutable: string;
   labActivated: boolean;
-  commands: Record<CommandGate, Command>;
+  pilotMode?: boolean;
+  commands: Partial<Record<CommandGate, Command>>;
 };
 const gates: CommandGate[] = [
   'IMPLEMENTATION',
@@ -68,6 +69,7 @@ export function loadConfig(path: string): Config {
     !config.githubTokenFile.startsWith('/') ||
     !config.ghExecutable.startsWith('/') ||
     config.labActivated !== false ||
+    (config.pilotMode !== undefined && config.pilotMode !== true) ||
     !Number.isSafeInteger(config.maxModelCallsPerDay) ||
     config.maxModelCallsPerDay < 1 ||
     config.maxModelCallsPerDay > 50
@@ -88,7 +90,11 @@ export function loadConfig(path: string): Config {
     throw new Error('Role worktrees must be distinct');
   loadModelRoutes(config.modelFile);
   for (const gate of gates) {
-    const command = config.commands[gate];
+    // Pilot deliberately cannot execute candidate, Lab or post-merge gates.
+    // These gate commands are still mandatory in production mode.
+    if (config.pilotMode && !['IMPLEMENTATION', 'REVIEW', 'QA'].includes(gate))
+      continue;
+    const command = config.commands?.[gate];
     if (
       !command?.executable.startsWith('/') ||
       !Array.isArray(command.args) ||
@@ -270,6 +276,16 @@ export function commandPorts(config: Config): Ports {
     },
     run(gate, state, key) {
       if (gate === 'CI') {
+        if (config.pilotMode) {
+          // The pilot cannot turn a green or red CI into authorization to
+          // build, deploy, merge or mark the PR ready. Stop and persist.
+          return Promise.resolve({
+            verdict: 'BLOCKED' as const,
+            sha: state.headSha!,
+            evidenceId: `pilot-ci-${state.headSha!.slice(0, 16)}`,
+            defectCode: 'PILOT_END_BEFORE_CI',
+          });
+        }
         const checked = verifyExactCi(api, state.headSha ?? '', state.prNumber);
         return Promise.resolve({
           verdict: 'PASS',
@@ -300,6 +316,7 @@ export function commandPorts(config: Config): Ports {
         renameSync(temp, usagePath);
       }
       const command = config.commands[gate];
+      if (!command) throw new Error(`Gate ${gate} has no configured command`);
       const input = JSON.stringify({
         idempotencyKey: key,
         taskId: state.taskId,
@@ -353,6 +370,13 @@ export function commandPorts(config: Config): Ports {
     },
     recover(_gate, _state, key) {
       if (_gate === 'CI') {
+        if (config.pilotMode)
+          return Promise.resolve({
+            verdict: 'BLOCKED' as const,
+            sha: _state.headSha!,
+            evidenceId: `pilot-ci-${_state.headSha!.slice(0, 16)}`,
+            defectCode: 'PILOT_END_BEFORE_CI',
+          });
         const checked = verifyExactCi(
           api,
           _state.headSha ?? '',

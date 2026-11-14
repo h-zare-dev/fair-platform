@@ -31,6 +31,11 @@ describe('Codex gate', () => {
         ['-C', repo, 'rev-parse', 'HEAD'],
         { encoding: 'utf8' },
       ).trim();
+      const specSha = execFileSync(
+        '/usr/bin/git',
+        ['-C', repo, 'hash-object', '-w', '--stdin'],
+        { input: 'Approved fixture spec', encoding: 'utf8' },
+      ).trim();
       const modelFile = join(dir, 'models.conf');
       writeFileSync(
         modelFile,
@@ -39,7 +44,7 @@ describe('Codex gate', () => {
       const fake = join(dir, 'fake-codex');
       writeFileSync(
         fake,
-        '#!/bin/sh\n[ -z "$GH_TOKEN" ] || exit 22\n[ "$3" = "gpt-6-sol" ] || exit 23\nwhile [ "$#" -gt 0 ]; do if [ "$1" = "-o" ]; then shift; printf \'{"verdict":"PASS","evidenceId":"review-test"}\' > "$1"; exit 0; fi; shift; done\nexit 24\n',
+        '#!/bin/sh\n[ -z "$GH_TOKEN" ] || exit 22\nwhile [ "$#" -gt 0 ]; do if [ "$1" = "-m" ]; then shift; [ "$1" = "gpt-6-sol" ] || exit 23; fi; if [ "$1" = "-o" ]; then shift; printf \'{"verdict":"PASS","evidenceId":"review-test"}\' > "$1"; exit 0; fi; shift; done\nexit 24\n',
       );
       chmodSync(fake, 0o700);
       process.env.FAIR_MODEL_CONFIG = modelFile;
@@ -49,7 +54,7 @@ describe('Codex gate', () => {
         attempt: 1,
         idempotencyKey: '53:1:REVIEW',
         specPath: 'docs/tasks/TASK.md',
-        specSha: 'a'.repeat(40),
+        specSha,
         baseSha: head,
         headSha: head,
         gate: 'REVIEW',

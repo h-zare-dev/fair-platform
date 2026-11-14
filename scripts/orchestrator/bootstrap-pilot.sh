@@ -32,7 +32,7 @@ if [[ ! -d "$ROOT/.git" && ! -f "$ROOT/.git" ]]; then
 fi
 
 # Fetch refs needed for approved-base checkout; does not change a working tree.
-git -C "$ROOT" fetch --quiet origin development
+git -C "$ROOT" fetch --quiet origin development feature/issue-53-autonomous-orchestrator
 
 chmod 600 "$MODEL"
 python3 - "$ISSUE" "$ROOT" "$MODEL" "$TOKEN" "$CONFIG" \

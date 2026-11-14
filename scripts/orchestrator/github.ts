@@ -306,9 +306,9 @@ export function approvedIssue(
   if (!approval)
     throw new Error('Missing authenticated Owner approval of exact spec');
   const approvedCommitSha = pilotMode ? pilotSpec![1] : base[1];
-  const commit = api.get(
-    `/repos/${repo}/git/commits/${approvedCommitSha}`,
-  ) as { tree?: { sha?: string } };
+  const commit = api.get(`/repos/${repo}/git/commits/${approvedCommitSha}`) as {
+    tree?: { sha?: string };
+  };
   if (!isSha(commit.tree?.sha ?? ''))
     throw new Error('Approved spec commit tree unavailable');
   const tree = api.get(

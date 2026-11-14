@@ -31,7 +31,9 @@ export function pilotSummary(state: Readonly<TaskState>): string {
  */
 export async function runPilot(
   configPath: string,
-  onProgress: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
+  onProgress: (line: string) => void = (line) => {
+    process.stdout.write(`${line}\n`);
+  },
 ): Promise<TaskState> {
   const config = loadConfig(configPath);
   if (config.pilotMode !== true || config.labActivated !== false)
@@ -44,9 +46,7 @@ export async function runPilot(
     const state = store.load();
     if (!state) throw new Error('Pilot did not persist an active task');
     onProgress(pilotSummary(state));
-    if (PILOT_TERMINAL_PHASES.includes(
-      state.phase as (typeof PILOT_TERMINAL_PHASES)[number],
-    ))
+    if (new Set<string>(PILOT_TERMINAL_PHASES).has(state.phase))
       return state;
   }
   throw new Error('Pilot reached bounded transition limit');

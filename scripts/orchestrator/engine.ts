@@ -81,12 +81,35 @@ export class Orchestrator {
     await this.ports.reconcile(state);
     if (state.pendingReport) {
       const { gate, evidence } = state.pendingReport;
+      if (
+        gate !== 'POST_MERGE' &&
+        (await this.ports.developmentSha()) !== state.baseSha
+      ) {
+        state.pendingReport = undefined;
+        state.inFlight = undefined;
+        this.rework(state, {
+          verdict: 'FAIL',
+          sha: state.headSha ?? state.baseSha,
+          evidenceId: 'development-changed',
+          defectCode: 'BASE_DRIFT',
+        });
+        return;
+      }
       await this.ports.report(state, gate, evidence);
       state.pendingReport = undefined;
       await this.finish(state, gate, evidence);
       return;
     }
     if (state.phase === 'QUEUED') {
+      if ((await this.ports.developmentSha()) !== state.baseSha) {
+        this.transition(state, 'BLOCKED', 'orchestrator', {
+          verdict: 'BLOCKED',
+          sha: state.baseSha,
+          evidenceId: 'approved-base-stale',
+          defectCode: 'APPROVED_BASE_STALE',
+        });
+        return;
+      }
       this.transition(state, 'IMPLEMENTING', 'orchestrator');
       return;
     }
@@ -96,14 +119,24 @@ export class Orchestrator {
     }
     if (state.phase === 'READY_FOR_OWNER_REVIEW') {
       const merged = await this.ports.verifyOwnerMerge?.(state);
-      if (merged) await this.ownerMerged(state, () => Promise.resolve(merged));
+      if (merged) {
+        await this.ownerMerged(state, () => Promise.resolve(merged));
+      } else if ((await this.ports.developmentSha()) !== state.baseSha) {
+        this.rework(state, {
+          verdict: 'FAIL',
+          sha: state.headSha!,
+          evidenceId: 'development-changed',
+          defectCode: 'BASE_DRIFT',
+        });
+      }
       return;
     }
     if (['DONE', 'BLOCKED', 'OWNER_MERGED'].includes(state.phase)) return;
     const gate = gateFor[state.phase];
     if (!gate) throw new Error(`Unsupported phase ${state.phase}`);
     if (
-      gate === 'CANDIDATE' &&
+      gate !== 'IMPLEMENTATION' &&
+      gate !== 'POST_MERGE' &&
       (await this.ports.developmentSha()) !== state.baseSha
     ) {
       this.rework(state, {

@@ -24,7 +24,7 @@ describe('GitHub approval gate', () => {
         return [
           {
             user: { login: actor },
-            body: `OWNER_APPROVED_SPEC: docs/tasks/ISSUE-53.md @ ${sha('a')}`,
+            body: `OWNER_APPROVED_SPEC: docs/tasks/ISSUE-53.md @ ${sha('a')}\nBASE_DEVELOPMENT_SHA: ${sha('b')}`,
             html_url: 'https://example.test',
           },
         ];
@@ -101,32 +101,48 @@ describe('GitHub approval gate', () => {
     };
     expect(() => verifyExactCi(api, sha('c'), 101)).toThrow('not green');
     expect(() =>
-      verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e')),
+      verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e'), sha('b')),
     ).toThrow('not verified');
   });
-  it('accepts only the exact successful PR check and Owner merge commit', () => {
+  it('accepts checks only from the trusted CI workflow and Owner merge parents', () => {
     const api: GitHubTransport = {
       get(path) {
         if (path.includes('check-runs'))
           return {
-            check_runs: [
-              {
-                head_sha: sha('c'),
-                name: 'quality',
-                status: 'completed',
-                conclusion: 'success',
-                html_url: 'https://example.test/check',
-                pull_requests: [{ number: 101 }],
-              },
-              ...(['security', 'containers'] as const).map((name) => ({
+            check_runs: ['quality', 'security', 'containers'].map(
+              (name, index) => ({
+                id: 201 + index,
                 head_sha: sha('c'),
                 name,
                 status: 'completed',
                 conclusion: 'success',
                 html_url: `https://example.test/${name}`,
+                app: { slug: 'github-actions' },
                 pull_requests: [{ number: 101 }],
-              })),
-            ],
+              }),
+            ),
+          };
+        if (path.includes('/actions/jobs/')) {
+          const id = Number(path.split('/').at(-1));
+          return {
+            id,
+            run_id: 555,
+            name: ['quality', 'security', 'containers'][id - 201],
+            status: 'completed',
+            conclusion: 'success',
+          };
+        }
+        if (path.includes('/actions/runs/'))
+          return {
+            name: 'CI',
+            path: '.github/workflows/ci.yml',
+            event: 'pull_request',
+            head_repository: { full_name: 'h-zare-dev/fair-platform' },
+            pull_requests: [{ number: 101 }],
+          };
+        if (path.includes('/git/commits/'))
+          return {
+            parents: [{ sha: sha('b') }, { sha: sha('c') }],
           };
         return {
           merged: true,
@@ -139,42 +155,113 @@ describe('GitHub approval gate', () => {
       post: () => ({}),
     };
     expect(verifyExactCi(api, sha('c'), 101).url).toBe(
-      'https://example.test/check',
+      'https://example.test/quality',
     );
-    expect(verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e'))).toBe(
-      sha('e'),
-    );
+    expect(
+      verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e'), sha('b')),
+    ).toBe(sha('e'));
+    expect(() =>
+      verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e'), sha('d')),
+    ).toThrow('merge parents');
   });
-  it('blocks on a failed security audit or container image scan', () => {
-    const green = (name: string) => ({
+
+  it('blocks on a failed security scan or an unrelated check producer', () => {
+    const checks = ['quality', 'security', 'containers'].map((name, i) => ({
+      id: 201 + i,
       head_sha: sha('c'),
       name,
       status: 'completed',
       conclusion: 'success',
       html_url: `https://example.test/${name}`,
+      app: { slug: 'github-actions' },
       pull_requests: [{ number: 101 }],
-    });
-    const checks = [green('quality'), green('security'), green('containers')];
+    }));
+    let runPath = '.github/workflows/ci.yml';
     const api: GitHubTransport = {
-      get: () => ({ check_runs: checks }),
+      get(path) {
+        if (path.includes('check-runs')) return { check_runs: checks };
+        if (path.includes('/actions/jobs/')) {
+          const id = Number(path.split('/').at(-1));
+          return {
+            id,
+            run_id: 555,
+            name: ['quality', 'security', 'containers'][id - 201],
+            status: 'completed',
+            conclusion: 'success',
+          };
+        }
+        return {
+          name: 'CI',
+          path: runPath,
+          event: 'pull_request',
+          head_repository: { full_name: 'h-zare-dev/fair-platform' },
+          pull_requests: [{ number: 101 }],
+        };
+      },
       post: () => ({}),
     };
     expect(verifyExactCi(api, sha('c'), 101).url).toBe(
       'https://example.test/quality',
     );
-    checks[1] = { ...green('security'), conclusion: 'failure' };
+    checks[1]!.conclusion = 'failure';
     expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
-      'security CI is not green',
+      'security CI provenance is not green',
     );
-    checks[1] = green('security');
-    checks[2] = { ...green('containers'), status: 'in_progress' };
+    checks[1]!.conclusion = 'success';
+    checks[2]!.status = 'in_progress';
     expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
-      'containers CI is not green',
+      'containers CI provenance is not green',
     );
-    checks[2] = green('containers');
-    checks[2] = { ...checks[2], head_sha: sha('d') };
+    checks[2]!.status = 'completed';
+    checks[2]!.head_sha = sha('d');
     expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
-      'containers CI is not green',
+      'containers CI provenance is not green',
+    );
+    checks[2]!.head_sha = sha('c');
+    checks[0]!.app.slug = 'untrusted-app';
+    expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
+      'quality CI provenance is not green',
+    );
+    checks[0]!.app.slug = 'github-actions';
+    runPath = '.github/workflows/malicious.yml';
+    expect(() => verifyExactCi(api, sha('c'), 101)).toThrow(
+      'quality CI provenance is not green',
+    );
+  });
+
+  it('rejects a mutated issue base unless the Owner reapproves that base', () => {
+    let mutatedBase = sha('b');
+    const api: GitHubTransport = {
+      get(path) {
+        if (path.endsWith('/issues/53'))
+          return {
+            number: 53,
+            state: 'open',
+            labels: [{ name: 'agent:approved' }],
+            body: `Approved spec: docs/tasks/ISSUE-53.md @ ${sha('a')}\nBase development SHA: ${mutatedBase}`,
+          };
+        if (path.includes('/comments'))
+          return [
+            {
+              user: { login: 'h-zare-dev' },
+              body: `OWNER_APPROVED_SPEC: docs/tasks/ISSUE-53.md @ ${sha('a')}\nBASE_DEVELOPMENT_SHA: ${sha('b')}`,
+              html_url: 'https://example.test',
+            },
+          ];
+        if (path.includes('/trees/'))
+          return { tree: [{ path: 'docs/tasks/ISSUE-53.md', sha: sha('a') }] };
+        return {
+          sha: sha('a'),
+          encoding: 'base64',
+          content: Buffer.from('approved content').toString('base64'),
+        };
+      },
+      post: () => ({}),
+    };
+    expect(approvedIssue(api, 53, 'h-zare-dev').baseSha).toBe(sha('b'));
+    mutatedBase = sha('c');
+    expect(() => approvedIssue(api, 53, 'h-zare-dev')).toThrow(
+      'Missing authenticated Owner approval',
     );
   });
 

@@ -154,22 +154,32 @@ export function verifyExactCi(
       pull_requests?: { number: number }[];
     }[];
   };
-  const quality =
-    runs.check_runs?.filter(
+  if (!Array.isArray(runs.check_runs))
+    throw new Error('Invalid GitHub CI check response');
+
+  // All three repository release gates are mandatory. A passing quality
+  // job alone must never authorize candidate or Lab deployment when the
+  // dependency audit or image scan has failed.
+  const required = ['quality', 'security', 'containers'] as const;
+  let evidenceUrl = '';
+  for (const gate of required) {
+    const match = runs.check_runs.find(
       (run) =>
         run.head_sha === sha &&
-        run.name === 'quality' &&
+        run.name === gate &&
         (prNumber === undefined ||
           run.pull_requests?.some((pr) => pr.number === prNumber)),
-    ) ?? [];
-  const latest = quality[0];
-  if (
-    !latest ||
-    latest.status !== 'completed' ||
-    latest.conclusion !== 'success'
-  )
-    throw new Error('Required exact-SHA quality CI is not green');
-  return { url: latest.html_url };
+    );
+    if (
+      !match ||
+      match.status !== 'completed' ||
+      match.conclusion !== 'success' ||
+      !match.html_url
+    )
+      throw new Error(`Required exact-SHA ${gate} CI is not green`);
+    if (gate === 'quality') evidenceUrl = match.html_url;
+  }
+  return { url: evidenceUrl };
 }
 
 export function verifyOwnerMerge(

@@ -1,33 +1,41 @@
 {
-  "issue": 53,
+  "issue": 0,
   "ownerLogin": "h-zare-dev",
   "stateFile": "/home/OWNER/.local/state/fair-platform/task.json",
   "modelFile": "/home/OWNER/.local/bin/fair-agent-models.conf",
+  "evidenceDir": "/home/OWNER/.local/state/fair-platform/evidence",
+  "maxModelCallsPerDay": 12,
+  "worktrees": {
+    "IMPLEMENTATION": "/home/OWNER/Work/fair-agent-implementation",
+    "REVIEW": "/home/OWNER/Work/fair-agent-review",
+    "QA": "/home/OWNER/Work/fair-agent-qa"
+  },
+  "sourceRepo": "/home/OWNER/Work/fair-platform-impl",
+  "candidateWorktree": "/home/OWNER/Work/fair-agent-candidate",
+  "pnpmExecutable": "/home/OWNER/.local/share/mise/installs/pnpm/12.6.0/pnpm",
+  "codexExecutable": "/home/OWNER/.local/share/mise/command-wrappers/bin/codex",
+  "githubTokenFile": "/home/OWNER/.local/share/fair-platform/github-token",
+  "ghExecutable": "/home/OWNER/.local/share/mise/installs/gh/latest/gh_2.104.0_linux_amd64/bin/gh",
   "labActivated": false,
   "commands": {
     "IMPLEMENTATION": {
-      "executable": "/opt/fair-agent-gates/implementation",
-      "args": [],
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/gate.js", "IMPLEMENTATION"],
       "timeoutMs": 3600000
     },
     "REVIEW": {
-      "executable": "/opt/fair-agent-gates/review",
-      "args": [],
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/gate.js", "REVIEW"],
       "timeoutMs": 3600000
     },
     "QA": {
-      "executable": "/opt/fair-agent-gates/qa",
-      "args": [],
-      "timeoutMs": 3600000
-    },
-    "CI": {
-      "executable": "/opt/fair-agent-gates/ci",
-      "args": [],
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/gate.js", "QA"],
       "timeoutMs": 3600000
     },
     "CANDIDATE": {
-      "executable": "/opt/fair-agent-gates/candidate",
-      "args": [],
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/candidate.js"],
       "timeoutMs": 3600000
     },
     "LAB_DEPLOY": {

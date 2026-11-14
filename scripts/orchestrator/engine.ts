@@ -16,13 +16,20 @@ export type Evidence = {
 };
 export interface Ports {
   reconcile(state: TaskState): Promise<void>;
-  run(gate: Gate, state: Readonly<TaskState>): Promise<Evidence>;
+  run(gate: Gate, state: Readonly<TaskState>, key: string): Promise<Evidence>;
+  recover?(
+    gate: Gate,
+    state: Readonly<TaskState>,
+    key: string,
+  ): Promise<Evidence | undefined>;
   report(
     state: Readonly<TaskState>,
     gate: Gate,
     evidence: Evidence,
   ): Promise<void>;
   developmentSha(): Promise<string>;
+  verifyOwnerMerge?(state: Readonly<TaskState>): Promise<string | undefined>;
+  publish?(state: TaskState): Promise<void>;
 }
 
 const gateFor: Partial<Record<Phase, Gate>> = {
@@ -72,6 +79,13 @@ export class Orchestrator {
   }
   async step(state: TaskState): Promise<void> {
     await this.ports.reconcile(state);
+    if (state.pendingReport) {
+      const { gate, evidence } = state.pendingReport;
+      await this.ports.report(state, gate, evidence);
+      state.pendingReport = undefined;
+      await this.finish(state, gate, evidence);
+      return;
+    }
     if (state.phase === 'QUEUED') {
       this.transition(state, 'IMPLEMENTING', 'orchestrator');
       return;
@@ -80,12 +94,12 @@ export class Orchestrator {
       this.transition(state, 'IMPLEMENTING', 'orchestrator');
       return;
     }
-    if (
-      ['DONE', 'BLOCKED', 'READY_FOR_OWNER_REVIEW', 'OWNER_MERGED'].includes(
-        state.phase,
-      )
-    )
+    if (state.phase === 'READY_FOR_OWNER_REVIEW') {
+      const merged = await this.ports.verifyOwnerMerge?.(state);
+      if (merged) await this.ownerMerged(state, () => Promise.resolve(merged));
       return;
+    }
+    if (['DONE', 'BLOCKED', 'OWNER_MERGED'].includes(state.phase)) return;
     const gate = gateFor[state.phase];
     if (!gate) throw new Error(`Unsupported phase ${state.phase}`);
     if (
@@ -100,7 +114,26 @@ export class Orchestrator {
       });
       return;
     }
-    const evidence = await this.ports.run(gate, state);
+    const key = `${state.taskId}:${state.attempt}:${gate}:${state.headSha ?? state.baseSha}:${state.candidateSha ?? '-'}`;
+    let evidence: Evidence | undefined;
+    if (state.inFlight) {
+      if (state.inFlight.key !== key || state.inFlight.gate !== gate)
+        throw new Error('In-flight command identity mismatch');
+      evidence = await this.ports.recover?.(gate, state, key);
+      if (!evidence) {
+        this.transition(state, 'BLOCKED', 'orchestrator', {
+          verdict: 'BLOCKED',
+          sha: state.headSha ?? state.baseSha,
+          evidenceId: key,
+          defectCode: 'UNRESOLVED_INFLIGHT',
+        });
+        return;
+      }
+    } else {
+      state.inFlight = { gate, key, startedAt: new Date().toISOString() };
+      this.save(state);
+      evidence = await this.ports.run(gate, state, key);
+    }
     if (!evidence.evidenceId || !isSha(evidence.sha))
       throw new Error('Missing immutable evidence identity');
     const expected =
@@ -118,6 +151,7 @@ export class Orchestrator {
       state.candidateSha = undefined;
       state.deploymentDigest = undefined;
       state.verdicts = {};
+      await this.ports.publish?.(state);
     }
     if (gate === 'CANDIDATE' && evidence.verdict === 'PASS') {
       if (!isSha(evidence.candidateSha ?? ''))
@@ -134,8 +168,18 @@ export class Orchestrator {
       sha: evidence.sha,
       evidenceId: evidence.evidenceId,
     };
+    state.inFlight = undefined;
+    state.pendingReport = { gate, key, evidence };
     this.save(state);
     await this.ports.report(state, gate, evidence);
+    state.pendingReport = undefined;
+    await this.finish(state, gate, evidence);
+  }
+  private async finish(
+    state: TaskState,
+    gate: Gate,
+    evidence: Evidence,
+  ): Promise<void> {
     if (evidence.verdict === 'BLOCKED') {
       this.transition(state, 'BLOCKED', gate, evidence);
       return;
@@ -175,10 +219,16 @@ export class Orchestrator {
     state.verdicts = {};
     this.transition(state, 'REWORK', 'orchestrator', evidence);
   }
-  ownerMerged(state: TaskState, mergedSha: string): void {
-    if (state.phase !== 'READY_FOR_OWNER_REVIEW' || !isSha(mergedSha))
+  async ownerMerged(
+    state: TaskState,
+    verify: () => Promise<string>,
+  ): Promise<void> {
+    if (state.phase !== 'READY_FOR_OWNER_REVIEW')
       throw new Error('No verified Owner merge');
-    this.transition(state, 'OWNER_MERGED', 'owner');
+    const mergedSha = await verify();
+    if (!isSha(mergedSha) || mergedSha !== (await this.ports.developmentSha()))
+      throw new Error('Owner merge is not current development');
+    this.transition(state, 'OWNER_MERGED', 'verified-github-owner');
     this.transition(state, 'POST_MERGE_VERIFY', 'orchestrator');
   }
 }

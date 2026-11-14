@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   approvedIssue,
+  ensureDraftPr,
+  verifyExactCi,
+  verifyOwnerMerge,
+  postVerdict,
   type GitHubTransport,
 } from '../../scripts/orchestrator/github.js';
+import { newTask } from '../../scripts/orchestrator/state.js';
 
 const sha = (digit: string) => digit.repeat(40);
 describe('GitHub approval gate', () => {
@@ -42,5 +47,116 @@ describe('GitHub approval gate', () => {
     expect(approvedIssue(makeApi('h-zare-dev'), 53, 'h-zare-dev').specSha).toBe(
       sha('a'),
     );
+  });
+  it('creates only a Draft PR and reuses it on retry', () => {
+    const state = newTask(57, 'docs/tasks/TASK-57.md', sha('a'), sha('b'));
+    state.headSha = sha('c');
+    let created = 0;
+    const pr = {
+      number: 101,
+      state: 'open',
+      draft: true,
+      merged: false,
+      head: { sha: sha('c') },
+      base: { ref: 'development' },
+    };
+    const api: GitHubTransport = {
+      get: () => (created ? [pr] : []),
+      post: (_path, body) => {
+        expect(body).toMatchObject({ draft: true, base: 'development' });
+        created++;
+        return pr;
+      },
+      patch: () => pr,
+    };
+    expect(ensureDraftPr(api, state, 'agent/57-aaaaaaaaaaaa')).toBe(101);
+    expect(ensureDraftPr(api, state, 'agent/57-aaaaaaaaaaaa')).toBe(101);
+    expect(created).toBe(1);
+  });
+  it('rejects stale CI and non-Owner merges', () => {
+    const api: GitHubTransport = {
+      get(path) {
+        if (path.includes('check-runs'))
+          return {
+            check_runs: [
+              {
+                head_sha: sha('d'),
+                name: 'quality',
+                status: 'completed',
+                conclusion: 'success',
+                html_url: 'https://example.test/check',
+                pull_requests: [{ number: 101 }],
+              },
+            ],
+          };
+        return {
+          merged: true,
+          merged_by: { login: 'other-user' },
+          merge_commit_sha: sha('e'),
+          head: { sha: sha('c') },
+          base: { ref: 'development' },
+        };
+      },
+      post: () => ({}),
+    };
+    expect(() => verifyExactCi(api, sha('c'), 101)).toThrow('not green');
+    expect(() =>
+      verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e')),
+    ).toThrow('not verified');
+  });
+  it('accepts only the exact successful PR check and Owner merge commit', () => {
+    const api: GitHubTransport = {
+      get(path) {
+        if (path.includes('check-runs'))
+          return {
+            check_runs: [
+              {
+                head_sha: sha('c'),
+                name: 'quality',
+                status: 'completed',
+                conclusion: 'success',
+                html_url: 'https://example.test/check',
+                pull_requests: [{ number: 101 }],
+              },
+            ],
+          };
+        return {
+          merged: true,
+          merged_by: { login: 'h-zare-dev' },
+          merge_commit_sha: sha('e'),
+          head: { sha: sha('c') },
+          base: { ref: 'development' },
+        };
+      },
+      post: () => ({}),
+    };
+    expect(verifyExactCi(api, sha('c'), 101).url).toBe(
+      'https://example.test/check',
+    );
+    expect(verifyOwnerMerge(api, 101, 'h-zare-dev', sha('c'), sha('e'))).toBe(
+      sha('e'),
+    );
+  });
+  it('does not repost the same verdict after a reporting restart', () => {
+    const state = newTask(57, 'docs/tasks/TASK-57.md', sha('a'), sha('b'));
+    state.headSha = sha('c');
+    const comments: { body: string }[] = [];
+    let posts = 0;
+    const api: GitHubTransport = {
+      get: () =>
+        comments.map((item) => ({
+          ...item,
+          user: { login: 'agent' },
+          html_url: 'https://example.test',
+        })),
+      post: (_path, body) => {
+        comments.push(body as { body: string });
+        posts++;
+        return body;
+      },
+    };
+    postVerdict(api, state, 'REVIEW', 'PASS', 'review-1');
+    postVerdict(api, state, 'REVIEW', 'PASS', 'review-1');
+    expect(posts).toBe(1);
   });
 });

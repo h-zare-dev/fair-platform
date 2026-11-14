@@ -1,26 +1,50 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import {
+  readFileSync,
+  lstatSync,
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { Orchestrator, type Evidence, type Ports } from './engine.js';
-import { approvedIssue, GhTransport, postVerdict } from './github.js';
+import {
+  approvedIssue,
+  GhTransport,
+  postVerdict,
+  ensureDraftPr,
+  verifyExactCi,
+  verifyOwnerMerge,
+} from './github.js';
+import { publishHead } from './publish.js';
 import { loadModelRoutes } from './models.js';
 import { isSha, StateStore, type Gate } from './state.js';
 
 type Command = { executable: string; args: string[]; timeoutMs: number };
+type CommandGate = Exclude<Gate, 'CI'>;
 type Config = {
   issue: number;
   ownerLogin: string;
   stateFile: string;
   modelFile: string;
+  evidenceDir: string;
+  maxModelCallsPerDay: number;
+  worktrees: { IMPLEMENTATION: string; REVIEW: string; QA: string };
+  sourceRepo: string;
+  candidateWorktree: string;
+  pnpmExecutable: string;
+  codexExecutable: string;
+  githubTokenFile: string;
+  ghExecutable: string;
   labActivated: boolean;
-  commands: Record<Gate, Command>;
+  commands: Record<CommandGate, Command>;
 };
-const gates: Gate[] = [
+const gates: CommandGate[] = [
   'IMPLEMENTATION',
   'REVIEW',
   'QA',
-  'CI',
   'CANDIDATE',
   'LAB_DEPLOY',
   'LAB_E2E',
@@ -28,14 +52,40 @@ const gates: Gate[] = [
 ];
 
 export function loadConfig(path: string): Config {
+  privateFile(path);
   const config = JSON.parse(readFileSync(path, 'utf8')) as Config;
   if (
+    !Number.isSafeInteger(config.issue) ||
     config.issue < 1 ||
     !/^[a-zA-Z0-9-]+$/.test(config.ownerLogin) ||
     !config.stateFile.startsWith('/') ||
-    !config.modelFile.startsWith('/')
+    !config.modelFile.startsWith('/') ||
+    !config.evidenceDir.startsWith('/') ||
+    !config.sourceRepo.startsWith('/') ||
+    !config.candidateWorktree.startsWith('/') ||
+    !config.pnpmExecutable.startsWith('/') ||
+    !config.codexExecutable.startsWith('/') ||
+    !config.githubTokenFile.startsWith('/') ||
+    !config.ghExecutable.startsWith('/') ||
+    config.labActivated !== false ||
+    !Number.isSafeInteger(config.maxModelCallsPerDay) ||
+    config.maxModelCallsPerDay < 1 ||
+    config.maxModelCallsPerDay > 50
   )
     throw new Error('Invalid runner configuration');
+  privateFile(config.modelFile);
+  privateFile(config.githubTokenFile);
+  for (const role of ['IMPLEMENTATION', 'REVIEW', 'QA'] as const)
+    if (
+      !config.worktrees?.[role]?.startsWith('/') ||
+      basename(config.worktrees[role]) !== `fair-agent-${role.toLowerCase()}` ||
+      config.worktrees[role] === config.sourceRepo
+    )
+      throw new Error(`Unsafe ${role} worktree`);
+  if (basename(config.candidateWorktree) !== 'fair-agent-candidate')
+    throw new Error('Unsafe candidate worktree');
+  if (new Set(Object.values(config.worktrees)).size !== 3)
+    throw new Error('Role worktrees must be distinct');
   loadModelRoutes(config.modelFile);
   for (const gate of gates) {
     const command = config.commands[gate];
@@ -43,16 +93,37 @@ export function loadConfig(path: string): Config {
       !command?.executable.startsWith('/') ||
       !Array.isArray(command.args) ||
       command.args.some((arg) => typeof arg !== 'string') ||
+      !Number.isSafeInteger(command.timeoutMs) ||
       command.timeoutMs < 1000 ||
       command.timeoutMs > 3_600_000
     )
       throw new Error(`Invalid ${gate} command`);
+    const info = lstatSync(command.executable);
+    if (
+      !info.isFile() ||
+      (info.mode & 0o022) !== 0 ||
+      ![0, process.getuid?.()].includes(info.uid) ||
+      (info.mode & 0o111) === 0
+    )
+      throw new Error(`Unsafe ${gate} executable`);
   }
   return config;
 }
 
+function privateFile(path: string): void {
+  const info = lstatSync(path);
+  if (
+    !info.isFile() ||
+    info.uid !== process.getuid?.() ||
+    (info.mode & 0o077) !== 0
+  )
+    throw new Error('Unsafe private configuration file');
+}
+
 export function commandPorts(config: Config): Ports {
-  const api = new GhTransport();
+  const token = readFileSync(config.githubTokenFile, 'utf8').trim();
+  const api = new GhTransport(token, config.ghExecutable);
+  const branch = `agent/${config.issue}-`;
   return {
     reconcile(state) {
       const current = approvedIssue(api, state.taskId, config.ownerLogin);
@@ -61,6 +132,22 @@ export function commandPorts(config: Config): Ports {
         current.baseSha !== state.baseSha
       )
         throw new Error('Approved task changed after checkpoint');
+      if (state.prNumber && state.headSha) {
+        const pr = api.get(
+          `/repos/h-zare-dev/fair-platform/pulls/${state.prNumber}`,
+        ) as {
+          head?: { sha?: string };
+          base?: { ref?: string };
+          draft?: boolean;
+          merged?: boolean;
+        };
+        if (
+          pr.head?.sha !== state.headSha ||
+          pr.base?.ref !== 'development' ||
+          (!pr.draft && !pr.merged)
+        )
+          throw new Error('PR head/base/draft state drifted');
+      }
       return Promise.resolve();
     },
     developmentSha() {
@@ -71,11 +158,67 @@ export function commandPorts(config: Config): Ports {
       if (!sha || !isSha(sha)) throw new Error('Cannot verify development SHA');
       return Promise.resolve(sha);
     },
-    run(gate, state) {
+    publish(state) {
+      const name = `${branch}${state.specSha.slice(0, 12)}`;
+      publishHead(config.worktrees.IMPLEMENTATION, name, state.headSha!, token);
+      state.prNumber = ensureDraftPr(api, state, name);
+      return Promise.resolve();
+    },
+    verifyOwnerMerge(state) {
+      if (!state.prNumber || !state.headSha) return Promise.resolve(undefined);
+      const pr = api.get(
+        `/repos/h-zare-dev/fair-platform/pulls/${state.prNumber}`,
+      ) as { merged?: boolean };
+      if (!pr.merged) return Promise.resolve(undefined);
+      const development = (
+        api.get(
+          '/repos/h-zare-dev/fair-platform/git/ref/heads/development',
+        ) as { object: { sha: string } }
+      ).object.sha;
+      return Promise.resolve(
+        verifyOwnerMerge(
+          api,
+          state.prNumber,
+          config.ownerLogin,
+          state.headSha,
+          development,
+        ),
+      );
+    },
+    run(gate, state, key) {
+      if (gate === 'CI') {
+        const checked = verifyExactCi(api, state.headSha ?? '', state.prNumber);
+        return Promise.resolve({
+          verdict: 'PASS',
+          sha: state.headSha!,
+          evidenceId: `quality-${createHash('sha256').update(checked.url).digest('hex').slice(0, 16)}`,
+        });
+      }
       if ((gate === 'LAB_DEPLOY' || gate === 'LAB_E2E') && !config.labActivated)
         throw new Error('Lab activation has not been approved');
+      mkdirSync(config.evidenceDir, { recursive: true, mode: 0o700 });
+      if (['IMPLEMENTATION', 'REVIEW', 'QA'].includes(gate)) {
+        const day = new Date().toISOString().slice(0, 10);
+        const usagePath = join(config.evidenceDir, 'usage.json');
+        let usage: Record<string, number> = {};
+        try {
+          usage = JSON.parse(readFileSync(usagePath, 'utf8')) as Record<
+            string,
+            number
+          >;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+        if ((usage[day] ?? 0) >= config.maxModelCallsPerDay)
+          throw new Error('Daily model call budget exhausted');
+        usage[day] = (usage[day] ?? 0) + 1;
+        const temp = `${usagePath}.${process.pid}.tmp`;
+        writeFileSync(temp, JSON.stringify(usage), { mode: 0o600 });
+        renameSync(temp, usagePath);
+      }
       const command = config.commands[gate];
       const input = JSON.stringify({
+        idempotencyKey: key,
         taskId: state.taskId,
         attempt: state.attempt,
         specPath: state.specPath,
@@ -85,13 +228,26 @@ export function commandPorts(config: Config): Ports {
         candidateSha: state.candidateSha,
         deploymentDigest: state.deploymentDigest,
         gate,
+        worktree:
+          gate === 'IMPLEMENTATION' || gate === 'REVIEW' || gate === 'QA'
+            ? config.worktrees[gate]
+            : undefined,
+        sourceRepo: config.sourceRepo,
+        candidateWorktree: config.candidateWorktree,
+        pnpmExecutable: config.pnpmExecutable,
+        codexExecutable: config.codexExecutable,
       });
       const output = execFileSync(command.executable, command.args, {
         input,
         encoding: 'utf8',
         timeout: command.timeoutMs,
         maxBuffer: 256_000,
-        env: { ...process.env, FAIR_MODEL_CONFIG: config.modelFile },
+        env: {
+          HOME: homedir(),
+          PATH: '/usr/bin:/bin:/home/hossein/.local/bin',
+          USER: process.env.USER ?? '',
+          FAIR_MODEL_CONFIG: config.modelFile,
+        },
       });
       const evidence = JSON.parse(output) as Evidence;
       if (
@@ -99,10 +255,53 @@ export function commandPorts(config: Config): Ports {
         !/^[a-zA-Z0-9_.:-]{1,120}$/.test(evidence.evidenceId)
       )
         throw new Error('Invalid gate evidence');
+      const path = join(
+        config.evidenceDir,
+        `${createHash('sha256').update(key).digest('hex')}.json`,
+      );
+      const temp = `${path}.${process.pid}.tmp`;
+      writeFileSync(temp, JSON.stringify(evidence), { mode: 0o600 });
+      renameSync(temp, path);
       return Promise.resolve(evidence);
+    },
+    recover(_gate, _state, key) {
+      if (_gate === 'CI') {
+        const checked = verifyExactCi(
+          api,
+          _state.headSha ?? '',
+          _state.prNumber,
+        );
+        return Promise.resolve({
+          verdict: 'PASS' as const,
+          sha: _state.headSha!,
+          evidenceId: `quality-${createHash('sha256').update(checked.url).digest('hex').slice(0, 16)}`,
+        });
+      }
+      const path = join(
+        config.evidenceDir,
+        `${createHash('sha256').update(key).digest('hex')}.json`,
+      );
+      try {
+        return Promise.resolve(
+          JSON.parse(readFileSync(path, 'utf8')) as Evidence,
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          return Promise.resolve(undefined);
+        throw error;
+      }
     },
     report(state, gate, evidence) {
       postVerdict(api, state, gate, evidence.verdict, evidence.evidenceId);
+      if (state.prNumber)
+        postVerdict(
+          api,
+          state,
+          gate,
+          evidence.verdict,
+          evidence.evidenceId,
+          state.prNumber,
+        );
       return Promise.resolve();
     },
   };
@@ -111,7 +310,10 @@ export function commandPorts(config: Config): Ports {
 export async function runOnce(configPath: string): Promise<void> {
   const config = loadConfig(configPath);
   const store = new StateStore(config.stateFile);
-  const api = new GhTransport();
+  const api = new GhTransport(
+    readFileSync(config.githubTokenFile, 'utf8').trim(),
+    config.ghExecutable,
+  );
   const approved = approvedIssue(api, config.issue, config.ownerLogin);
   const state = store.load() ?? approved;
   if (state.taskId !== approved.taskId || state.specSha !== approved.specSha)

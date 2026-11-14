@@ -1,0 +1,13 @@
+[Unit]
+Description=Poll one approved Fair Platform feature task
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1min
+Persistent=true
+Unit=fair-orchestrator.service
+
+[Install]
+WantedBy=timers.target
+
+# This is a template only. Do not install or enable before Owner acceptance.

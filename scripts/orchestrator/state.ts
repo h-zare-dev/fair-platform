@@ -6,8 +6,9 @@ import {
   renameSync,
   writeFileSync,
   fsyncSync,
-  unlinkSync,
 } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { dirname } from 'node:path';
 
 export type Phase =
@@ -53,10 +54,26 @@ export type TaskState = {
   headSha?: string | undefined;
   candidateSha?: string | undefined;
   deploymentDigest?: string | undefined;
+  prNumber?: number | undefined;
   phase: Phase;
   attempt: number;
   reworks: number;
   maxReworks: number;
+  inFlight?: { gate: Gate; key: string; startedAt: string } | undefined;
+  pendingReport?:
+    | {
+        gate: Gate;
+        key: string;
+        evidence: {
+          verdict: Verdict;
+          sha: string;
+          evidenceId: string;
+          defectCode?: string | undefined;
+          candidateSha?: string | undefined;
+          deploymentDigest?: string | undefined;
+        };
+      }
+    | undefined;
   verdicts: Partial<
     Record<Gate, { verdict: Verdict; sha: string; evidenceId: string }>
   >;
@@ -96,7 +113,21 @@ export class StateStore {
   constructor(readonly path: string) {}
   load(): TaskState | undefined {
     try {
-      return JSON.parse(readFileSync(this.path, 'utf8')) as TaskState;
+      const state = JSON.parse(readFileSync(this.path, 'utf8')) as TaskState;
+      if (
+        !Number.isSafeInteger(state.taskId) ||
+        state.taskId < 1 ||
+        !isSha(state.specSha) ||
+        !isSha(state.baseSha) ||
+        !Number.isSafeInteger(state.attempt) ||
+        state.attempt < 1 ||
+        !Number.isSafeInteger(state.reworks) ||
+        state.reworks < 0 ||
+        !Array.isArray(state.transitions) ||
+        typeof state.phase !== 'string'
+      )
+        throw new Error('Invalid durable task state');
+      return state;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;
@@ -122,19 +153,34 @@ export class StateStore {
   }
   async withLock<T>(fn: () => Promise<T>): Promise<T> {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-    let lock: number;
-    try {
-      lock = openSync(`${this.path}.lock`, 'wx', 0o600);
-    } catch {
-      throw new Error(
-        'Another orchestrator holds the task lock; inspect before recovery',
-      );
-    }
+    // flock is kernel owned. Its lock survives neither a process kill nor a
+    // reboot, unlike an O_EXCL sentinel. The fixed child reads from a pipe;
+    // parent death closes the pipe and releases the lock.
+    const holder = spawn(
+      '/usr/bin/flock',
+      ['-n', `${this.path}.lock`, '/bin/sh', '-c', "printf 'READY\\n'; read _"],
+      { stdio: ['pipe', 'pipe', 'ignore'], env: { PATH: '/usr/bin:/bin' } },
+    );
+    let ready = false;
+    const handshake = new Promise<void>((resolve, reject) => {
+      holder.stdout.on('data', (chunk: Buffer) => {
+        if (chunk.toString().includes('READY')) {
+          ready = true;
+          resolve();
+        }
+      });
+      holder.on('error', reject);
+      holder.on('exit', () => {
+        if (!ready)
+          reject(new Error('Another orchestrator holds the task lock'));
+      });
+    });
+    await handshake;
     try {
       return await fn();
     } finally {
-      closeSync(lock);
-      unlinkSync(`${this.path}.lock`);
+      holder.stdin.end();
+      if (holder.exitCode === null) await once(holder, 'exit');
     }
   }
 }

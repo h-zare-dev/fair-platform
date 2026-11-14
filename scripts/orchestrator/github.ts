@@ -141,43 +141,96 @@ export function verifyExactCi(
   sha: string,
   prNumber?: number,
 ): { url: string } {
-  if (!isSha(sha)) throw new Error('Invalid CI SHA');
-  const runs = api.get(
+  if (!isSha(sha) || !Number.isSafeInteger(prNumber) || prNumber! < 1)
+    throw new Error('Exact PR identity is required for CI');
+  const response = api.get(
     `/repos/${repo}/commits/${sha}/check-runs?per_page=100`,
   ) as {
+    total_count?: number;
     check_runs?: {
+      id: number;
       head_sha: string;
       name: string;
       status: string;
       conclusion: string;
       html_url: string;
+      app?: { slug?: string };
       pull_requests?: { number: number }[];
     }[];
   };
-  if (!Array.isArray(runs.check_runs))
-    throw new Error('Invalid GitHub CI check response');
+  if (
+    !Array.isArray(response.check_runs) ||
+    (response.total_count !== undefined &&
+      response.total_count > response.check_runs.length)
+  )
+    throw new Error('Missing or truncated GitHub CI checks');
 
-  // All three repository release gates are mandatory. A passing quality
-  // job alone must never authorize candidate or Lab deployment when the
-  // dependency audit or image scan has failed.
+  // A check name is not proof of provenance: other apps or workflows can
+  // publish checks with the same name. Authenticate the GitHub Actions job
+  // and its parent workflow run, including repository, event and PR.
   const required = ['quality', 'security', 'containers'] as const;
   let evidenceUrl = '';
+  let trustedRunId: number | undefined;
   for (const gate of required) {
-    const match = runs.check_runs.find(
-      (run) =>
-        run.head_sha === sha &&
-        run.name === gate &&
-        (prNumber === undefined ||
-          run.pull_requests?.some((pr) => pr.number === prNumber)),
+    const candidates = response.check_runs.filter(
+      (check) =>
+        check.head_sha === sha &&
+        check.name === gate &&
+        check.app?.slug === 'github-actions' &&
+        check.pull_requests?.some((pr) => pr.number === prNumber),
     );
-    if (
-      !match ||
-      match.status !== 'completed' ||
-      match.conclusion !== 'success' ||
-      !match.html_url
-    )
-      throw new Error(`Required exact-SHA ${gate} CI is not green`);
-    if (gate === 'quality') evidenceUrl = match.html_url;
+    let verified = false;
+    for (const check of candidates) {
+      if (
+        !Number.isSafeInteger(check.id) ||
+        check.id < 1 ||
+        check.status !== 'completed' ||
+        check.conclusion !== 'success' ||
+        !check.html_url
+      )
+        continue;
+      const job = api.get(`/repos/${repo}/actions/jobs/${check.id}`) as {
+        id?: number;
+        run_id?: number;
+        name?: string;
+        status?: string;
+        conclusion?: string;
+      };
+      if (
+        job.id !== check.id ||
+        job.name !== gate ||
+        job.status !== 'completed' ||
+        job.conclusion !== 'success' ||
+        !Number.isSafeInteger(job.run_id) ||
+        job.run_id! < 1
+      )
+        continue;
+      const run = api.get(
+        `/repos/${repo}/actions/runs/${job.run_id}`,
+      ) as {
+        path?: string;
+        name?: string;
+        event?: string;
+        head_repository?: { full_name?: string };
+        pull_requests?: { number: number }[];
+      };
+      if (
+        run.path !== '.github/workflows/ci.yml' ||
+        run.name !== 'CI' ||
+        run.event !== 'pull_request' ||
+        run.head_repository?.full_name !== repo ||
+        !run.pull_requests?.some((pr) => pr.number === prNumber)
+      )
+        continue;
+      if (trustedRunId !== undefined && trustedRunId !== job.run_id)
+        throw new Error('Required CI gates are not from the same workflow run');
+      trustedRunId = job.run_id;
+      if (gate === 'quality') evidenceUrl = check.html_url;
+      verified = true;
+      break;
+    }
+    if (!verified)
+      throw new Error(`Required exact-SHA ${gate} CI provenance is not green`);
   }
   return { url: evidenceUrl };
 }
@@ -188,6 +241,7 @@ export function verifyOwnerMerge(
   ownerLogin: string,
   expectedHead: string,
   developmentSha: string,
+  approvedBaseSha: string,
 ): string {
   const pr = api.get(`/repos/${repo}/pulls/${prNumber}`) as Pull;
   if (
@@ -199,6 +253,19 @@ export function verifyOwnerMerge(
     pr.base.ref !== 'development'
   )
     throw new Error('Owner merge is not verified on current development');
+  // The candidate was tested against a specific base. Accept only a real
+  // two-parent merge of that exact base and reviewed feature head: a later
+  // development advance or squash/rebase invalidates candidate evidence.
+  const commit = api.get(
+    `/repos/${repo}/git/commits/${pr.merge_commit_sha}`,
+  ) as { parents?: { sha: string }[] };
+  if (
+    !isSha(approvedBaseSha) ||
+    commit.parents?.length !== 2 ||
+    commit.parents[0]?.sha !== approvedBaseSha ||
+    commit.parents[1]?.sha !== expectedHead
+  )
+    throw new Error('Owner merge parents do not match verified candidate');
   return developmentSha;
 }
 
@@ -226,7 +293,8 @@ export function approvedIssue(
   const approval = comments.find(
     (comment) =>
       comment.user.login === ownerLogin &&
-      comment.body.trim() === `OWNER_APPROVED_SPEC: ${spec[1]} @ ${spec[2]}`,
+      comment.body.trim() ===
+        `OWNER_APPROVED_SPEC: ${spec[1]} @ ${spec[2]}\nBASE_DEVELOPMENT_SHA: ${base[1]}`,
   );
   if (!approval)
     throw new Error('Missing authenticated Owner approval of exact spec');

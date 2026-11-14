@@ -223,7 +223,7 @@ export function verifyExactCi(
       )
         continue;
       if (trustedRunId !== undefined && trustedRunId !== job.run_id)
-        throw new Error('Required CI gates are not from the same workflow run');
+        throw new Error('CI gates span multiple runs');
       trustedRunId = job.run_id;
       if (gate === 'quality') evidenceUrl = check.html_url;
       verified = true;
@@ -290,11 +290,12 @@ export function approvedIssue(
   const base = /^Base development SHA: ([a-f0-9]{40})$/m.exec(issue.body);
   if (!spec || !base) throw new Error('Issue lacks pinned spec/base');
   const comments = allComments(api, number);
+  const approvedSpec = `OWNER_APPROVED_SPEC: ${spec[1]} @ ${spec[2]}`;
+  const approvedBase = `BASE_DEVELOPMENT_SHA: ${base[1]}`;
   const approval = comments.find(
     (comment) =>
       comment.user.login === ownerLogin &&
-      comment.body.trim() ===
-        `OWNER_APPROVED_SPEC: ${spec[1]} @ ${spec[2]}\nBASE_DEVELOPMENT_SHA: ${base[1]}`,
+      comment.body.trim() === `${approvedSpec}\n${approvedBase}`,
   );
   if (!approval)
     throw new Error('Missing authenticated Owner approval of exact spec');

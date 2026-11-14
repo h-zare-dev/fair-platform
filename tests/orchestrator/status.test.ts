@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createStatusSnapshot, renderStatus } from '../../scripts/orchestrator/status.js';
+import {
+  createStatusSnapshot,
+  renderStatus,
+} from '../../scripts/orchestrator/status.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
 import type { ModelRoute, Role } from '../../scripts/orchestrator/models.js';
 
@@ -46,9 +49,9 @@ describe('read-only agent status snapshot', () => {
       evidenceId: 'impl-1',
     };
     const snapshot = createStatusSnapshot(task, models);
-    expect(snapshot.roles.find((role) => role.role === 'REVIEW')?.activity).toBe(
-      'IN_FLIGHT_UNVERIFIED',
-    );
+    expect(
+      snapshot.roles.find((role) => role.role === 'REVIEW')?.activity,
+    ).toBe('IN_FLIGHT_UNVERIFIED');
     expect(
       snapshot.roles.find((role) => role.role === 'IMPLEMENTATION'),
     ).toMatchObject({ activity: 'LAST_PASS', testedSha: sha('c') });

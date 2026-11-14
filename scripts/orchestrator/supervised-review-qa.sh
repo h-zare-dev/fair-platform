@@ -70,14 +70,15 @@ status "QA_DETERMINISTIC_TESTS | $PR_SHA"
 set +e
 (
   cd "$RUN_DIR/qa" &&
-  mise exec -- pnpm install --frozen-lockfile &&
-  mise exec -- pnpm exec vitest run tests/orchestrator
+  timeout --signal=TERM --kill-after=15s 10m mise exec -- pnpm install --frozen-lockfile &&
+  timeout --signal=TERM --kill-after=15s 20m mise exec -- pnpm exec vitest run tests/orchestrator
 ) > "$RUN_DIR/qa-tests.log" 2>&1
 QA_TEST_EXIT=$?
 set -e
 tail -n 16 "$RUN_DIR/qa-tests.log" || true
 printf 'QA_TEST_EXIT=%d\n' "$QA_TEST_EXIT" >> "$RUN_DIR/manifest.txt"
 
+QA_PROMPT="$QA_PROMPT The independent deterministic tests command returned exit status $QA_TEST_EXIT. An exit status other than zero is a blocking QA finding. Do not claim tests passed if this exit status is nonzero."
 status "QA_AGENT_RUNNING | $PR_SHA"
 set +e
 env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY \

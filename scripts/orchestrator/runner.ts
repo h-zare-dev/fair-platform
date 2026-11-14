@@ -120,7 +120,7 @@ function privateFile(path: string): void {
     throw new Error('Unsafe private configuration file');
 }
 
-type Receipt = {
+export type Receipt = {
   key: string;
   gate: Gate;
   taskId: number;
@@ -132,7 +132,7 @@ type Receipt = {
   evidence: Evidence;
 };
 
-function receiptFor(
+export function receiptFor(
   state: Readonly<import('./state.js').TaskState>,
   gate: Gate,
   key: string,
@@ -159,7 +159,7 @@ function verifiedWorktreeHead(path: string): string {
   }).trim();
 }
 
-function verifyReceipt(
+export function verifyReceipt(
   config: Config,
   state: Readonly<import('./state.js').TaskState>,
   gate: Gate,

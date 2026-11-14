@@ -3,9 +3,19 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeCodexGate } from '../../scripts/orchestrator/gate.js';
+import {
+  CODEX_PRLIMIT_ARGS,
+  executeCodexGate,
+} from '../../scripts/orchestrator/gate.js';
 
 describe('Codex gate', () => {
+  it('does not impose RLIMIT_AS on Codex', () => {
+    expect(CODEX_PRLIMIT_ARGS).toEqual(['--cpu=3600', '--nofile=1024']);
+    expect(CODEX_PRLIMIT_ARGS.some((arg) => arg.startsWith('--as'))).toBe(
+      false,
+    );
+  });
+
   it('uses the Review route and does not pass GitHub credentials to Codex', () => {
     const dir = mkdtempSync(join(tmpdir(), 'fair-gate-test-'));
     const repo = join(dir, 'repo');

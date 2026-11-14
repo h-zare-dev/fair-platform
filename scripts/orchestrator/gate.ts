@@ -37,6 +37,8 @@ const roles: Record<string, Role> = {
   QA: 'QA',
 };
 
+export const CODEX_PRLIMIT_ARGS = ['--cpu=3600', '--nofile=1024'] as const;
+
 export function executeCodexGate(
   gate: string,
   input: GateInput,
@@ -207,9 +209,7 @@ export function executeCodexGate(
     execFileSync(
       '/usr/bin/prlimit',
       [
-        '--cpu=3600',
-        '--as=6442450944',
-        '--nofile=1024',
+        ...CODEX_PRLIMIT_ARGS,
         '--',
         codexPath,
         '-a',

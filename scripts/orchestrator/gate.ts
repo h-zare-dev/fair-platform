@@ -7,7 +7,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadModelRoutes, type Role } from './models.js';
 import { isSha, type Gate } from './state.js';
@@ -24,6 +24,7 @@ type GateInput = {
   worktree: string;
   sourceRepo: string;
   codexExecutable: string;
+  pnpmExecutable: string;
 };
 type Verdict = {
   verdict: 'PASS' | 'FAIL' | 'BLOCKED';
@@ -58,7 +59,11 @@ export function executeCodexGate(
   )
     throw new Error('Invalid gate input');
   const route = loadModelRoutes(process.env.FAIR_MODEL_CONFIG!)[role];
-  if (!input.sourceRepo.startsWith('/') || !codexPath.startsWith('/'))
+  if (
+    !input.sourceRepo.startsWith('/') ||
+    !codexPath.startsWith('/') ||
+    !input.pnpmExecutable?.startsWith('/')
+  )
     throw new Error('Invalid gate executable paths');
   const branch = `agent/${input.taskId}-${input.specSha.slice(0, 12)}`;
   if (!existsSync(input.worktree)) {
@@ -127,6 +132,46 @@ export function executeCodexGate(
     ).trim()
   )
     throw new Error('Role worktree has uncommitted changes');
+  // Install exact locked dependencies for each isolated worktree without
+  // executing unreviewed package lifecycle scripts. This runs before Codex,
+  // so read-only Review/QA can execute tests and do not mutate source code.
+  const safePath = [
+    dirname(process.execPath),
+    dirname(input.pnpmExecutable),
+    '/usr/bin',
+    '/bin',
+  ].join(':');
+  execFileSync(
+    '/usr/bin/prlimit',
+    [
+      '--cpu=600',
+      '--as=6442450944',
+      '--nofile=1024',
+      '--',
+      input.pnpmExecutable,
+      'install',
+      '--frozen-lockfile',
+      '--ignore-scripts',
+    ],
+    {
+      cwd: input.worktree,
+      encoding: 'utf8',
+      timeout: 600_000,
+      maxBuffer: 2_000_000,
+      env: {
+        HOME: process.env.HOME ?? '',
+        PATH: safePath,
+      },
+    },
+  );
+  if (
+    execFileSync(
+      '/usr/bin/git',
+      ['-C', input.worktree, 'status', '--porcelain'],
+      { encoding: 'utf8' },
+    ).trim()
+  )
+    throw new Error('Dependency setup modified tracked worktree content');
   const temp = mkdtempSync(join(tmpdir(), 'fair-gate-'));
   const out = join(temp, 'verdict.json');
   const schema = join(temp, 'schema.json');
@@ -187,7 +232,7 @@ export function executeCodexGate(
         maxBuffer: 256_000,
         env: {
           HOME: process.env.HOME ?? '',
-          PATH: '/usr/bin:/bin:/home/hossein/.local/bin',
+          PATH: safePath,
           USER: process.env.USER ?? '',
         },
       },

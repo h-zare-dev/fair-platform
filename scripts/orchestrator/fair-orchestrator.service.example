@@ -1,0 +1,14 @@
+[Unit]
+Description=Fair Platform supervised orchestrator tick
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node %h/.local/share/fair-platform/orchestrator/dist/runner.js %h/.config/fair-platform/orchestrator.json
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+# This is a template only. Do not install or enable before Owner acceptance.

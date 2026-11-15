@@ -76,6 +76,7 @@ jobs:
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           exit-code: '1'
+          trivyignores: .github/security/caddy-go-jose-v3-temporary-exception.yaml
           skip-dirs: node_modules,.git
 
   containers:
@@ -174,6 +175,7 @@ jobs:
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           exit-code: '1'
+          trivyignores: .github/security/caddy-go-jose-v3-temporary-exception.yaml
       - name: Scan PostgreSQL
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:

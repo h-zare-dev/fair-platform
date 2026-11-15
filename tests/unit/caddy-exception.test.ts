@@ -1,0 +1,39 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+const exceptionPolicyPath =
+  '.github/security/caddy-go-jose-v3-temporary-exception.yaml';
+const acceptedPurl = 'pkg:golang/github.com/go-jose/go-jose/v3@v3.0.5';
+const policy = readFileSync(exceptionPolicyPath, 'utf8');
+const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+
+describe('Caddy temporary security exception', () => {
+  it('targets only the known unpatched v3 package and expires', () => {
+    const cveCount = policy.match(/\bid: CVE-/g)?.length;
+    const purlCount = policy.match(/pkg:golang\//g)?.length;
+    expect(cveCount).toBe(1);
+    expect(policy).toContain('id: CVE-2026-116587');
+    expect(purlCount).toBe(1);
+    expect(policy).toContain(acceptedPurl);
+    expect(policy).toContain('expired_at: 2026-12-15');
+    expect(policy).not.toMatch(/not_affected/);
+  });
+
+  it('loads the exception in source and Caddy scans only', () => {
+    const sections = ci.split(/^      - name: /m);
+    const option = 'trivyignores: ' + exceptionPolicyPath;
+    const accepted = sections.filter((section) => section.includes(option));
+    const names = accepted.map((section) => section.split('\n')[0]).sort();
+    expect(names).toEqual(['Dependency and secret scan', 'Scan Caddy']);
+    for (const section of accepted) {
+      expect(section).toContain("exit-code: '1'");
+      expect(section).toContain('severity: HIGH,CRITICAL');
+    }
+    const rest = ['Scan API image', 'Scan Web image', 'Scan PostgreSQL'];
+    for (const name of rest) {
+      const section = sections.find((part) => part.startsWith(name));
+      expect(section).toBeDefined();
+      expect(section).not.toContain('trivyignores:');
+    }
+  });
+});

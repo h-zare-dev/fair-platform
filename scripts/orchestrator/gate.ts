@@ -269,15 +269,21 @@ export function executeCodexGate(
     if (gate !== 'IMPLEMENTATION') {
       const dirty = execFileSync(
         '/usr/bin/git',
-        ['-C', input.worktree, 'status', '--porcelain', '--untracked-files=all'],
+        [
+          '-C',
+          input.worktree,
+          'status',
+          '--porcelain',
+          '--untracked-files=all',
+        ],
         { encoding: 'utf8', timeout: 20_000 },
       ).trim();
       if (dirty) throw new Error('Independent gate modified its worktree');
     }
-    const safeEvidenceId = /^[a-zA-Z0-9_.:-]{1,100}$/.test(verdict.evidenceId)
-      ? verdict.evidenceId
-      : 'codex-evidence-' +
-        createHash('sha256').update(verdict.evidenceId).digest('hex').slice(0, 20);
+    const safeEvidenceId = createHash('sha256')
+      .update(verdict.evidenceId)
+      .digest('hex')
+      .slice(0, 20);
     const receiptSuffix = createHash('sha256')
       .update(input.idempotencyKey)
       .digest('hex')

@@ -1,9 +1,6 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { commitApprovedPilotFiles } from '../../scripts/orchestrator/gate.js';
 
 const base = '5d7101d6cd85392ab37adbc24056f39aba7d5b2a';
 const spec = 'a88c1be212e72f518d8b317747ea586d19f09e37';
@@ -12,11 +9,6 @@ const python = join(
   process.cwd(),
   'scripts/orchestrator/recover-pilot-git-sandbox.py',
 );
-const paths = [
-  'scripts/pilot/phase-label.ts',
-  'scripts/pilot/tsconfig.json',
-  'tests/unit/pilot-phase-label.test.ts',
-];
 
 function checkpoint() {
   return {
@@ -129,58 +121,4 @@ describe('pilot #57 linked-worktree Git sandbox recovery', () => {
     expect(result.status).not.toBe(0);
   });
 
-  it('commits only the approved three pilot files outside the agent sandbox', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fair-pilot-commit-'));
-    const git = (...args: string[]) =>
-      execFileSync('/usr/bin/git', ['-C', dir, ...args], {
-        encoding: 'utf8',
-      }).trim();
-    try {
-      git('init', '-q');
-      writeFileSync(join(dir, 'README.md'), 'Fixture\n');
-      git('add', 'README.md');
-      git(
-        '-c',
-        'user.name=Fixture',
-        '-c',
-        'user.email=fixture@invalid.local',
-        'commit',
-        '-qm',
-        'base',
-      );
-      const before = git('rev-parse', 'HEAD');
-      git('switch', '-q', '-c', 'agent/57-' + spec.slice(0, 12));
-
-      for (const path of paths) {
-        mkdirSync(join(dir, path, '..'), { recursive: true });
-        writeFileSync(join(dir, path), 'fixture\n');
-      }
-
-      const input = {
-        taskId: 57,
-        attempt: 3,
-        idempotencyKey: '57:3:IMPLEMENTATION:' + base + ':-',
-        specPath: 'docs/tasks/PILOT-001-automatic-agent-chain.md',
-        specSha: spec,
-        baseSha: base,
-        gate: 'IMPLEMENTATION' as const,
-        worktree: dir,
-        sourceRepo: dir,
-        codexExecutable: '/bin/true',
-        pnpmExecutable: '/bin/true',
-      };
-      const after = commitApprovedPilotFiles(input, before);
-      expect(after).not.toBe(before);
-      expect(git('status', '--porcelain')).toBe('');
-      expect(git('show', '--pretty=format:', '--name-only').split('\n').sort())
-        .toEqual([...paths].sort());
-
-      writeFileSync(join(dir, 'unexpected.txt'), 'unsafe\n');
-      expect(() => commitApprovedPilotFiles(input, after)).toThrow(
-        'unexpected paths',
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
 });

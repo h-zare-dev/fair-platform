@@ -153,12 +153,7 @@ export async function createOwnerApi(
     .getInstance()
     .addHook(
       'onSend',
-      (
-        _req: FastifyRequest,
-        reply: FastifyReply,
-        payload: unknown,
-        done: (err: Error | null, value: unknown) => void,
-      ) => {
+      (_req, reply, payload, done) => {
         reply.header('Cache-Control', 'no-store');
         reply.header('X-Content-Type-Options', 'nosniff');
         done(null, payload);

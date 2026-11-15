@@ -3,17 +3,27 @@ Run: FAIR_RELEASE_DOCKER_TEST=1 python3 -m unittest discover -s tests/release -p
 """
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import unittest
 from test_release import ReleaseTests, Commands, release
 
 
+
+def safe_compose_project_name(directory_name):
+    """Produce a valid, unique disposable Docker name even for trailing _ in mkdtemp."""
+    normalized = re.sub(r"[^a-z0-9]+", "-", directory_name.lower()).strip("-")
+    if not normalized:
+        raise ValueError("Missing disposable test directory identifier")
+    return "fair-release-test-" + normalized
+
+
 @unittest.skipUnless(os.environ.get('FAIR_RELEASE_DOCKER_TEST') == '1', 'explicit disposable Docker gate required')
 class ComposeTests(ReleaseTests):
     def setUp(self):
         super().setUp()
-        self.project = 'fair-release-test-' + self.root.name.lower().replace('_', '-')
+        self.project = safe_compose_project_name(self.root.name)
         self.image = os.environ.get('RELEASE_TEST_POSTGRES_IMAGE', 'postgres:17-alpine')
         # Two distinct local tags for the same engine reproduce changed image selection.
         self.old_tag = self.project + ':accepted'
@@ -138,3 +148,11 @@ for name in list(ReleaseTests.__dict__):
         setattr(ComposeTests, name, None)
 
 del ReleaseTests
+
+
+class ComposeProjectNameTests(unittest.TestCase):
+    def test_trailing_underscore_from_mkdtemp_is_safe_for_docker(self):
+        self.assertEqual(safe_compose_project_name("tmplyhplie_"), "fair-release-test-tmplyhplie")
+        self.assertEqual(safe_compose_project_name("_AbC--"), "fair-release-test-abc")
+        with self.assertRaises(ValueError):
+            safe_compose_project_name("___")

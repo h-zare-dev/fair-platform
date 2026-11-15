@@ -1,0 +1,57 @@
+{
+  "issue": 0,
+  "ownerLogin": "h-zare-dev",
+  "stateFile": "/home/OWNER/.local/state/fair-platform/task.json",
+  "modelFile": "/home/OWNER/.local/bin/fair-agent-models.conf",
+  "evidenceDir": "/home/OWNER/.local/state/fair-platform/evidence",
+  "maxModelCallsPerDay": 12,
+  "worktrees": {
+    "IMPLEMENTATION": "/home/OWNER/Work/fair-agent-implementation",
+    "REVIEW": "/home/OWNER/Work/fair-agent-review",
+    "QA": "/home/OWNER/Work/fair-agent-qa"
+  },
+  "sourceRepo": "/home/OWNER/Work/fair-platform-impl",
+  "candidateWorktree": "/home/OWNER/Work/fair-agent-candidate",
+  "pnpmExecutable": "/home/OWNER/.local/share/mise/installs/pnpm/12.6.0/pnpm",
+  "codexExecutable": "/home/OWNER/.local/share/mise/command-wrappers/bin/codex",
+  "githubTokenFile": "/home/OWNER/.local/share/fair-platform/github-token",
+  "ghExecutable": "/home/OWNER/.local/share/mise/installs/gh/latest/gh_2.104.0_linux_amd64/bin/gh",
+  "labActivated": false,
+  "commands": {
+    "IMPLEMENTATION": {
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/gate.js", "IMPLEMENTATION"],
+      "timeoutMs": 3600000
+    },
+    "REVIEW": {
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/gate.js", "REVIEW"],
+      "timeoutMs": 3600000
+    },
+    "QA": {
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/gate.js", "QA"],
+      "timeoutMs": 3600000
+    },
+    "CANDIDATE": {
+      "executable": "/usr/bin/node",
+      "args": ["/opt/fair-orchestrator/dist/candidate.js"],
+      "timeoutMs": 3600000
+    },
+    "LAB_DEPLOY": {
+      "executable": "/opt/fair-agent-gates/lab-deploy",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "LAB_E2E": {
+      "executable": "/opt/fair-agent-gates/lab-e2e",
+      "args": [],
+      "timeoutMs": 3600000
+    },
+    "POST_MERGE": {
+      "executable": "/opt/fair-agent-gates/post-merge",
+      "args": [],
+      "timeoutMs": 3600000
+    }
+  }
+}

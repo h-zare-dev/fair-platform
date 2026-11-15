@@ -359,7 +359,6 @@ async function main(): Promise<void> {
       String(issue),
       resolve('scripts/orchestrator/dist/supervised.js'),
       paths(issue).state,
-      paths(issue).evidence,
     ],
     { stdio: 'inherit' },
   );

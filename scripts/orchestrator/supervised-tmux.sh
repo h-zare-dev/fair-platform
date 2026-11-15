@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-[[ $# -eq 5 && $1 =~ ^[1-9][0-9]*$ ]] || exit 2
+[[ $# -eq 3 && $1 =~ ^[1-9][0-9]*$ ]] || exit 2
 issue=$1
 cli=$2
 state=$3
-evidence=$4
 session="fair-task-$issue"
 if tmux has-session -t "=$session" 2>/dev/null; then
   echo 'Task tmux session already exists' >&2

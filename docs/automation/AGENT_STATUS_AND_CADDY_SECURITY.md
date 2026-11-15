@@ -1,7 +1,7 @@
 # Agent visibility and upstream Caddy/JOSE blocker
 
 **Tracking:** #53 (Orchestrator bootstrap), #56 (security), Draft PR #55.
-**State:** blocked from unattended/Lab activation until CI and required real gates pass.
+**State:** still blocked from unattended/Lab activation; a bounded security exception is documented, and all CI/Owner gates still apply.
 
 ## Why CI remains red (confirmed 2026-11-14)
 
@@ -23,7 +23,7 @@ docker/caddy/main.go
 
 The source path and the Go module requirements were checked against Caddy `v2.11.9`, Smallstep certificates `v0.30.2` and Smallstep crypto `v0.91.0`. The Caddyfile currently uses public ACME, reverse proxy, request body limits and response headers; do **not** assume that disabling the PKI module or replacing the JOSE major module is compatible with the ACME and TLS implementation. There is no supported one-line replacement confirmed.
 
-**Do not** disable Trivy, add `.trivyignore`, fabricate a VEX/not-affected declaration, or mark this gate PASS based on successful Next.js tests.
+**Temporary Owner-requested exception (2026-11-15):** The unpatched v3 CVE is explicitly, narrowly, and temporarily accepted only for source/Caddy Trivy scans, expiring 2026-12-15. See `docs/security/CADDY_CVE_2026_116587_EXCEPTION.md`. This is NOT a VEX/not-affected claim or a fix; all other vulnerability/secret checks remain enforced. Do not merge based on a green *quality* job alone.
 
 ### Remediation acceptance
 

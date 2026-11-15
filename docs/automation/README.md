@@ -1,6 +1,6 @@
 # Fair Platform — Autonomous development lab
 
-**Status: DESIGN / BOOTSTRAP PENDING (2026-11-14).** The GitHub issue and these documents do **not** mean the laptop runner, VPS, PasarGuard, Telegram or CI integration is installed or operating.
+**Status (2026-11-15): Supervised Orchestrator pilot demonstrated; permanent service and disposable Lab NOT activated.** PR #55 was merged to `development`, and the pilot in PR #58 produced successful Implementation/Review/QA evidence. These documents do **not** establish an installed unattended laptop service, provisioned Lab VPS, production access, or live PasarGuard/Telegram E2E.
 
 Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 
@@ -24,7 +24,7 @@ Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 
 1. Owner provisions a blank Ubuntu VPS with provider console/rescue access, **without** any production workloads or credentials.
 2. Owner performs the **one-time verified SSH-key bootstrap** in `LAB_VPS_BOOTSTRAP.md`; never puts a password, private key, bot token, session secret or database credential in GitHub or chat.
-3. An implementation task builds the laptop runner, GitHub issue polling and durable state machine as specified here, with an integration test that proves E2E failure → Implementation fix → independent rechecks → E2E re-run.
+3. The merged Orchestrator from PR #55 provides a supervised local pilot runner and durable state; PR #58 demonstrated autonomous Implementation → Review → QA for one approved task. **Continuous GitHub polling, `systemd --user` activation and real Lab-E2E failure/recovery remain future, separately tested milestones.**
 4. Separately provision synthetic PasarGuard, Fair Platform and test-only Telegram integration in the Lab; configure hard resource and token budgets.
 5. Owner explicitly authorizes initial Lab activation after inspecting the host identity, access boundaries and workflow.
 6. Only an approved task starts the queue. Passing tests proposes a merge; **the human Owner performs it**.

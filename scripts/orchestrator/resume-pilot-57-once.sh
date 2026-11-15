@@ -4,12 +4,16 @@
 set -euo pipefail
 umask 077
 
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd -P)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 CONFIG="$HOME/.config/fair-platform/pilot.json"
 BRANCH="feature/issue-53-autonomous-orchestrator"
 
 [[ -f "$CONFIG" ]] || {
   echo "BLOCKED: pilot configuration is missing" >&2
+  exit 1
+}
+git -C "$ROOT" rev-parse --show-toplevel >/dev/null || {
+  echo "BLOCKED: resolved path is not a Git checkout: $ROOT" >&2
   exit 1
 }
 [[ -z "$(git -C "$ROOT" status --porcelain)" ]] || {

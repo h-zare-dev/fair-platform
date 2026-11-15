@@ -151,19 +151,11 @@ export async function createOwnerApi(
   app
     .getHttpAdapter()
     .getInstance()
-    .addHook(
-      'onSend',
-      (
-        _req: FastifyRequest,
-        reply: FastifyReply,
-        payload: unknown,
-        done: (err: Error | null, value: unknown) => void,
-      ) => {
-        reply.header('Cache-Control', 'no-store');
-        reply.header('X-Content-Type-Options', 'nosniff');
-        done(null, payload);
-      },
-    );
+    .addHook('onSend', (_req, reply, payload, done) => {
+      reply.header('Cache-Control', 'no-store');
+      reply.header('X-Content-Type-Options', 'nosniff');
+      done(null, payload);
+    });
   app.useGlobalFilters({
     catch(e: unknown, host: ArgumentsHost) {
       const status = e instanceof HttpException ? e.getStatus() : 503;

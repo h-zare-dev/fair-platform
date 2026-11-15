@@ -220,7 +220,7 @@ export function executeCodexGate(
         '-c',
         `model_reasoning_effort="${route.effort}"`,
         '-s',
-        gate === 'IMPLEMENTATION' ? 'danger-full-access' : 'read-only',
+        'danger-full-access',
         '-C',
         input.worktree,
         '--output-schema',
@@ -266,10 +266,26 @@ export function executeCodexGate(
       after === before
     )
       throw new Error('Implementation did not commit a new HEAD');
+    if (gate !== 'IMPLEMENTATION') {
+      const dirty = execFileSync(
+        '/usr/bin/git',
+        ['-C', input.worktree, 'status', '--porcelain', '--untracked-files=all'],
+        { encoding: 'utf8', timeout: 20_000 },
+      ).trim();
+      if (dirty) throw new Error('Independent gate modified its worktree');
+    }
+    const safeEvidenceId = /^[a-zA-Z0-9_.:-]{1,100}$/.test(verdict.evidenceId)
+      ? verdict.evidenceId
+      : 'codex-evidence-' +
+        createHash('sha256').update(verdict.evidenceId).digest('hex').slice(0, 20);
+    const receiptSuffix = createHash('sha256')
+      .update(input.idempotencyKey)
+      .digest('hex')
+      .slice(0, 12);
     return {
       verdict: verdict.verdict,
       sha: after,
-      evidenceId: `${/^[a-zA-Z0-9_.:-]{1,100}$/.test(verdict.evidenceId) ? verdict.evidenceId : 'codex-evidence-' + createHash('sha256').update(verdict.evidenceId).digest('hex').slice(0, 20)}.${createHash('sha256').update(input.idempotencyKey).digest('hex').slice(0, 12)}`,
+      evidenceId: `${safeEvidenceId}.${receiptSuffix}`,
       ...(verdict.defectCode ? { defectCode: verdict.defectCode } : {}),
     };
   } finally {

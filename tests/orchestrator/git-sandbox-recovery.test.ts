@@ -120,5 +120,4 @@ describe('pilot #57 linked-worktree Git sandbox recovery', () => {
     const result = validateFixture(data);
     expect(result.status).not.toBe(0);
   });
-
 });

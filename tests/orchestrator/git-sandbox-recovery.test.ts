@@ -114,7 +114,8 @@ describe('pilot #57 linked-worktree Git sandbox recovery', () => {
         data.state.inFlight.gate = 'REVIEW';
         break;
       case 'duplicate recovery':
-        data.state.transitions[0]!.actor = 'owner-supervised-git-sandbox-recovery';
+        data.state.transitions[0]!.actor =
+          'owner-supervised-git-sandbox-recovery';
         break;
     }
     const result = validateFixture(data);

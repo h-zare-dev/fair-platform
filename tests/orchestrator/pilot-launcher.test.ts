@@ -17,7 +17,9 @@ describe('pilot #57 resume entrypoint', () => {
       'scripts/orchestrator/resume-pilot-57-once.sh',
     );
     const script = readFileSync(source, 'utf8');
-    const rootLine = script.split('\n').find((line) => line.startsWith('ROOT='));
+    const rootLine = script
+      .split('\n')
+      .find((line) => line.startsWith('ROOT='));
     expect(rootLine).toBeDefined();
     expect(rootLine).toContain('${BASH_SOURCE[0]}');
     expect(rootLine).not.toContain('\\${BASH_SOURCE[0]}');
@@ -27,12 +29,13 @@ describe('pilot #57 resume entrypoint', () => {
       const folder = join(dir, 'scripts', 'orchestrator');
       mkdirSync(folder, { recursive: true });
       const probe = join(folder, 'probe.sh');
-      writeFileSync(
-        probe,
-        ['#!/usr/bin/env bash', 'set -euo pipefail', rootLine!, 'printf "%s\\n" "$ROOT"'].join(
-          '\n',
-        ),
-      );
+      const probeContents = [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        rootLine!,
+        'printf "%s\\n" "$ROOT"',
+      ].join('\n');
+      writeFileSync(probe, probeContents);
       const syntax = spawnSync('/usr/bin/bash', ['-n', source], {
         encoding: 'utf8',
       });

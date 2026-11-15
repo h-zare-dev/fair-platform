@@ -124,6 +124,7 @@ function approval(issue: number): TaskState {
 }
 function checkExisting(issue: number, approved: TaskState): void {
   const p = paths(issue);
+  if (existsSync(p.state)) privatePath(p.state);
   const state = new StateStore(p.state).load();
   if (existsSync(p.config)) {
     privatePath(p.config);
@@ -152,8 +153,19 @@ function checkExisting(issue: number, approved: TaskState): void {
     ['DONE', 'BLOCKED', 'READY_FOR_OWNER_REVIEW'].includes(state.phase)
   )
     throw new Error('Existing terminal task cannot resume');
-  if (state?.inFlight && !state.pendingReport)
+  if (state?.inFlight)
     throw new Error('Unresolved in-flight gate requires manual recovery');
+  if (state?.pendingReport)
+    throw new Error('Pending gate report requires manual recovery');
+  if (state && !existsSync(p.config))
+    throw new Error('Task state exists without its pinned config');
+  if (state?.headSha && !existsSync(p.worktrees.IMPLEMENTATION))
+    throw new Error('Implementation worktree is missing');
+  if (existsSync(p.evidence)) {
+    if (!state) throw new Error('Unexpected evidence without task state');
+    safeExistingDir(p.evidence);
+  } else if (state && Object.keys(state.verdicts).length)
+    throw new Error('Task evidence directory is missing');
   for (const [role, path] of Object.entries(p.worktrees)) {
     if (!existsSync(path)) continue;
     if (!state) throw new Error(`Unexpected existing ${role} worktree`);
@@ -182,14 +194,27 @@ function checkExisting(issue: number, approved: TaskState): void {
   }
   if (existsSync(p.candidate)) throw new Error('Unexpected candidate worktree');
   const branch = `refs/heads/agent/${issue}-${approved.specSha.slice(0, 12)}`;
-  try {
-    gitOutput(['show-ref', '--verify', branch]);
-    if (!state) throw new Error('Unexpected task branch');
-  } catch (error) {
-    if ((error as Error).message === 'Unexpected task branch') throw error;
-  }
-  if (existsSync(p.evidence) && !state)
-    throw new Error('Unexpected evidence without task state');
+  const branchExists =
+    spawnSync(git, [
+      '-C',
+      sourceRepo,
+      'show-ref',
+      '--quiet',
+      '--verify',
+      branch,
+    ]).status === 0;
+  if (branchExists && !state) throw new Error('Unexpected task branch');
+  if (state?.headSha && !branchExists)
+    throw new Error('Task branch is missing');
+}
+function safeExistingDir(path: string): void {
+  const stat = lstatSync(path);
+  if (
+    !stat.isDirectory() ||
+    stat.uid !== process.getuid?.() ||
+    (stat.mode & 0o077) !== 0
+  )
+    throw new Error(`Unsafe private directory: ${path}`);
 }
 function prepare(issue: number, approved: TaskState): void {
   const p = paths(issue);
@@ -209,7 +234,18 @@ function prepare(issue: number, approved: TaskState): void {
       config.sourceRepo !== sourceRepo ||
       config.pilotMode !== true ||
       config.maxModelCallsPerDay > 6 ||
-      config.labActivated !== false
+      config.labActivated !== false ||
+      Object.keys(config.commands).sort().join(',') !==
+        'IMPLEMENTATION,QA,REVIEW' ||
+      (['IMPLEMENTATION', 'REVIEW', 'QA'] as const).some(
+        (role) =>
+          config.commands[role]?.executable !== resolve(process.execPath) ||
+          JSON.stringify(config.commands[role]?.args) !==
+            JSON.stringify([
+              resolve('scripts/orchestrator/dist/gate.js'),
+              role,
+            ]),
+      )
     )
       throw new Error('Existing config does not match this supervised task');
     return;
@@ -313,6 +349,8 @@ async function main(): Promise<void> {
     await runPilot(p.config);
     return;
   }
+  checkExisting(issue, approved);
+  prepareCheckForTmux(issue);
   const script = resolve('scripts/orchestrator/supervised-tmux.sh');
   const result = spawnSync(
     '/bin/bash',
@@ -326,6 +364,11 @@ async function main(): Promise<void> {
     { stdio: 'inherit' },
   );
   if (result.status !== 0) throw new Error('tmux launch refused');
+}
+function prepareCheckForTmux(issue: number): void {
+  const config = paths(issue).config;
+  if (!existsSync(config)) throw new Error('Run prepare first');
+  privatePath(config);
 }
 if (process.argv[1]?.endsWith('/supervised.js'))
   main().catch((error) => {

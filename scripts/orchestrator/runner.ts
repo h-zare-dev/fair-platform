@@ -5,10 +5,11 @@ import {
   mkdirSync,
   writeFileSync,
   renameSync,
+  realpathSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join, basename, dirname } from 'node:path';
+import { join, basename, dirname, resolve } from 'node:path';
 import { Orchestrator, type Evidence, type Ports } from './engine.js';
 import {
   approvedIssue,
@@ -496,7 +497,11 @@ export function commandPorts(config: Config): Ports {
 }
 
 export async function runOnce(configPath: string): Promise<void> {
-  if (dirname(configPath) === join(homedir(), '.config/fair-platform/tasks'))
+  const canonicalPath = resolve(configPath);
+  const actualPath = (() => {
+    try { return realpathSync(canonicalPath); } catch { return canonicalPath; }
+  })();
+  if (dirname(actualPath) === join(homedir(), '.config/fair-platform/tasks'))
     verifyInternalLock();
   const config = loadConfig(configPath);
   const store = new StateStore(config.stateFile);

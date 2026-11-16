@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import {
   allowsInterruptedImplementation,
   allowsIdleRoleRefresh,
+  assertLaunchReservation,
   ensurePrivateLockFile,
   parseCommand,
   paths,
@@ -21,10 +22,19 @@ import { newTask } from '../../scripts/orchestrator/state.js';
 import { runOnce } from '../../scripts/orchestrator/runner.js';
 
 describe('supervised issue identity', () => {
+  it('blocks another launch during the detached runner handoff', () => {
+    expect(() => assertLaunchReservation('start', 60, '59')).toThrow('pending');
+    expect(() => assertLaunchReservation('prepare', 59, '59')).toThrow('pending');
+    expect(() => assertLaunchReservation('run', 60, '59')).toThrow('pending');
+    expect(() => assertLaunchReservation('run', 59, '59')).not.toThrow();
+  });
   it('refuses direct runner entry for supervised task config without global flock', async () => {
     await expect(
       runOnce(join(process.env.HOME!, '.config/fair-platform/tasks/99999.json')),
     ).rejects.toThrow('requires the supervised lock');
+  });
+  it('refuses a normalized supervised config alias without global flock', async () => {
+    await expect(runOnce(join(process.env.HOME!, '.config/fair-platform/tasks/../tasks/99999.json'))).rejects.toThrow('requires the supervised lock');
   });
   it('allows only an in-flight Implementation worktree through receipt recovery', () => {
     const state = newTask(

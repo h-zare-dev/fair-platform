@@ -7,6 +7,7 @@ import {
   openSync,
   readFileSync,
   writeFileSync,
+  unlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -22,6 +23,7 @@ const tasksRoot = join(home, 'Work/fair-agent-tasks');
 const configRoot = join(home, '.config/fair-platform/tasks');
 const stateRoot = join(home, '.local/state/fair-platform/tasks');
 const lockPath = join(home, '.local/state/fair-platform/supervised.lock');
+const launchPath = join(home, '.local/state/fair-platform/supervised.launch');
 const tokenPath = join(home, '.local/share/fair-platform/github-token');
 const modelPath = join(home, '.local/bin/fair-agent-models.conf');
 
@@ -147,6 +149,10 @@ export function ensurePrivateLockFile(path: string): void {
     closeSync(fd);
   }
   privatePath(path);
+}
+export function assertLaunchReservation(command: string, issue: number, reserved: string): void {
+  if (command !== 'run' || reserved !== String(issue))
+    throw new Error('A supervised launch is pending; manual recovery required');
 }
 
 export function allowsInterruptedImplementation(
@@ -393,15 +399,17 @@ async function main(): Promise<void> {
   const { command, issue } = parseCommand(
     internal ? [args[0]!.slice(9), args[1]!] : args,
   );
-  if (internal && command === 'start')
-    throw new Error('Internal start cannot hold the runner lock');
   if (!internal && command === 'start') {
-    locked('prepare', issue);
-    locked('tmux', issue);
+    locked('start', issue);
     return;
   } else if (!internal) {
     locked(command, issue);
     return;
+  }
+  if (existsSync(launchPath)) {
+    privatePath(launchPath);
+    const reserved = readFileSync(launchPath, 'utf8').trim();
+    assertLaunchReservation(command, issue, reserved);
   }
   const approved = approval(issue);
   if (command === 'preflight') {
@@ -414,16 +422,22 @@ async function main(): Promise<void> {
     process.stdout.write(`PREPARED #${issue}\n`);
     return;
   }
+  if (command === 'start') prepare(issue, approved);
   if (command === 'run') {
     checkExisting(issue, approved);
     const p = paths(issue);
     if (!existsSync(p.config)) throw new Error('Run prepare first');
     prepare(issue, approved);
+    if (existsSync(launchPath)) unlinkSync(launchPath);
     await runPilot(p.config);
     return;
   }
   checkExisting(issue, approved);
   prepareCheckForTmux(issue);
+  if (command === 'start') {
+    const fd = openSync(launchPath, 'wx', 0o600);
+    try { writeFileSync(fd, `${issue}\n`); } finally { closeSync(fd); }
+  }
   const script = resolve('scripts/orchestrator/supervised-tmux.sh');
   const result = spawnSync(
     '/bin/bash',
@@ -435,7 +449,9 @@ async function main(): Promise<void> {
     ],
     { stdio: 'inherit' },
   );
-  if (result.status !== 0) throw new Error('tmux launch refused');
+  if (result.status !== 0) {
+    throw new Error('tmux launch refused; launch reservation retained for manual recovery');
+  }
 }
 function prepareCheckForTmux(issue: number): void {
   const config = paths(issue).config;

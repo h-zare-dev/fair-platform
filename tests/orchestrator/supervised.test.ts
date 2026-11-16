@@ -16,7 +16,9 @@ describe('supervised issue identity', () => {
     const result = spawnSync(
       process.execPath,
       [
-        resolve('scripts/orchestrator/dist/supervised.js'),
+        '--import',
+        'tsx',
+        resolve('scripts/orchestrator/supervised.ts'),
         'internal-run',
         '59',
       ],

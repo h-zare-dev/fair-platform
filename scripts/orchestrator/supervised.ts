@@ -371,7 +371,7 @@ function prepareCheckForTmux(issue: number): void {
   if (!existsSync(config)) throw new Error('Run prepare first');
   privatePath(config);
 }
-if (process.argv[1]?.endsWith('/supervised.js'))
+if (/\/supervised\.(?:js|ts)$/.test(process.argv[1] ?? ''))
   main().catch((error) => {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exitCode = 1;

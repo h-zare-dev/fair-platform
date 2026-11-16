@@ -254,7 +254,10 @@ describe('supervised issue identity', () => {
         { mode: 0o600 },
       );
       for (const issue of [60, 59]) {
-        const configured = JSON.parse(readFileSync(config, 'utf8'));
+        const configured = JSON.parse(readFileSync(config, 'utf8')) as Record<
+          string,
+          unknown
+        >;
         configured.issue = issue;
         writeFileSync(config, JSON.stringify(configured), { mode: 0o600 });
         const result = spawnSync(

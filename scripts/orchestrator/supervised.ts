@@ -342,7 +342,10 @@ function verifyInternalLock(): void {
   } catch {
     throw new Error('Internal command cannot verify flock parent');
   }
-  if (basename(parentArgv[0] ?? '') !== 'flock' || !parentArgv.includes(lockPath))
+  if (
+    basename(parentArgv[0] ?? '') !== 'flock' ||
+    !parentArgv.includes(lockPath)
+  )
     throw new Error('Internal command requires the supervised lock');
   const probe = spawnSync(
     '/usr/bin/flock',

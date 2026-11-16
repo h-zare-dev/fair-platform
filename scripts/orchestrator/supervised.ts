@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -14,8 +14,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { approvedIssue, GhTransport } from './github.js';
 import { runPilot } from './pilot.js';
-import { loadConfig } from './runner.js';
-import { StateStore, type TaskState } from './state.js';
+import { loadConfig, receiptFor, type Receipt } from './runner.js';
+import { isSha, StateStore, type TaskState } from './state.js';
 
 const git = '/usr/bin/git';
 const home = homedir();
@@ -241,6 +241,97 @@ export function allowsInterruptedImplementation(
     role === 'IMPLEMENTATION' && state?.inFlight?.gate === 'IMPLEMENTATION'
   );
 }
+/**
+ * A failed Implementation may commit code without publishing it. Only an
+ * exact, immutable FAIL receipt from the immediately preceding attempt can
+ * justify the clean worktree being ahead of the last published PASS HEAD.
+ * A mismatch is never "repaired" by overwriting the saved checkpoint.
+ */
+export function allowsReceiptBackedImplementationRework(
+  state: TaskState | undefined,
+  implementationWorktree: string,
+  evidenceDir: string,
+  currentHead: string,
+): boolean {
+  if (!state || state.inFlight || !isSha(currentHead)) return false;
+  const previousHead = state.headSha ?? state.baseSha;
+  if (currentHead === previousHead) return false;
+
+  let attempt: number;
+  let key: string;
+  let evidenceId: string | undefined;
+  if (
+    state.pendingReport?.gate === 'IMPLEMENTATION' &&
+    state.pendingReport.evidence.verdict === 'FAIL'
+  ) {
+    attempt = state.attempt;
+    key = state.pendingReport.key;
+    evidenceId = state.pendingReport.evidence.evidenceId;
+  } else {
+    if (
+      state.pendingReport ||
+      !['REWORK', 'IMPLEMENTING'].includes(state.phase) ||
+      state.attempt < 2
+    ) return false;
+    const last = state.transitions.at(-1);
+    const prior = state.transitions.at(-2);
+    const rework =
+      last?.phase === 'REWORK'
+        ? last
+        : last?.phase === 'IMPLEMENTING' && prior?.phase === 'REWORK'
+          ? prior
+          : undefined;
+    if (
+      !rework ||
+      rework.actor !== 'orchestrator' ||
+      rework.attempt !== state.attempt ||
+      !rework.evidenceId
+    ) return false;
+    attempt = state.attempt - 1;
+    key = `${state.taskId}:${attempt}:IMPLEMENTATION:${previousHead}:-`;
+    evidenceId = rework.evidenceId;
+  }
+  if (key !== `${state.taskId}:${attempt}:IMPLEMENTATION:${previousHead}:-`)
+    return false;
+
+  let receipt: Receipt;
+  try {
+    const receiptPath = join(
+      evidenceDir,
+      `${createHash('sha256').update(key).digest('hex')}.json`,
+    );
+    receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) as Receipt;
+  } catch {
+    return false;
+  }
+  if (
+    receipt.evidence?.verdict !== 'FAIL' ||
+    receipt.evidence.sha !== currentHead ||
+    receipt.evidence.evidenceId !== evidenceId ||
+    !/^[a-zA-Z0-9_.:-]{1,120}$/.test(evidenceId ?? '') ||
+    (state.pendingReport &&
+      JSON.stringify(state.pendingReport.evidence) !==
+        JSON.stringify(receipt.evidence))
+  ) return false;
+  const expected = receiptFor(
+    { ...state, attempt, candidateSha: undefined },
+    'IMPLEMENTATION',
+    key,
+    receipt.evidence,
+  );
+  if (JSON.stringify(receipt) !== JSON.stringify(expected)) return false;
+
+  // Confirm the failed commit extends the previously accepted implementation,
+  // rather than trusting a replaced or unrelated worktree HEAD.
+  return (
+    spawnSync(
+      git,
+      ['-C', implementationWorktree, 'merge-base', '--is-ancestor', previousHead, currentHead],
+      { stdio: 'ignore' },
+    ).status === 0
+  );
+}
+
 function checkExisting(issue: number, approved: TaskState): void {
   const p = paths(issue);
   if (existsSync(p.state)) privatePath(p.state);
@@ -308,6 +399,13 @@ function checkExisting(issue: number, approved: TaskState): void {
           ? (state.headSha ?? state.baseSha)
           : state.headSha) &&
       !allowsInterruptedImplementation(state, role) &&
+      !(role === 'IMPLEMENTATION' &&
+        allowsReceiptBackedImplementationRework(
+          state,
+          path,
+          p.evidence,
+          head,
+        )) &&
       !allowsIdleRoleRefresh(state, role)
     )
       throw new Error(`Divergent ${role} worktree`);

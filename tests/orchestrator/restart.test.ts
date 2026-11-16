@@ -172,8 +172,7 @@ describe('restart safety', () => {
         report: () => Promise.resolve(),
         publish: () => {
           publications++;
-          if (publications === 1)
-            throw new Error('PR is not exact draft head');
+          if (publications === 1) throw new Error('PR is not exact draft head');
           return Promise.resolve();
         },
       };

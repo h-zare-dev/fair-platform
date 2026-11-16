@@ -56,7 +56,7 @@ export async function runPilot(
   // Bounded even if a malformed state machine cycles unexpectedly. The
   // separate model-call budget and max-rework count are enforced by the runner.
   let transientRetries = 0;
-  for (let tick = 0; tick < 40; ) {
+  for (let tick = 0; tick < 40;) {
     try {
       await runOnce(configPath);
       transientRetries = 0;

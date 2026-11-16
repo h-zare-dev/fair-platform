@@ -91,6 +91,24 @@ describe('task tmux wrapper', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('does not mistake an unrelated live PID for the task runner', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-supervised-status-'));
+    try {
+      const state = join(root, 'state.json');
+      const pid = join(root, 'runner.pid');
+      writeFileSync(state, JSON.stringify({ phase: 'REVIEWING' }));
+      writeFileSync(pid, String(process.pid));
+      const output = execFileSync(
+        '/bin/bash',
+        [resolve('scripts/orchestrator/supervised-status.sh'), state, pid],
+        { encoding: 'utf8' },
+      );
+      expect(output).toContain('STOPPED');
+      expect(output).not.toContain('RUNNING PID=');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('launches exactly one task session with the documented four arguments', () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-supervised-'));
     try {

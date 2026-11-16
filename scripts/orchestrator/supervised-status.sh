@@ -3,9 +3,21 @@ set -Eeuo pipefail
 [[ $# -eq 2 ]] || exit 2
 state=$1
 pidfile=$2
-if [[ -f $pidfile ]]; then
+phase=''
+if [[ -f $state ]]; then
+  phase=$(python3 - "$state" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding='utf-8') as file:
+    print(json.load(file).get('phase', ''))
+PY
+)
+fi
+if [[ -f $pidfile && $phase != BLOCKED && $phase != DONE && $phase != READY_FOR_OWNER_REVIEW ]]; then
   pid=$(cat -- "$pidfile")
-  if [[ $pid =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null; then
+  if [[ $pid =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null &&
+       [[ -r /proc/$pid/cmdline ]] &&
+       grep -aq 'supervised.js run ' "/proc/$pid/cmdline"; then
     printf 'RUNNING PID=%s\n' "$pid"
   else
     printf 'STOPPED (stale PID record)\n'

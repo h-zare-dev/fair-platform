@@ -5,10 +5,18 @@ import {
   mkdirSync,
   writeFileSync,
   renameSync,
+  realpathSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join, basename } from 'node:path';
+import {
+  join,
+  basename,
+  dirname,
+  resolve,
+  relative,
+  isAbsolute,
+} from 'node:path';
 import { Orchestrator, type Evidence, type Ports } from './engine.js';
 import {
   approvedIssue,
@@ -21,6 +29,10 @@ import {
 import { publishHead } from './publish.js';
 import { loadModelRoutes } from './models.js';
 import { isSha, StateStore, type Gate } from './state.js';
+import {
+  assertPendingRunnerReservation,
+  verifyInternalLock,
+} from './supervised.js';
 
 type Command = { executable: string; args: string[]; timeoutMs: number };
 type CommandGate = Exclude<Gate, 'CI'>;
@@ -182,7 +194,10 @@ export function verifyReceipt(
     !/^[a-zA-Z0-9_.:-]{1,120}$/.test(evidence?.evidenceId ?? '')
   )
     throw new Error('Invalid saved gate evidence');
-  if (gate === 'IMPLEMENTATION' && evidence.verdict === 'PASS') {
+  if (gate === 'IMPLEMENTATION') {
+    // A FAIL can still have committed code. It must carry the exact
+    // worktree SHA before its receipt can be recovered or used for rework.
+    // This validates evidence identity; it does not turn FAIL into PASS.
     if (verifiedWorktreeHead(config.worktrees.IMPLEMENTATION) !== evidence.sha)
       throw new Error('Implementation result no longer matches worktree HEAD');
   } else if (gate === 'REVIEW' || gate === 'QA') {
@@ -495,7 +510,15 @@ export function commandPorts(config: Config): Ports {
 }
 
 export async function runOnce(configPath: string): Promise<void> {
+  if (
+    isProtectedPath(configPath, join(homedir(), '.config/fair-platform/tasks'))
+  )
+    verifyInternalLock();
   const config = loadConfig(configPath);
+  if (usesSupervisedResources(configPath, config)) {
+    verifyInternalLock();
+    assertPendingRunnerReservation(config.issue);
+  }
   const store = new StateStore(config.stateFile);
   const api = new GhTransport(
     readFileSync(config.githubTokenFile, 'utf8').trim(),
@@ -508,7 +531,12 @@ export async function runOnce(configPath: string): Promise<void> {
     config.pilotMode === true,
   );
   const state = store.load() ?? approved;
-  if (state.taskId !== approved.taskId || state.specSha !== approved.specSha)
+  if (
+    state.taskId !== approved.taskId ||
+    state.specSha !== approved.specSha ||
+    state.baseSha !== approved.baseSha ||
+    state.specPath !== approved.specPath
+  )
     throw new Error('Active task differs from approved issue');
   // The lock covers one transition. Scheduler invokes this process repeatedly, serially.
   await store.withLock(() =>
@@ -516,6 +544,49 @@ export async function runOnce(configPath: string): Promise<void> {
       state,
     ),
   );
+}
+
+function isProtectedPath(path: string, root: string): boolean {
+  const canonical = (value: string): string => {
+    const absolute = resolve(value);
+    try {
+      return realpathSync(absolute);
+    } catch {
+      try {
+        return join(realpathSync(dirname(absolute)), basename(absolute));
+      } catch {
+        return absolute;
+      }
+    }
+  };
+  const subpath = relative(canonical(root), canonical(path));
+  return (
+    subpath === '' ||
+    (subpath !== '..' && !subpath.startsWith('../') && !isAbsolute(subpath))
+  );
+}
+
+/** A copied config cannot shed the lock while retaining protected task paths. */
+export function usesSupervisedResources(
+  configPath: string,
+  config: Pick<
+    Config,
+    'stateFile' | 'evidenceDir' | 'worktrees' | 'candidateWorktree'
+  >,
+): boolean {
+  const home = homedir();
+  const roots = [
+    join(home, '.config/fair-platform/tasks'),
+    join(home, '.local/state/fair-platform/tasks'),
+    join(home, 'Work/fair-agent-tasks'),
+  ];
+  return [
+    configPath,
+    config.stateFile,
+    config.evidenceDir,
+    config.candidateWorktree,
+    ...Object.values(config.worktrees),
+  ].some((path) => roots.some((root) => isProtectedPath(path, root)));
 }
 
 if (process.argv[1]?.endsWith('/runner.js')) {

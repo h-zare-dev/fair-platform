@@ -5,10 +5,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CODEX_PRLIMIT_ARGS,
+  codexSandboxForGate,
   executeCodexGate,
 } from '../../scripts/orchestrator/gate.js';
 
 describe('Codex gate', () => {
+  it('uses write-scoped Implementation and read-only independent gates', () => {
+    expect(codexSandboxForGate('IMPLEMENTATION')).toBe('workspace-write');
+    expect(codexSandboxForGate('REVIEW')).toBe('read-only');
+    expect(codexSandboxForGate('QA')).toBe('read-only');
+    expect(codexSandboxForGate('CI')).toBe('read-only');
+  });
   it('does not impose RLIMIT_AS on Codex', () => {
     expect(CODEX_PRLIMIT_ARGS).toEqual(['--cpu=3600', '--nofile=1024']);
     expect(CODEX_PRLIMIT_ARGS.some((arg) => arg.startsWith('--as'))).toBe(

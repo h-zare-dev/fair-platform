@@ -38,6 +38,16 @@ const roles: Record<string, Role> = {
 };
 
 export const CODEX_PRLIMIT_ARGS = ['--cpu=3600', '--nofile=1024'] as const;
+/**
+ * Codex must never receive unrestricted filesystem access from an
+ * unattended agent. The implementation may write only its own worktree;
+ * independent Review and QA must remain read-only.
+ */
+export function codexSandboxForGate(
+  gate: string,
+): 'workspace-write' | 'read-only' {
+  return gate === 'IMPLEMENTATION' ? 'workspace-write' : 'read-only';
+}
 
 export function executeCodexGate(
   gate: string,
@@ -220,7 +230,7 @@ export function executeCodexGate(
         '-c',
         `model_reasoning_effort="${route.effort}"`,
         '-s',
-        'danger-full-access',
+        codexSandboxForGate(gate),
         '-C',
         input.worktree,
         '--output-schema',

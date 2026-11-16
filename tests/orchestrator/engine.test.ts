@@ -147,6 +147,50 @@ describe('orchestrator', () => {
     expect(state.transitions.at(-1)?.errorCode).toBe('BASE_DRIFT');
   });
 
+  it('refuses exhausted model capacity before persisting an in-flight gate', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fair-budget-'));
+    try {
+      const store = new StateStore(join(dir, 'state.json'));
+      const state = newTask(62, 'docs/tasks/TASK-62.md', sha('a'), sha('b'));
+      state.phase = 'IMPLEMENTING';
+      let started = 0;
+      let allowed = false;
+      const ports: Ports = {
+        reconcile: () => Promise.resolve(),
+        developmentSha: () => Promise.resolve(sha('b')),
+        preflightRun: () => {
+          if (!allowed)
+            throw new Error('Daily model call budget exhausted');
+          return Promise.resolve();
+        },
+        run: () => {
+          started++;
+          return Promise.resolve({
+            verdict: 'PASS',
+            sha: sha('c'),
+            evidenceId: 'model-run',
+          });
+        },
+        publish: () => Promise.resolve(),
+        report: () => Promise.resolve(),
+      };
+      const engine = new Orchestrator(ports, (s) => store.save(s));
+      await expect(engine.step(state)).rejects.toThrow(
+        'Daily model call budget exhausted',
+      );
+      expect(started).toBe(0);
+      expect(state.inFlight).toBeUndefined();
+      expect(store.load()?.inFlight).toBeUndefined();
+      allowed = true;
+      await engine.step(state);
+      expect(started).toBe(1);
+      expect(state.phase).toBe('REVIEWING');
+      expect(state.headSha).toBe(sha('c'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('blocks after the bounded rework budget is exhausted', async () => {
     const state = newTask(53, 'docs/tasks/ISSUE-53.md', sha('a'), sha('b'), 1);
     const ports: Ports = {

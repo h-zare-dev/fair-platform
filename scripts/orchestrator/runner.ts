@@ -249,11 +249,42 @@ export function isReceiptProvenPublishedHead(
   return evidence.verdict === 'PASS' && evidence.sha === remoteSha;
 }
 
+/**
+ * Read-only capacity check before a gate is recorded as in-flight. The actual
+ * daily usage reservation still happens in run(), under the task lock.
+ */
+export function assertModelCallCapacity(
+  evidenceDir: string,
+  maxModelCallsPerDay: number,
+  day = new Date().toISOString().slice(0, 10),
+): void {
+  const usagePath = join(evidenceDir, 'usage.json');
+  let usage: Record<string, number> = {};
+  try {
+    usage = JSON.parse(readFileSync(usagePath, 'utf8')) as Record<
+      string,
+      number
+    >;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  if ((usage[day] ?? 0) >= maxModelCallsPerDay)
+    throw new Error('Daily model call budget exhausted');
+}
+
 export function commandPorts(config: Config): Ports {
   const token = readFileSync(config.githubTokenFile, 'utf8').trim();
   const api = new GhTransport(token, config.ghExecutable);
   const branch = `agent/${config.issue}-`;
   return {
+    preflightRun(gate) {
+      if (gate === 'IMPLEMENTATION' || gate === 'REVIEW' || gate === 'QA')
+        assertModelCallCapacity(
+          config.evidenceDir,
+          config.maxModelCallsPerDay,
+        );
+      return Promise.resolve();
+    },
     reconcile(state) {
       const current = approvedIssue(
         api,

@@ -17,6 +17,8 @@ export type Evidence = {
 export interface Ports {
   reconcile(state: TaskState): Promise<void>;
   run(gate: Gate, state: Readonly<TaskState>, key: string): Promise<Evidence>;
+  /** Must be side-effect-free. Called before persisting a new in-flight gate. */
+  preflightRun?(gate: Gate, state: Readonly<TaskState>, key: string): Promise<void>;
   recover?(
     gate: Gate,
     state: Readonly<TaskState>,
@@ -163,6 +165,9 @@ export class Orchestrator {
         return;
       }
     } else {
+      // Budget/resource admission must happen before a durable in-flight
+      // checkpoint. A refused command has not run and is safe to retry later.
+      await this.ports.preflightRun?.(gate, state, key);
       state.inFlight = { gate, key, startedAt: new Date().toISOString() };
       this.save(state);
       evidence = await this.ports.run(gate, state, key);

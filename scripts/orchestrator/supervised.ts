@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -150,9 +151,63 @@ export function ensurePrivateLockFile(path: string): void {
   }
   privatePath(path);
 }
-export function assertLaunchReservation(command: string, issue: number, reserved: string): void {
-  if (command !== 'run' || reserved !== String(issue))
+type LaunchReservation = { issue: number; token: string; session: string };
+export function assertLaunchReservation(
+  command: string,
+  issue: number,
+  reserved: LaunchReservation,
+  token?: string,
+): void {
+  if (
+    command !== 'run' ||
+    reserved.issue !== issue ||
+    !token ||
+    !/^[0-9a-f]{64}$/.test(reserved.token) ||
+    !/^[0-9a-f]{64}$/.test(token) ||
+    !timingSafeEqual(
+      Buffer.from(reserved.token, 'hex'),
+      Buffer.from(token, 'hex'),
+    ) ||
+    reserved.session !== `fair-task-${issue}`
+  )
     throw new Error('A supervised launch is pending; manual recovery required');
+}
+
+/** Verify that the flocked runner descends from the reserved tmux pane. */
+export function verifyLaunchHandoff(
+  reserved: LaunchReservation,
+  token?: string,
+): void {
+  assertLaunchReservation('run', reserved.issue, reserved, token);
+  const pane = process.env.TMUX_PANE;
+  if (!pane || !/^%[0-9]+$/.test(pane))
+    throw new Error('Reserved launch requires its tmux runner pane');
+  const result = spawnSync(
+    '/usr/bin/tmux',
+    [
+      'display-message',
+      '-p',
+      '-t',
+      pane,
+      '#{session_name} #{window_name} #{pane_pid}',
+    ],
+    { encoding: 'utf8' },
+  );
+  const match = /^(\S+) runner ([1-9][0-9]*)$/.exec(
+    result.stdout?.trim() ?? '',
+  );
+  if (result.status !== 0 || !match || match[1] !== reserved.session)
+    throw new Error('Reserved launch requires its tmux runner pane');
+  const panePid = Number(match[2]);
+  let pid = process.ppid;
+  for (let depth = 0; depth < 12 && pid > 1; depth++) {
+    if (pid === panePid) return;
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const parent = /^\d+ \(.+\) \S+ (\d+) /.exec(stat);
+    if (!parent) break;
+    pid = Number(parent[1]);
+  }
+  throw new Error('Reserved launch is not owned by its tmux runner pane');
 }
 
 export function allowsInterruptedImplementation(
@@ -371,7 +426,7 @@ export function verifyInternalLock(): void {
     throw new Error('Internal command requires the supervised lock');
 }
 
-function locked(command: string, issue: number): void {
+function locked(command: string, issue: number, token?: string): void {
   ensurePrivateLockFile(lockPath);
   const result = spawnSync(
     '/usr/bin/flock',
@@ -382,6 +437,7 @@ function locked(command: string, issue: number): void {
       resolve('scripts/orchestrator/dist/supervised.js'),
       `internal-${command}`,
       String(issue),
+      ...(token ? [token] : []),
     ],
     { stdio: 'inherit', env: { ...process.env, FAIR_SUPERVISED_LOCKED: '1' } },
   );
@@ -396,20 +452,40 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const internal = args[0]?.startsWith('internal-');
   if (internal) verifyInternalLock();
+  const token = args[2];
+  if (
+    token &&
+    (args.length !== 3 || !['run', 'internal-run'].includes(args[0]!))
+  )
+    throw new Error('Unexpected launch token');
   const { command, issue } = parseCommand(
-    internal ? [args[0]!.slice(9), args[1]!] : args,
+    internal ? [args[0]!.slice(9), args[1]!] : args.slice(0, 2),
   );
+  if (
+    !internal &&
+    args.length !== 2 &&
+    !(command === 'run' && args.length === 3)
+  )
+    throw new Error('Unexpected launch token');
   if (!internal && command === 'start') {
     locked('start', issue);
     return;
   } else if (!internal) {
-    locked(command, issue);
+    locked(command, issue, token);
     return;
   }
+  let reservation: LaunchReservation | undefined;
   if (existsSync(launchPath)) {
     privatePath(launchPath);
-    const reserved = readFileSync(launchPath, 'utf8').trim();
-    assertLaunchReservation(command, issue, reserved);
+    try {
+      reservation = JSON.parse(
+        readFileSync(launchPath, 'utf8'),
+      ) as LaunchReservation;
+    } catch {
+      throw new Error('Invalid launch reservation; manual recovery required');
+    }
+    assertLaunchReservation(command, issue, reservation, token);
+    verifyLaunchHandoff(reservation, token);
   }
   const approved = approval(issue);
   if (command === 'preflight') {
@@ -428,15 +504,24 @@ async function main(): Promise<void> {
     const p = paths(issue);
     if (!existsSync(p.config)) throw new Error('Run prepare first');
     prepare(issue, approved);
-    if (existsSync(launchPath)) unlinkSync(launchPath);
+    if (reservation) unlinkSync(launchPath);
     await runPilot(p.config);
     return;
   }
   checkExisting(issue, approved);
   prepareCheckForTmux(issue);
-  if (command === 'start') {
+  if (command === 'start' || command === 'tmux') {
+    reservation = {
+      issue,
+      token: randomBytes(32).toString('hex'),
+      session: `fair-task-${issue}`,
+    };
     const fd = openSync(launchPath, 'wx', 0o600);
-    try { writeFileSync(fd, `${issue}\n`); } finally { closeSync(fd); }
+    try {
+      writeFileSync(fd, `${JSON.stringify(reservation)}\n`);
+    } finally {
+      closeSync(fd);
+    }
   }
   const script = resolve('scripts/orchestrator/supervised-tmux.sh');
   const result = spawnSync(
@@ -446,11 +531,14 @@ async function main(): Promise<void> {
       String(issue),
       resolve('scripts/orchestrator/dist/supervised.js'),
       paths(issue).state,
+      reservation!.token,
     ],
     { stdio: 'inherit' },
   );
   if (result.status !== 0) {
-    throw new Error('tmux launch refused; launch reservation retained for manual recovery');
+    throw new Error(
+      'tmux launch refused; launch reservation retained for manual recovery',
+    );
   }
 }
 function prepareCheckForTmux(issue: number): void {

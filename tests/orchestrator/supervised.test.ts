@@ -14,27 +14,171 @@ import {
   allowsInterruptedImplementation,
   allowsIdleRoleRefresh,
   assertLaunchReservation,
+  verifyLaunchHandoff,
   ensurePrivateLockFile,
   parseCommand,
   paths,
 } from '../../scripts/orchestrator/supervised.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
-import { runOnce } from '../../scripts/orchestrator/runner.js';
+import {
+  runOnce,
+  usesSupervisedResources,
+} from '../../scripts/orchestrator/runner.js';
+
+const launchToken = 'a'.repeat(64);
+const reservation = { issue: 59, token: launchToken, session: 'fair-task-59' };
 
 describe('supervised issue identity', () => {
   it('blocks another launch during the detached runner handoff', () => {
-    expect(() => assertLaunchReservation('start', 60, '59')).toThrow('pending');
-    expect(() => assertLaunchReservation('prepare', 59, '59')).toThrow('pending');
-    expect(() => assertLaunchReservation('run', 60, '59')).toThrow('pending');
-    expect(() => assertLaunchReservation('run', 59, '59')).not.toThrow();
+    expect(() =>
+      assertLaunchReservation('start', 60, reservation, launchToken),
+    ).toThrow('pending');
+    expect(() =>
+      assertLaunchReservation('prepare', 59, reservation, launchToken),
+    ).toThrow('pending');
+    expect(() =>
+      assertLaunchReservation('run', 60, reservation, launchToken),
+    ).toThrow('pending');
+    expect(() => assertLaunchReservation('run', 59, reservation)).toThrow(
+      'pending',
+    );
+    expect(() =>
+      assertLaunchReservation('run', 59, reservation, 'b'.repeat(64)),
+    ).toThrow('pending');
+    expect(() =>
+      assertLaunchReservation('run', 59, reservation, launchToken),
+    ).not.toThrow();
+    expect(() => verifyLaunchHandoff(reservation, launchToken)).toThrow(
+      'tmux runner pane',
+    );
+  });
+  it('requires the lock for an alternate config path using any supervised resource', () => {
+    const p = paths(59);
+    const outside = join(tmpdir(), 'copied-supervised.json');
+    const ordinary = {
+      stateFile: join(tmpdir(), 'ordinary-state'),
+      evidenceDir: join(tmpdir(), 'ordinary-evidence'),
+      candidateWorktree: join(tmpdir(), 'fair-agent-candidate'),
+      worktrees: {
+        IMPLEMENTATION: join(tmpdir(), 'fair-agent-implementation'),
+        REVIEW: join(tmpdir(), 'fair-agent-review'),
+        QA: join(tmpdir(), 'fair-agent-qa'),
+      },
+    };
+    expect(usesSupervisedResources(outside, ordinary)).toBe(false);
+    for (const path of [
+      p.state,
+      p.evidence,
+      p.candidate,
+      ...Object.values(p.worktrees),
+    ]) {
+      const config = structuredClone(ordinary);
+      if (path === p.state) config.stateFile = path;
+      else if (path === p.evidence) config.evidenceDir = path;
+      else if (path === p.candidate) config.candidateWorktree = path;
+      else {
+        const role = Object.entries(p.worktrees).find(
+          ([, value]) => value === path,
+        )![0] as keyof typeof config.worktrees;
+        config.worktrees[role] = path;
+      }
+      expect(usesSupervisedResources(outside, config)).toBe(true);
+    }
+    expect(
+      usesSupervisedResources(
+        join(process.env.HOME!, '.config/fair-platform/tasks/../tasks/59.json'),
+        ordinary,
+      ),
+    ).toBe(true);
   });
   it('refuses direct runner entry for supervised task config without global flock', async () => {
     await expect(
-      runOnce(join(process.env.HOME!, '.config/fair-platform/tasks/99999.json')),
+      runOnce(
+        join(process.env.HOME!, '.config/fair-platform/tasks/99999.json'),
+      ),
     ).rejects.toThrow('requires the supervised lock');
   });
   it('refuses a normalized supervised config alias without global flock', async () => {
-    await expect(runOnce(join(process.env.HOME!, '.config/fair-platform/tasks/../tasks/99999.json'))).rejects.toThrow('requires the supervised lock');
+    await expect(
+      runOnce(
+        join(
+          process.env.HOME!,
+          '.config/fair-platform/tasks/../tasks/99999.json',
+        ),
+      ),
+    ).rejects.toThrow('requires the supervised lock');
+  });
+  it('refuses copied configs pointing to supervised state before contacting GitHub', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-copied-config-'));
+    try {
+      const model = join(root, 'models');
+      writeFileSync(
+        model,
+        [
+          'IMPLEMENTATION_MODEL=gpt-6-sol',
+          'IMPLEMENTATION_EFFORT=low',
+          'REVIEW_MODEL=gpt-6-sol',
+          'REVIEW_EFFORT=low',
+          'QA_MODEL=gpt-6-luna',
+          'QA_EFFORT=low',
+          'LAB_MODEL=gpt-6-luna',
+          'LAB_EFFORT=low',
+          'REPLAY_MODEL=gpt-6-luna',
+          'REPLAY_EFFORT=low',
+          'FALLBACK_MODEL=gpt-6-luna',
+          'FALLBACK_EFFORT=low',
+          'REPORT_MODEL=gpt-6-luna',
+          'REPORT_EFFORT=none',
+        ].join('\n') + '\n',
+        { mode: 0o600 },
+      );
+      const token = join(root, 'token');
+      writeFileSync(token, 'fixture', { mode: 0o600 });
+      const p = paths(99999);
+      const ordinary = {
+        issue: 99999,
+        ownerLogin: 'h-zare-dev',
+        pilotMode: true,
+        labActivated: false,
+        stateFile: join(root, 'state'),
+        evidenceDir: join(root, 'evidence'),
+        modelFile: model,
+        githubTokenFile: token,
+        sourceRepo: root,
+        candidateWorktree: join(root, 'fair-agent-candidate'),
+        worktrees: {
+          IMPLEMENTATION: join(root, 'fair-agent-implementation'),
+          REVIEW: join(root, 'fair-agent-review'),
+          QA: join(root, 'fair-agent-qa'),
+        },
+        pnpmExecutable: '/usr/bin/true',
+        codexExecutable: '/usr/bin/true',
+        ghExecutable: '/usr/bin/true',
+        maxModelCallsPerDay: 3,
+        commands: Object.fromEntries(
+          ['IMPLEMENTATION', 'REVIEW', 'QA'].map((gate) => [
+            gate,
+            { executable: '/usr/bin/true', args: [], timeoutMs: 1000 },
+          ]),
+        ),
+      };
+      for (const resource of ['stateFile', 'evidenceDir'] as const) {
+        const config = join(root, `${resource}.json`);
+        writeFileSync(
+          config,
+          JSON.stringify({
+            ...ordinary,
+            [resource]: resource === 'stateFile' ? p.state : p.evidence,
+          }),
+          { mode: 0o600 },
+        );
+        await expect(runOnce(config)).rejects.toThrow(
+          'requires the supervised lock',
+        );
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   it('allows only an in-flight Implementation worktree through receipt recovery', () => {
     const state = newTask(
@@ -208,7 +352,7 @@ describe('task tmux wrapper', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
-  it('launches exactly one task session with the documented four arguments', () => {
+  it('launches exactly one task session with an authenticated token', () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-supervised-'));
     try {
       const bin = join(root, 'bin');
@@ -230,6 +374,7 @@ describe('task tmux wrapper', () => {
           '59',
           '/tmp/supervised.js',
           join(stateDir, 'state.json'),
+          launchToken,
         ],
         {
           env: { ...process.env, HOME: root, PATH: `${bin}:/usr/bin:/bin` },
@@ -255,6 +400,7 @@ describe('task tmux wrapper', () => {
           '59',
           '/tmp/supervised.js',
           join(root, 'state.json'),
+          launchToken,
         ],
         {
           env: { ...process.env, HOME: root, PATH: `${bin}:/usr/bin:/bin` },

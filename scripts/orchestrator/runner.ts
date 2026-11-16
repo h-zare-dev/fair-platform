@@ -9,7 +9,14 @@ import {
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join, basename, dirname, resolve } from 'node:path';
+import {
+  join,
+  basename,
+  dirname,
+  resolve,
+  relative,
+  isAbsolute,
+} from 'node:path';
 import { Orchestrator, type Evidence, type Ports } from './engine.js';
 import {
   approvedIssue,
@@ -497,13 +504,12 @@ export function commandPorts(config: Config): Ports {
 }
 
 export async function runOnce(configPath: string): Promise<void> {
-  const canonicalPath = resolve(configPath);
-  const actualPath = (() => {
-    try { return realpathSync(canonicalPath); } catch { return canonicalPath; }
-  })();
-  if (dirname(actualPath) === join(homedir(), '.config/fair-platform/tasks'))
+  if (
+    isProtectedPath(configPath, join(homedir(), '.config/fair-platform/tasks'))
+  )
     verifyInternalLock();
   const config = loadConfig(configPath);
+  if (usesSupervisedResources(configPath, config)) verifyInternalLock();
   const store = new StateStore(config.stateFile);
   const api = new GhTransport(
     readFileSync(config.githubTokenFile, 'utf8').trim(),
@@ -529,6 +535,49 @@ export async function runOnce(configPath: string): Promise<void> {
       state,
     ),
   );
+}
+
+function isProtectedPath(path: string, root: string): boolean {
+  const canonical = (value: string): string => {
+    const absolute = resolve(value);
+    try {
+      return realpathSync(absolute);
+    } catch {
+      try {
+        return join(realpathSync(dirname(absolute)), basename(absolute));
+      } catch {
+        return absolute;
+      }
+    }
+  };
+  const subpath = relative(canonical(root), canonical(path));
+  return (
+    subpath === '' ||
+    (subpath !== '..' && !subpath.startsWith('../') && !isAbsolute(subpath))
+  );
+}
+
+/** A copied config cannot shed the lock while retaining protected task paths. */
+export function usesSupervisedResources(
+  configPath: string,
+  config: Pick<
+    Config,
+    'stateFile' | 'evidenceDir' | 'worktrees' | 'candidateWorktree'
+  >,
+): boolean {
+  const home = homedir();
+  const roots = [
+    join(home, '.config/fair-platform/tasks'),
+    join(home, '.local/state/fair-platform/tasks'),
+    join(home, 'Work/fair-agent-tasks'),
+  ];
+  return [
+    configPath,
+    config.stateFile,
+    config.evidenceDir,
+    config.candidateWorktree,
+    ...Object.values(config.worktrees),
+  ].some((path) => roots.some((root) => isProtectedPath(path, root)));
 }
 
 if (process.argv[1]?.endsWith('/runner.js')) {

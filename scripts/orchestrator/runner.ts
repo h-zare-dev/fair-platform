@@ -194,7 +194,10 @@ export function verifyReceipt(
     !/^[a-zA-Z0-9_.:-]{1,120}$/.test(evidence?.evidenceId ?? '')
   )
     throw new Error('Invalid saved gate evidence');
-  if (gate === 'IMPLEMENTATION' && evidence.verdict === 'PASS') {
+  if (gate === 'IMPLEMENTATION') {
+    // A FAIL can still have committed code. It must carry the exact
+    // worktree SHA before its receipt can be recovered or used for rework.
+    // This validates evidence identity; it does not turn FAIL into PASS.
     if (verifiedWorktreeHead(config.worktrees.IMPLEMENTATION) !== evidence.sha)
       throw new Error('Implementation result no longer matches worktree HEAD');
   } else if (gate === 'REVIEW' || gate === 'QA') {

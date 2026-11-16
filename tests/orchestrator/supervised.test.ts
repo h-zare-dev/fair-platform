@@ -137,6 +137,10 @@ describe('supervised issue identity', () => {
       );
       const token = join(root, 'token');
       writeFileSync(token, 'fixture', { mode: 0o600 });
+      // The CLI validates executable ownership and permissions. A real
+      // regular file makes this regression stable on GitHub-hosted runners.
+      const safeGate = join(root, 'safe-gate.sh');
+      writeFileSync(safeGate, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
       const p = paths(99999);
       const ordinary = {
         issue: 99999,
@@ -161,7 +165,7 @@ describe('supervised issue identity', () => {
         commands: Object.fromEntries(
           ['IMPLEMENTATION', 'REVIEW', 'QA'].map((gate) => [
             gate,
-            { executable: process.execPath, args: [], timeoutMs: 1000 },
+            { executable: safeGate, args: [], timeoutMs: 1000 },
           ]),
         ),
       };
@@ -220,9 +224,13 @@ describe('supervised issue identity', () => {
       );
       const token = join(root, 'token');
       writeFileSync(token, 'fixture', { mode: 0o600 });
+      // The CLI validates executable ownership and permissions. A real
+      // regular file makes this regression stable on GitHub-hosted runners.
+      const safeGate = join(root, 'safe-gate.sh');
+      writeFileSync(safeGate, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
       const task = join(root, 'task');
       const command = {
-        executable: process.execPath,
+        executable: safeGate,
         args: [],
         timeoutMs: 1000,
       };

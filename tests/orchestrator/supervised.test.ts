@@ -161,7 +161,7 @@ describe('supervised issue identity', () => {
         commands: Object.fromEntries(
           ['IMPLEMENTATION', 'REVIEW', 'QA'].map((gate) => [
             gate,
-            { executable: '/usr/bin/true', args: [], timeoutMs: 1000 },
+            { executable: process.execPath, args: [], timeoutMs: 1000 },
           ]),
         ),
       };
@@ -222,7 +222,7 @@ describe('supervised issue identity', () => {
       writeFileSync(token, 'fixture', { mode: 0o600 });
       const task = join(root, 'task');
       const command = {
-        executable: '/usr/bin/true',
+        executable: process.execPath,
         args: [],
         timeoutMs: 1000,
       };

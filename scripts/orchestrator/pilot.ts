@@ -43,6 +43,29 @@ export function isRetryablePublishError(
   );
 }
 
+export function isBudgetPauseError(
+  error: unknown,
+  state: Readonly<TaskState> | undefined,
+): boolean {
+  return (
+    error instanceof Error &&
+    error.message === 'Daily model call budget exhausted' &&
+    !!state &&
+    !state.inFlight &&
+    !state.pendingReport &&
+    (state.phase === 'IMPLEMENTING' ||
+      state.phase === 'REVIEWING' ||
+      state.phase === 'QA')
+  );
+}
+
+/** UTC rollover matches the usage.json day key, never local wall time. */
+export function nextBudgetResetUtc(now = new Date()): Date {
+  const reset = new Date(now.getTime());
+  reset.setUTCHours(24, 0, 0, 0);
+  return reset;
+}
+
 export async function runPilot(
   configPath: string,
   onProgress: (line: string) => void = (line) => {
@@ -66,6 +89,16 @@ export async function runPilot(
       // receipt. runOnce/runner revalidate GitHub identity before recovery.
       // Neither an unverified model execution nor a different PR may retry.
       const state = store.load();
+      if (isBudgetPauseError(error, state)) {
+        const reset = nextBudgetResetUtc();
+        onProgress(`MODEL_BUDGET_WAIT | resume_utc=${reset.toISOString()}`);
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(1, reset.getTime() - Date.now() + 1000)),
+        );
+        // State contains no in-flight operation. Re-check Owner approval,
+        // development SHA and capacity on the next iteration.
+        continue;
+      }
       if (!isRetryablePublishError(error, state) || transientRetries >= 8)
         throw error;
       transientRetries++;

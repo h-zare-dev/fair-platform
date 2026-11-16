@@ -410,13 +410,10 @@ function checkExisting(issue: number, approved: TaskState): void {
           ? (state.headSha ?? state.baseSha)
           : state.headSha) &&
       !allowsInterruptedImplementation(state, role) &&
-      !(role === 'IMPLEMENTATION' &&
-        allowsReceiptBackedImplementationRework(
-          state,
-          path,
-          p.evidence,
-          head,
-        )) &&
+      !(
+        role === 'IMPLEMENTATION' &&
+        allowsReceiptBackedImplementationRework(state, path, p.evidence, head)
+      ) &&
       !allowsIdleRoleRefresh(state, role)
     )
       throw new Error(`Divergent ${role} worktree`);

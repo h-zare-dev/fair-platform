@@ -298,22 +298,33 @@ describe('supervised issue identity', () => {
       writeFileSync(join(worktree, 'fixture.txt'), 'base\n');
       git('add', 'fixture.txt');
       git(
-        '-c', 'user.name=Test',
-        '-c', 'user.email=test@example.test',
-        'commit', '-qm', 'base',
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'commit',
+        '-qm',
+        'base',
       );
       const baseSha = git('rev-parse', 'HEAD');
       writeFileSync(join(worktree, 'fixture.txt'), 'failed attempt\n');
       git('add', 'fixture.txt');
       git(
-        '-c', 'user.name=Test',
-        '-c', 'user.email=test@example.test',
-        'commit', '-qm', 'failed implementation',
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'commit',
+        '-qm',
+        'failed implementation',
       );
       const failedSha = git('rev-parse', 'HEAD');
 
       const state = newTask(
-        59, 'docs/tasks/example.md', 'a'.repeat(40), baseSha,
+        59,
+        'docs/tasks/example.md',
+        'a'.repeat(40),
+        baseSha,
       );
       const evidence = {
         verdict: 'FAIL' as const,
@@ -324,7 +335,8 @@ describe('supervised issue identity', () => {
       const key = `59:1:IMPLEMENTATION:${baseSha}:-`;
       const receipt = receiptFor(state, 'IMPLEMENTATION', key, evidence);
       const receiptPath = join(
-        evidenceDir, `${createHash('sha256').update(key).digest('hex')}.json`,
+        evidenceDir,
+        `${createHash('sha256').update(key).digest('hex')}.json`,
       );
       writeFileSync(receiptPath, JSON.stringify(receipt));
 
@@ -341,7 +353,10 @@ describe('supervised issue identity', () => {
       });
       expect(
         allowsReceiptBackedImplementationRework(
-          state, worktree, evidenceDir, failedSha,
+          state,
+          worktree,
+          evidenceDir,
+          failedSha,
         ),
       ).toBe(true);
 
@@ -354,7 +369,10 @@ describe('supervised issue identity', () => {
       });
       expect(
         allowsReceiptBackedImplementationRework(
-          state, worktree, evidenceDir, failedSha,
+          state,
+          worktree,
+          evidenceDir,
+          failedSha,
         ),
       ).toBe(true);
 
@@ -362,11 +380,17 @@ describe('supervised issue identity', () => {
       // divergence from the saved implementation SHA.
       writeFileSync(
         receiptPath,
-        JSON.stringify({ ...receipt, evidence: { ...evidence, sha: '0'.repeat(40) } }),
+        JSON.stringify({
+          ...receipt,
+          evidence: { ...evidence, sha: '0'.repeat(40) },
+        }),
       );
       expect(
         allowsReceiptBackedImplementationRework(
-          state, worktree, evidenceDir, failedSha,
+          state,
+          worktree,
+          evidenceDir,
+          failedSha,
         ),
       ).toBe(false);
 
@@ -374,7 +398,10 @@ describe('supervised issue identity', () => {
       state.transitions[0]!.evidenceId = 'different-failed-gate';
       expect(
         allowsReceiptBackedImplementationRework(
-          state, worktree, evidenceDir, failedSha,
+          state,
+          worktree,
+          evidenceDir,
+          failedSha,
         ),
       ).toBe(false);
 
@@ -385,13 +412,19 @@ describe('supervised issue identity', () => {
       state.pendingReport = { gate: 'IMPLEMENTATION', key, evidence };
       expect(
         allowsReceiptBackedImplementationRework(
-          state, worktree, evidenceDir, failedSha,
+          state,
+          worktree,
+          evidenceDir,
+          failedSha,
         ),
       ).toBe(true);
       state.pendingReport = undefined;
       expect(
         allowsReceiptBackedImplementationRework(
-          state, worktree, evidenceDir, failedSha,
+          state,
+          worktree,
+          evidenceDir,
+          failedSha,
         ),
       ).toBe(false);
     } finally {

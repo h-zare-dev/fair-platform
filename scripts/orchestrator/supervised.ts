@@ -140,6 +140,15 @@ export function allowsIdleRoleRefresh(
   );
 }
 
+export function ensurePrivateLockFile(path: string): void {
+  safeDir(dirname(path));
+  if (!existsSync(path)) {
+    const fd = openSync(path, 'a', 0o600);
+    closeSync(fd);
+  }
+  privatePath(path);
+}
+
 export function allowsInterruptedImplementation(
   state: TaskState | undefined,
   role: string,
@@ -357,8 +366,7 @@ function verifyInternalLock(): void {
 }
 
 function locked(command: string, issue: number): void {
-  safeDir(dirname(lockPath));
-  if (existsSync(lockPath)) privatePath(lockPath);
+  ensurePrivateLockFile(lockPath);
   const result = spawnSync(
     '/usr/bin/flock',
     [
@@ -385,10 +393,13 @@ async function main(): Promise<void> {
   const { command, issue } = parseCommand(
     internal ? [args[0]!.slice(9), args[1]!] : args,
   );
-  if (
-    !internal &&
-    (command === 'prepare' || command === 'run' || command === 'start')
-  ) {
+  if (internal && command === 'start')
+    throw new Error('Internal start cannot hold the runner lock');
+  if (!internal && command === 'start') {
+    // Prepare under flock, release it before starting the tmux runner.
+    // The runner immediately takes the same lock for its model chain.
+    locked('prepare', issue);
+  } else if (!internal && (command === 'prepare' || command === 'run')) {
     locked(command, issue);
     return;
   }
@@ -411,11 +422,7 @@ async function main(): Promise<void> {
     await runPilot(p.config);
     return;
   }
-  if (command === 'start') {
-    prepare(issue, approved);
-  } else {
-    checkExisting(issue, approved);
-  }
+  checkExisting(issue, approved);
   prepareCheckForTmux(issue);
   const script = resolve('scripts/orchestrator/supervised-tmux.sh');
   const result = spawnSync(

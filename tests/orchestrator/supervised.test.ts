@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  statSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -12,6 +13,7 @@ import { join, resolve } from 'node:path';
 import {
   allowsInterruptedImplementation,
   allowsIdleRoleRefresh,
+  ensurePrivateLockFile,
   parseCommand,
   paths,
 } from '../../scripts/orchestrator/supervised.js';
@@ -58,6 +60,21 @@ describe('supervised issue identity', () => {
       startedAt: new Date().toISOString(),
     };
     expect(allowsIdleRoleRefresh(state, 'REVIEW')).toBe(false);
+  });
+  it('creates the supervised flock file privately before starting a runner', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-lock-private-'));
+    const lock = join(root, 'private', 'supervised.lock');
+    try {
+      ensurePrivateLockFile(lock);
+      expect(statSync(lock).mode & 0o077).toBe(0);
+      // Repeated calls preserve the same lock file rather than replacing
+      // the inode under an existing OS flock.
+      const first = statSync(lock).ino;
+      ensurePrivateLockFile(lock);
+      expect(statSync(lock).ino).toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   it('refuses a forged internal-run environment flag without a real flock', () => {
     const result = spawnSync(

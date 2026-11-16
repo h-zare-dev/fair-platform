@@ -159,8 +159,7 @@ describe('orchestrator', () => {
         reconcile: () => Promise.resolve(),
         developmentSha: () => Promise.resolve(sha('b')),
         preflightRun: () => {
-          if (!allowed)
-            throw new Error('Daily model call budget exhausted');
+          if (!allowed) throw new Error('Daily model call budget exhausted');
           return Promise.resolve();
         },
         run: () => {

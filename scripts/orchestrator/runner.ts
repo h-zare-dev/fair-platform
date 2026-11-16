@@ -279,10 +279,7 @@ export function commandPorts(config: Config): Ports {
   return {
     preflightRun(gate) {
       if (gate === 'IMPLEMENTATION' || gate === 'REVIEW' || gate === 'QA')
-        assertModelCallCapacity(
-          config.evidenceDir,
-          config.maxModelCallsPerDay,
-        );
+        assertModelCallCapacity(config.evidenceDir, config.maxModelCallsPerDay);
       return Promise.resolve();
     },
     reconcile(state) {

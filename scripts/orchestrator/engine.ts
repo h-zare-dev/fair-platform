@@ -18,7 +18,11 @@ export interface Ports {
   reconcile(state: TaskState): Promise<void>;
   run(gate: Gate, state: Readonly<TaskState>, key: string): Promise<Evidence>;
   /** Must be side-effect-free. Called before persisting a new in-flight gate. */
-  preflightRun?(gate: Gate, state: Readonly<TaskState>, key: string): Promise<void>;
+  preflightRun?(
+    gate: Gate,
+    state: Readonly<TaskState>,
+    key: string,
+  ): Promise<void>;
   recover?(
     gate: Gate,
     state: Readonly<TaskState>,

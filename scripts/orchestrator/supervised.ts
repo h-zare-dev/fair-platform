@@ -122,6 +122,14 @@ function approval(issue: number): TaskState {
   }
   return approved;
 }
+export function allowsInterruptedImplementation(
+  state: TaskState | undefined,
+  role: string,
+): boolean {
+  return (
+    role === 'IMPLEMENTATION' && state?.inFlight?.gate === 'IMPLEMENTATION'
+  );
+}
 function checkExisting(issue: number, approved: TaskState): void {
   const p = paths(issue);
   if (existsSync(p.state)) privatePath(p.state);
@@ -172,12 +180,13 @@ function checkExisting(issue: number, approved: TaskState): void {
       ['-C', path, 'rev-parse', '--show-toplevel'],
       { encoding: 'utf8' },
     ).trim();
-    if (
-      top !== path ||
-      execFileSync(git, ['-C', path, 'status', '--porcelain'], {
-        encoding: 'utf8',
-      }).trim()
-    )
+    if (top !== path) throw new Error(`Unsafe ${role} worktree`);
+    const dirty = execFileSync(git, ['-C', path, 'status', '--porcelain'], {
+      encoding: 'utf8',
+    }).trim();
+    // An interrupted model may leave edits behind. Let the engine inspect its
+    // immutable receipt and fail closed if the execution is unverified.
+    if (dirty && !allowsInterruptedImplementation(state, role))
       throw new Error(`Unsafe or dirty ${role} worktree`);
     const head = execFileSync(git, ['-C', path, 'rev-parse', 'HEAD'], {
       encoding: 'utf8',
@@ -187,7 +196,7 @@ function checkExisting(issue: number, approved: TaskState): void {
         (role === 'IMPLEMENTATION'
           ? (state.headSha ?? state.baseSha)
           : state.headSha) &&
-      !(role === 'IMPLEMENTATION' && state.inFlight?.gate === 'IMPLEMENTATION')
+      !allowsInterruptedImplementation(state, role)
     )
       throw new Error(`Divergent ${role} worktree`);
   }

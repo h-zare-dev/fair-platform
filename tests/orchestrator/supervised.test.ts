@@ -9,9 +9,36 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { parseCommand, paths } from '../../scripts/orchestrator/supervised.js';
+import {
+  allowsInterruptedImplementation,
+  parseCommand,
+  paths,
+} from '../../scripts/orchestrator/supervised.js';
+import { newTask } from '../../scripts/orchestrator/state.js';
 
 describe('supervised issue identity', () => {
+  it('allows only an in-flight Implementation worktree through receipt recovery', () => {
+    const state = newTask(
+      59,
+      'docs/tasks/example.md',
+      'a'.repeat(40),
+      'b'.repeat(40),
+    );
+    expect(allowsInterruptedImplementation(state, 'IMPLEMENTATION')).toBe(
+      false,
+    );
+    state.inFlight = {
+      gate: 'IMPLEMENTATION',
+      key: 'receipt-key',
+      startedAt: new Date().toISOString(),
+    };
+    expect(allowsInterruptedImplementation(state, 'IMPLEMENTATION')).toBe(true);
+    expect(allowsInterruptedImplementation(state, 'REVIEW')).toBe(false);
+    state.inFlight.gate = 'REVIEW';
+    expect(allowsInterruptedImplementation(state, 'IMPLEMENTATION')).toBe(
+      false,
+    );
+  });
   it('refuses a direct internal run before approval or side effects', () => {
     const result = spawnSync(
       process.execPath,

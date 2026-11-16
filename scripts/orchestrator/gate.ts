@@ -43,8 +43,11 @@ export const CODEX_PRLIMIT_ARGS = ['--cpu=3600', '--nofile=1024'] as const;
  * unattended agent. The implementation may write only its own worktree;
  * independent Review and QA must remain read-only.
  */
-export const codexSandboxForGate = (gate: string): 'workspace-write' | 'read-only' =>
-  gate === 'IMPLEMENTATION' ? 'workspace-write' : 'read-only';
+export function codexSandboxForGate(
+  gate: string,
+): 'workspace-write' | 'read-only' {
+  return gate === 'IMPLEMENTATION' ? 'workspace-write' : 'read-only';
+}
 
 export function executeCodexGate(
   gate: string,

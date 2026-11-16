@@ -241,6 +241,7 @@ export function allowsInterruptedImplementation(
     role === 'IMPLEMENTATION' && state?.inFlight?.gate === 'IMPLEMENTATION'
   );
 }
+
 /**
  * A failed Implementation may commit code without publishing it. Only an
  * exact, immutable FAIL receipt from the immediately preceding attempt can
@@ -272,7 +273,8 @@ export function allowsReceiptBackedImplementationRework(
       state.pendingReport ||
       !['REWORK', 'IMPLEMENTING'].includes(state.phase) ||
       state.attempt < 2
-    ) return false;
+    )
+      return false;
     const last = state.transitions.at(-1);
     const prior = state.transitions.at(-2);
     const rework =
@@ -286,7 +288,8 @@ export function allowsReceiptBackedImplementationRework(
       rework.actor !== 'orchestrator' ||
       rework.attempt !== state.attempt ||
       !rework.evidenceId
-    ) return false;
+    )
+      return false;
     attempt = state.attempt - 1;
     key = `${state.taskId}:${attempt}:IMPLEMENTATION:${previousHead}:-`;
     evidenceId = rework.evidenceId;
@@ -312,7 +315,8 @@ export function allowsReceiptBackedImplementationRework(
     (state.pendingReport &&
       JSON.stringify(state.pendingReport.evidence) !==
         JSON.stringify(receipt.evidence))
-  ) return false;
+  )
+    return false;
   const expected = receiptFor(
     { ...state, attempt, candidateSha: undefined },
     'IMPLEMENTATION',
@@ -326,7 +330,14 @@ export function allowsReceiptBackedImplementationRework(
   return (
     spawnSync(
       git,
-      ['-C', implementationWorktree, 'merge-base', '--is-ancestor', previousHead, currentHead],
+      [
+        '-C',
+        implementationWorktree,
+        'merge-base',
+        '--is-ancestor',
+        previousHead,
+        currentHead,
+      ],
       { stdio: 'ignore' },
     ).status === 0
   );

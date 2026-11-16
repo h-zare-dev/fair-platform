@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { approvedIssue, GhTransport } from './github.js';
 import { runPilot } from './pilot.js';
 import { loadConfig } from './runner.js';
@@ -31,11 +31,11 @@ export function parseCommand(args: string[]): {
 } {
   if (
     args.length !== 2 ||
-    !['preflight', 'prepare', 'run', 'tmux'].includes(args[0]!) ||
+    !['preflight', 'prepare', 'run', 'tmux', 'start'].includes(args[0]!) ||
     !/^[1-9][0-9]*$/.test(args[1]!)
   )
     throw new Error(
-      'Usage: supervised <preflight|prepare|run|tmux> <positive-issue-number>',
+      'Usage: supervised <start|preflight|prepare|run|tmux> <positive-issue-number>',
     );
   const issue = Number(args[1]);
   if (!Number.isSafeInteger(issue) || issue === 57)
@@ -122,6 +122,24 @@ function approval(issue: number): TaskState {
   }
   return approved;
 }
+/**
+ * Clean independent worktrees are reusable across implementation reworks:
+ * gate.ts will switch them to the exact new HEAD immediately before model
+ * execution. Never accept a stale worktree for an already in-flight gate.
+ */
+export function allowsIdleRoleRefresh(
+  state: TaskState | undefined,
+  role: string,
+): boolean {
+  return (
+    (role === 'REVIEW' || role === 'QA') &&
+    !!state &&
+    !state.inFlight &&
+    !state.pendingReport &&
+    !!state.headSha
+  );
+}
+
 export function allowsInterruptedImplementation(
   state: TaskState | undefined,
   role: string,
@@ -196,7 +214,8 @@ function checkExisting(issue: number, approved: TaskState): void {
         (role === 'IMPLEMENTATION'
           ? (state.headSha ?? state.baseSha)
           : state.headSha) &&
-      !allowsInterruptedImplementation(state, role)
+      !allowsInterruptedImplementation(state, role) &&
+      !allowsIdleRoleRefresh(state, role)
     )
       throw new Error(`Divergent ${role} worktree`);
   }
@@ -306,6 +325,34 @@ function prepare(issue: number, approved: TaskState): void {
     closeSync(fd);
   }
 }
+/**
+ * Environment variables are not a locking mechanism. An internal invocation
+ * must be a child of the actual flock wrapper and the OS lock must be held.
+ * This prevents a trivial FAIR_SUPERVISED_LOCKED=1 bypass.
+ */
+function verifyInternalLock(): void {
+  if (process.env.FAIR_SUPERVISED_LOCKED !== '1' || !existsSync(lockPath))
+    throw new Error('Internal command requires the supervised lock');
+  privatePath(lockPath);
+  let parentArgv: string[];
+  try {
+    parentArgv = readFileSync(`/proc/${process.ppid}/cmdline`, 'utf8')
+      .split('\0')
+      .filter(Boolean);
+  } catch {
+    throw new Error('Internal command cannot verify flock parent');
+  }
+  if (basename(parentArgv[0] ?? '') !== 'flock' || !parentArgv.includes(lockPath))
+    throw new Error('Internal command requires the supervised lock');
+  const probe = spawnSync(
+    '/usr/bin/flock',
+    ['-n', '-E', '75', lockPath, '/usr/bin/true'],
+    { stdio: 'ignore' },
+  );
+  if (probe.status !== 75)
+    throw new Error('Internal command requires the supervised lock');
+}
+
 function locked(command: string, issue: number): void {
   safeDir(dirname(lockPath));
   if (existsSync(lockPath)) privatePath(lockPath);
@@ -331,12 +378,14 @@ function locked(command: string, issue: number): void {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const internal = args[0]?.startsWith('internal-');
-  if (internal && process.env.FAIR_SUPERVISED_LOCKED !== '1')
-    throw new Error('Internal command requires the supervised lock');
+  if (internal) verifyInternalLock();
   const { command, issue } = parseCommand(
     internal ? [args[0]!.slice(9), args[1]!] : args,
   );
-  if (!internal && (command === 'prepare' || command === 'run')) {
+  if (
+    !internal &&
+    (command === 'prepare' || command === 'run' || command === 'start')
+  ) {
     locked(command, issue);
     return;
   }
@@ -359,7 +408,11 @@ async function main(): Promise<void> {
     await runPilot(p.config);
     return;
   }
-  checkExisting(issue, approved);
+  if (command === 'start') {
+    prepare(issue, approved);
+  } else {
+    checkExisting(issue, approved);
+  }
   prepareCheckForTmux(issue);
   const script = resolve('scripts/orchestrator/supervised-tmux.sh');
   const result = spawnSync(

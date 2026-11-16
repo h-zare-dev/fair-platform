@@ -5,6 +5,10 @@ Run one Owner-approved issue at a time from the checked-out repository. The issu
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec tsc -p scripts/orchestrator/tsconfig.json
+# One command after an exact Owner approval; prepares if needed, then runs in tmux.
+node scripts/orchestrator/dist/supervised.js start <issue>
+
+# Optional manual diagnostics:
 node scripts/orchestrator/dist/supervised.js preflight <issue>
 node scripts/orchestrator/dist/supervised.js prepare <issue>
 node scripts/orchestrator/dist/supervised.js tmux <issue>

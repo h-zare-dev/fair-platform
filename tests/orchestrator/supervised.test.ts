@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   allowsInterruptedImplementation,
+  allowsIdleRoleRefresh,
   parseCommand,
   paths,
 } from '../../scripts/orchestrator/supervised.js';
@@ -39,6 +40,40 @@ describe('supervised issue identity', () => {
       false,
     );
   });
+  it('allows a clean idle Review worktree to be refreshed for the next SHA', () => {
+    const state = newTask(
+      62,
+      'docs/tasks/example.md',
+      'a'.repeat(40),
+      'b'.repeat(40),
+    );
+    state.phase = 'REVIEWING';
+    state.headSha = 'c'.repeat(40);
+    expect(allowsIdleRoleRefresh(state, 'REVIEW')).toBe(true);
+    expect(allowsIdleRoleRefresh(state, 'QA')).toBe(true);
+    expect(allowsIdleRoleRefresh(state, 'IMPLEMENTATION')).toBe(false);
+    state.inFlight = {
+      gate: 'REVIEW',
+      key: 'receipt-key',
+      startedAt: new Date().toISOString(),
+    };
+    expect(allowsIdleRoleRefresh(state, 'REVIEW')).toBe(false);
+  });
+  it('refuses a forged internal-run environment flag without a real flock', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        resolve('scripts/orchestrator/supervised.ts'),
+        'internal-run',
+        '62',
+      ],
+      { env: { ...process.env, FAIR_SUPERVISED_LOCKED: '1' } },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr.toString()).toContain('requires the supervised lock');
+  });
   it('refuses a direct internal run before approval or side effects', () => {
     const result = spawnSync(
       process.execPath,
@@ -60,6 +95,10 @@ describe('supervised issue identity', () => {
       issue: 59,
     });
     expect(parseCommand(['run', '123']).issue).toBe(123);
+    expect(parseCommand(['start', '62'])).toEqual({
+      command: 'start',
+      issue: 62,
+    });
   });
   it.each([
     [],

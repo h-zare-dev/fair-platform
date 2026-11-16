@@ -74,6 +74,81 @@ describe('GitHub approval gate', () => {
     expect(ensureDraftPr(api, state, 'agent/57-aaaaaaaaaaaa')).toBe(101);
     expect(created).toBe(1);
   });
+  it('refreshes a stale Draft PR head without creating another PR', () => {
+    const state = newTask(59, 'docs/tasks/TASK-59.md', sha('a'), sha('b'));
+    state.headSha = sha('d');
+    let attempts = 0;
+    let creates = 0;
+    let patches = 0;
+    const old = {
+      number: 60,
+      state: 'open',
+      draft: true,
+      merged: false,
+      head: { sha: sha('c') },
+      base: { ref: 'development' },
+    };
+    const api: GitHubTransport = {
+      get(path) {
+        if (path.includes('?state=open')) return [old];
+        attempts++;
+        return {
+          ...old,
+          head: { sha: attempts === 1 ? sha('c') : sha('d') },
+        };
+      },
+      post() {
+        creates++;
+        return old;
+      },
+      patch() {
+        patches++;
+        return {};
+      },
+    };
+    expect(
+      ensureDraftPr(api, state, 'agent/59-aaaaaaaaaaaa', () => {}),
+    ).toBe(60);
+    expect(creates).toBe(0);
+    expect(attempts).toBe(2);
+    expect(patches).toBe(1);
+  });
+
+  it('never accepts a permanently stale or non-draft PR', () => {
+    const state = newTask(59, 'docs/tasks/TASK-59.md', sha('a'), sha('b'));
+    state.headSha = sha('d');
+    const old = {
+      number: 60,
+      state: 'open',
+      draft: true,
+      merged: false,
+      head: { sha: sha('c') },
+      base: { ref: 'development' },
+    };
+    let retries = 0;
+    const api: GitHubTransport = {
+      get(path) {
+        if (path.includes('?state=open')) return [old];
+        retries++;
+        return old;
+      },
+      post: () => {
+        throw new Error('Duplicate PR forbidden');
+      },
+    };
+    expect(() =>
+      ensureDraftPr(api, state, 'agent/59-aaaaaaaaaaaa', () => {}),
+    ).toThrow('PR is not exact draft head');
+    expect(retries).toBe(10);
+    const unsafe: GitHubTransport = {
+      ...api,
+      get: () => [{ ...old, draft: false }],
+    };
+    expect(() =>
+      ensureDraftPr(unsafe, state, 'agent/59-aaaaaaaaaaaa', () => {}),
+    ).toThrow('PR identity changed');
+  });
+
   it('rejects stale CI and non-Owner merges', () => {
     const api: GitHubTransport = {
       get(path) {

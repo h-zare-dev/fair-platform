@@ -105,6 +105,9 @@ export function ensureDraftPr(
   api: GitHubTransport,
   state: TaskState,
   branch: string,
+  pause: () => void = () => {
+    execFileSync('/usr/bin/sleep', ['1']);
+  },
 ): number {
   if (
     !/^agent\/[a-z0-9-]{1,80}$/.test(branch) ||
@@ -125,15 +128,26 @@ export function ensureDraftPr(
       draft: true,
       body,
     }) as Pull;
-  if (
-    pr.state !== 'open' ||
-    !pr.draft ||
-    pr.base.ref !== 'development' ||
-    pr.head.sha !== state.headSha
-  )
-    throw new Error('PR is not exact draft head');
-  api.patch?.(`/repos/${repo}/pulls/${pr.number}`, { body });
-  return pr.number;
+  // GitHub's PR lookup can lag behind a successful fast-forward branch push.
+  // Refresh the exact PR instead of re-running Implementation or trusting a
+  // stale SHA. Never accept a different head or an undrafted PR.
+  for (let refresh = 0; refresh < 10; refresh++) {
+    if (
+      pr.state !== 'open' ||
+      !pr.draft ||
+      pr.base?.ref !== 'development' ||
+      !Number.isSafeInteger(pr.number) ||
+      pr.number < 1
+    )
+      throw new Error('PR identity changed during publication');
+    if (pr.head?.sha === state.headSha) {
+      api.patch?.(`/repos/${repo}/pulls/${pr.number}`, { body });
+      return pr.number;
+    }
+    pause();
+    pr = api.get(`/repos/${repo}/pulls/${pr.number}`) as Pull;
+  }
+  throw new Error('PR is not exact draft head');
 }
 
 export function verifyExactCi(

@@ -12,6 +12,19 @@ import { join, resolve } from 'node:path';
 import { parseCommand, paths } from '../../scripts/orchestrator/supervised.js';
 
 describe('supervised issue identity', () => {
+  it('refuses a direct internal run before approval or side effects', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve('scripts/orchestrator/dist/supervised.js'),
+        'internal-run',
+        '59',
+      ],
+      { env: { ...process.env, FAIR_SUPERVISED_LOCKED: '' } },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr.toString()).toContain('requires the supervised lock');
+  });
   it('accepts one explicit positive issue', () => {
     expect(parseCommand(['preflight', '59'])).toEqual({
       command: 'preflight',

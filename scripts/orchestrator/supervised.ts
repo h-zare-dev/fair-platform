@@ -311,7 +311,7 @@ function locked(command: string, issue: number): void {
       `internal-${command}`,
       String(issue),
     ],
-    { stdio: 'inherit' },
+    { stdio: 'inherit', env: { ...process.env, FAIR_SUPERVISED_LOCKED: '1' } },
   );
   if (result.status !== 0)
     throw new Error(
@@ -323,6 +323,8 @@ function locked(command: string, issue: number): void {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const internal = args[0]?.startsWith('internal-');
+  if (internal && process.env.FAIR_SUPERVISED_LOCKED !== '1')
+    throw new Error('Internal command requires the supervised lock');
   const { command, issue } = parseCommand(
     internal ? [args[0]!.slice(9), args[1]!] : args,
   );

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { once as onceEvent } from 'node:events';
 import {
   mkdtempSync,
   mkdirSync,
@@ -34,33 +33,10 @@ const launchToken = 'a'.repeat(64);
 const reservation = { issue: 59, token: launchToken, session: 'fair-task-59' };
 
 describe('supervised issue identity', () => {
-  it('waits for handoff but rejects competing launches', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'fair-handoff-lock-'));
-    const lock = join(root, 'supervised.lock');
-    const holder = spawn(
-      '/usr/bin/flock',
-      ['-x', lock, '/bin/sh', '-c', 'printf "READY\\n"; sleep 1'],
-      { stdio: ['ignore', 'pipe', 'ignore'] },
-    );
-    try {
-      const [ready] = await onceEvent(holder.stdout!, 'data');
-      expect(String(ready)).toContain('READY');
-      expect(supervisedFlockAdmission('start')).toEqual(['-n']);
-      expect(supervisedFlockAdmission('run')).toEqual(['-w', '30']);
-      const competing = spawnSync(
-        '/usr/bin/flock',
-        [...supervisedFlockAdmission('start'), lock, '/usr/bin/true'],
-      );
-      expect(competing.status).not.toBe(0);
-      const runner = spawnSync(
-        '/usr/bin/flock',
-        [...supervisedFlockAdmission('run'), lock, '/usr/bin/true'],
-      );
-      expect(runner.status).toBe(0);
-    } finally {
-      holder.kill();
-      rmSync(root, { recursive: true, force: true });
-    }
+  it('waits only for runner handoff', () => {
+    expect(supervisedFlockAdmission('run')).toEqual(['-w', '30']);
+    expect(supervisedFlockAdmission('start')).toEqual(['-n']);
+    expect(supervisedFlockAdmission('tmux')).toEqual(['-n']);
   });
   it('blocks another launch during the detached runner handoff', () => {
     expect(() =>

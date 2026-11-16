@@ -555,12 +555,20 @@ export function verifyInternalLock(): void {
     throw new Error('Internal command requires the supervised lock');
 }
 
+/** The tmux runner waits briefly for the launcher to release its flock.
+ * Other admissions remain non-blocking; a second task cannot queue behind
+ * an active model chain.
+ */
+export function supervisedFlockAdmission(command: string): string[] {
+  return command === 'run' ? ['-w', '30'] : ['-n'];
+}
+
 function locked(command: string, issue: number, token?: string): void {
   ensurePrivateLockFile(lockPath);
   const result = spawnSync(
     '/usr/bin/flock',
     [
-      '-n',
+      ...supervisedFlockAdmission(command),
       lockPath,
       process.execPath,
       resolve('scripts/orchestrator/dist/supervised.js'),

@@ -208,6 +208,47 @@ export function verifyReceipt(
   return evidence;
 }
 
+/**
+ * An Implementation model can have committed, written its receipt, and
+ * published a newer HEAD before the runner persisted its checkpoint.
+ * Trust only the exact saved receipt, current worktree HEAD and gate key.
+ * This permits safe replay of publication, never replay of the model call.
+ */
+export function isReceiptProvenPublishedHead(
+  config: Config,
+  state: Readonly<import('./state.js').TaskState>,
+  remoteSha: string,
+): boolean {
+  const flight = state.inFlight;
+  const expectedKey = `${state.taskId}:${state.attempt}:IMPLEMENTATION:${state.headSha ?? state.baseSha}:${state.candidateSha ?? '-'}`;
+  if (
+    state.phase !== 'IMPLEMENTING' ||
+    flight?.gate !== 'IMPLEMENTATION' ||
+    flight.key !== expectedKey ||
+    !isSha(remoteSha)
+  )
+    return false;
+  const path = join(
+    config.evidenceDir,
+    `${createHash('sha256').update(expectedKey).digest('hex')}.json`,
+  );
+  let receipt: Receipt;
+  try {
+    receipt = JSON.parse(readFileSync(path, 'utf8')) as Receipt;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+  const evidence = verifyReceipt(
+    config,
+    state,
+    'IMPLEMENTATION',
+    expectedKey,
+    receipt,
+  );
+  return evidence.verdict === 'PASS' && evidence.sha === remoteSha;
+}
+
 export function commandPorts(config: Config): Ports {
   const token = readFileSync(config.githubTokenFile, 'utf8').trim();
   const api = new GhTransport(token, config.ghExecutable);
@@ -235,9 +276,10 @@ export function commandPorts(config: Config): Ports {
           merged?: boolean;
         };
         if (
-          pr.head?.sha !== state.headSha ||
           pr.base?.ref !== 'development' ||
-          (!pr.draft && !pr.merged)
+          (!pr.draft && !pr.merged) ||
+          (pr.head?.sha !== state.headSha &&
+            !isReceiptProvenPublishedHead(config, state, pr.head?.sha ?? ''))
         )
           throw new Error('PR head/base/draft state drifted');
       }

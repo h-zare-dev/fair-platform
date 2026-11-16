@@ -29,6 +29,20 @@ export function pilotSummary(state: Readonly<TaskState>): string {
  * No issue is manufactured here: the ordinary authenticated Owner approval
  * requirements in runOnce() remain mandatory.
  */
+export function isRetryablePublishError(
+  error: unknown,
+  state: Readonly<TaskState> | undefined,
+): boolean {
+  return (
+    state?.phase === 'IMPLEMENTING' &&
+    state.inFlight?.gate === 'IMPLEMENTATION' &&
+    error instanceof Error &&
+    ['PR is not exact draft head', 'PR head/base/draft state drifted'].includes(
+      error.message,
+    )
+  );
+}
+
 export async function runPilot(
   configPath: string,
   onProgress: (line: string) => void = (line) => {
@@ -41,8 +55,26 @@ export async function runPilot(
   const store = new StateStore(config.stateFile);
   // Bounded even if a malformed state machine cycles unexpectedly. The
   // separate model-call budget and max-rework count are enforced by the runner.
-  for (let tick = 0; tick < 40; tick++) {
-    await runOnce(configPath);
+  let transientRetries = 0;
+  for (let tick = 0; tick < 40;) {
+    try {
+      await runOnce(configPath);
+      transientRetries = 0;
+      tick++;
+    } catch (error) {
+      // Re-enter only the saved in-flight Implementation with its immutable
+      // receipt. runOnce/runner revalidate GitHub identity before recovery.
+      // Neither an unverified model execution nor a different PR may retry.
+      const state = store.load();
+      if (!isRetryablePublishError(error, state) || transientRetries >= 8)
+        throw error;
+      transientRetries++;
+      onProgress(`PUBLISH_RECONCILE_RETRY ${transientRetries}/8`);
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, Math.min(transientRetries * 1000, 5000)),
+      );
+      continue;
+    }
     const state = store.load();
     if (!state) throw new Error('Pilot did not persist an active task');
     onProgress(pilotSummary(state));

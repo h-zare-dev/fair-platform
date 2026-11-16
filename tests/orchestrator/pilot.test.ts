@@ -59,5 +59,4 @@ describe('supervised pilot control', () => {
       nextBudgetResetUtc(new Date('2026-11-16T17:20:00Z')).toISOString(),
     ).toBe('2026-11-17T00:00:00.000Z');
   });
-
 });

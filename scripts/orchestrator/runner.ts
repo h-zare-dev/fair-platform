@@ -29,7 +29,10 @@ import {
 import { publishHead } from './publish.js';
 import { loadModelRoutes } from './models.js';
 import { isSha, StateStore, type Gate } from './state.js';
-import { verifyInternalLock } from './supervised.js';
+import {
+  assertPendingRunnerReservation,
+  verifyInternalLock,
+} from './supervised.js';
 
 type Command = { executable: string; args: string[]; timeoutMs: number };
 type CommandGate = Exclude<Gate, 'CI'>;
@@ -509,7 +512,10 @@ export async function runOnce(configPath: string): Promise<void> {
   )
     verifyInternalLock();
   const config = loadConfig(configPath);
-  if (usesSupervisedResources(configPath, config)) verifyInternalLock();
+  if (usesSupervisedResources(configPath, config)) {
+    verifyInternalLock();
+    assertPendingRunnerReservation(config.issue);
+  }
   const store = new StateStore(config.stateFile);
   const api = new GhTransport(
     readFileSync(config.githubTokenFile, 'utf8').trim(),

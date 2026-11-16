@@ -17,7 +17,7 @@ if [[ -f $pidfile && $phase != BLOCKED && $phase != DONE && $phase != READY_FOR_
   pid=$(cat -- "$pidfile")
   if [[ $pid =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null &&
        [[ -r /proc/$pid/cmdline ]] &&
-       grep -aq 'supervised.js run ' "/proc/$pid/cmdline"; then
+       tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Fq 'supervised.js run '; then
     printf 'RUNNING PID=%s\n' "$pid"
   else
     printf 'STOPPED (stale PID record)\n'

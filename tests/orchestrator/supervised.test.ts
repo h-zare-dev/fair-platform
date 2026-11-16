@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
   mkdirSync,
@@ -162,19 +162,119 @@ describe('supervised issue identity', () => {
           ]),
         ),
       };
-      for (const resource of ['stateFile', 'evidenceDir'] as const) {
-        const config = join(root, `${resource}.json`);
-        writeFileSync(
-          config,
-          JSON.stringify({
-            ...ordinary,
-            [resource]: resource === 'stateFile' ? p.state : p.evidence,
-          }),
-          { mode: 0o600 },
-        );
+      for (const [name, override] of [
+        ['stateFile', { stateFile: p.state }],
+        ['evidenceDir', { evidenceDir: p.evidence }],
+        ['candidateWorktree', { candidateWorktree: p.candidate }],
+        ...Object.entries(p.worktrees).map(([role, path]) => [
+          `worktree-${role}`,
+          { worktrees: { ...ordinary.worktrees, [role]: path } },
+        ]),
+      ] as [string, object][]) {
+        const config = join(root, `${name}.json`);
+        writeFileSync(config, JSON.stringify({ ...ordinary, ...override }), {
+          mode: 0o600,
+        });
         await expect(runOnce(config)).rejects.toThrow(
           'requires the supervised lock',
         );
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('keeps a pending handoff reserved against a direct runner holding the flock', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-pending-handoff-'));
+    try {
+      const privateRoot = join(root, '.local/state/fair-platform');
+      const taskRoot = join(privateRoot, 'tasks/60');
+      mkdirSync(taskRoot, { recursive: true, mode: 0o700 });
+      const lock = join(privateRoot, 'supervised.lock');
+      const launch = join(privateRoot, 'supervised.launch');
+      writeFileSync(lock, '', { mode: 0o600 });
+      const saved = JSON.stringify(reservation);
+      writeFileSync(launch, saved, { mode: 0o600 });
+      const model = join(root, 'models');
+      writeFileSync(
+        model,
+        [
+          'IMPLEMENTATION_MODEL=gpt-6-sol',
+          'IMPLEMENTATION_EFFORT=low',
+          'REVIEW_MODEL=gpt-6-sol',
+          'REVIEW_EFFORT=low',
+          'QA_MODEL=gpt-6-luna',
+          'QA_EFFORT=low',
+          'LAB_MODEL=gpt-6-luna',
+          'LAB_EFFORT=low',
+          'REPLAY_MODEL=gpt-6-luna',
+          'REPLAY_EFFORT=low',
+          'FALLBACK_MODEL=gpt-6-luna',
+          'FALLBACK_EFFORT=low',
+          'REPORT_MODEL=gpt-6-luna',
+          'REPORT_EFFORT=none',
+        ].join('\n') + '\n',
+        { mode: 0o600 },
+      );
+      const token = join(root, 'token');
+      writeFileSync(token, 'fixture', { mode: 0o600 });
+      const task = join(root, 'task');
+      const command = {
+        executable: '/usr/bin/true',
+        args: [],
+        timeoutMs: 1000,
+      };
+      const config = join(root, 'copied.json');
+      writeFileSync(
+        config,
+        JSON.stringify({
+          issue: 60,
+          ownerLogin: 'h-zare-dev',
+          pilotMode: true,
+          labActivated: false,
+          stateFile: join(taskRoot, 'state.json'),
+          evidenceDir: join(taskRoot, 'evidence'),
+          modelFile: model,
+          githubTokenFile: token,
+          sourceRepo: root,
+          candidateWorktree: join(task, 'fair-agent-candidate'),
+          worktrees: {
+            IMPLEMENTATION: join(task, 'fair-agent-implementation'),
+            REVIEW: join(task, 'fair-agent-review'),
+            QA: join(task, 'fair-agent-qa'),
+          },
+          pnpmExecutable: '/usr/bin/true',
+          codexExecutable: '/usr/bin/true',
+          ghExecutable: '/usr/bin/true',
+          maxModelCallsPerDay: 3,
+          commands: { IMPLEMENTATION: command, REVIEW: command, QA: command },
+        }),
+        { mode: 0o600 },
+      );
+      for (const issue of [60, 59]) {
+        const configured = JSON.parse(readFileSync(config, 'utf8'));
+        configured.issue = issue;
+        writeFileSync(config, JSON.stringify(configured), { mode: 0o600 });
+        const result = spawnSync(
+          '/usr/bin/flock',
+          [
+            '-n',
+            lock,
+            process.execPath,
+            '--import',
+            'tsx',
+            '--input-type=module',
+            '-e',
+            "import { runOnce } from './scripts/orchestrator/runner.ts'; await runOnce(process.argv[1]);",
+            config,
+          ],
+          {
+            env: { ...process.env, HOME: root, FAIR_SUPERVISED_LOCKED: '1' },
+            encoding: 'utf8',
+          },
+        );
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('A supervised launch is pending');
+        expect(readFileSync(launch, 'utf8')).toBe(saved);
       }
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -307,6 +407,31 @@ describe('supervised issue identity', () => {
 });
 
 describe('task tmux wrapper', () => {
+  it('reports a live runner shell as running', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-supervised-status-'));
+    const shell = spawn(
+      '/bin/bash',
+      ['-c', 'sleep 30; : # supervised.js run '],
+      {
+        stdio: 'ignore',
+      },
+    );
+    try {
+      const state = join(root, 'state.json');
+      const pid = join(root, 'runner.pid');
+      writeFileSync(state, JSON.stringify({ phase: 'IMPLEMENTING' }));
+      writeFileSync(pid, String(shell.pid));
+      const output = execFileSync(
+        '/bin/bash',
+        [resolve('scripts/orchestrator/supervised-status.sh'), state, pid],
+        { encoding: 'utf8' },
+      );
+      expect(output).toContain(`RUNNING PID=${shell.pid}`);
+    } finally {
+      shell.kill();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('reports saved in-flight state without claiming a live runner', () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-supervised-status-'));
     try {

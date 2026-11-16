@@ -152,6 +152,15 @@ export function ensurePrivateLockFile(path: string): void {
   privatePath(path);
 }
 type LaunchReservation = { issue: number; token: string; session: string };
+function pendingLaunch(): LaunchReservation | undefined {
+  if (!existsSync(launchPath)) return undefined;
+  privatePath(launchPath);
+  try {
+    return JSON.parse(readFileSync(launchPath, 'utf8')) as LaunchReservation;
+  } catch {
+    throw new Error('Invalid launch reservation; manual recovery required');
+  }
+}
 export function assertLaunchReservation(
   command: string,
   issue: number,
@@ -208,6 +217,20 @@ export function verifyLaunchHandoff(
     pid = Number(parent[1]);
   }
   throw new Error('Reserved launch is not owned by its tmux runner pane');
+}
+
+/** Every protected runner transition must honor a pending tmux handoff. */
+export function assertPendingRunnerReservation(issue: number): void {
+  const reserved = pendingLaunch();
+  if (!reserved) return;
+  const argv = process.argv;
+  if (
+    !/\/supervised\.(?:js|ts)$/.test(argv[1] ?? '') ||
+    argv[2] !== 'internal-run' ||
+    argv[3] !== String(issue)
+  )
+    throw new Error('A supervised launch is pending; manual recovery required');
+  verifyLaunchHandoff(reserved, argv[4]);
 }
 
 export function allowsInterruptedImplementation(
@@ -474,16 +497,8 @@ async function main(): Promise<void> {
     locked(command, issue, token);
     return;
   }
-  let reservation: LaunchReservation | undefined;
-  if (existsSync(launchPath)) {
-    privatePath(launchPath);
-    try {
-      reservation = JSON.parse(
-        readFileSync(launchPath, 'utf8'),
-      ) as LaunchReservation;
-    } catch {
-      throw new Error('Invalid launch reservation; manual recovery required');
-    }
+  let reservation = pendingLaunch();
+  if (reservation) {
     assertLaunchReservation(command, issue, reservation, token);
     verifyLaunchHandoff(reservation, token);
   }
@@ -504,8 +519,17 @@ async function main(): Promise<void> {
     const p = paths(issue);
     if (!existsSync(p.config)) throw new Error('Run prepare first');
     prepare(issue, approved);
-    if (reservation) unlinkSync(launchPath);
-    await runPilot(p.config);
+    const finalState = await runPilot(p.config);
+    // Keep the handoff reserved across every transition and on interruption.
+    // Only a completed, verified runner can release it under the same flock.
+    if (reservation) {
+      if (finalState.inFlight)
+        throw new Error(
+          'Unverified in-flight operation; launch reservation retained',
+        );
+      assertPendingRunnerReservation(issue);
+      unlinkSync(launchPath);
+    }
     return;
   }
   checkExisting(issue, approved);

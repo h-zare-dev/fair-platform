@@ -34,7 +34,7 @@ const launchToken = 'a'.repeat(64);
 const reservation = { issue: 59, token: launchToken, session: 'fair-task-59' };
 
 describe('supervised issue identity', () => {
-  it('waits for the launcher handoff but does not queue competing launches', async () => {
+  it('waits for handoff but rejects competing launches', async () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-handoff-lock-'));
     const lock = join(root, 'supervised.lock');
     const holder = spawn(

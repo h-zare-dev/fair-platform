@@ -148,6 +148,7 @@ describe('restart safety', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
   it('resumes an implementation publish error from its saved receipt without running the model twice', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'fair-publish-interrupt-'));
     try {
@@ -178,7 +179,9 @@ describe('restart safety', () => {
       };
       const engine = new Orchestrator(ports, (s) => store.save(s));
       await engine.step(state);
-      await expect(engine.step(state)).rejects.toThrow('PR is not exact draft head');
+      await expect(engine.step(state)).rejects.toThrow(
+        'PR is not exact draft head',
+      );
       const persisted = store.load()!;
       expect(persisted.headSha).toBeUndefined();
       expect(persisted.inFlight?.gate).toBe('IMPLEMENTATION');

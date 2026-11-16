@@ -106,9 +106,9 @@ describe('GitHub approval gate', () => {
         return {};
       },
     };
-    expect(
-      ensureDraftPr(api, state, 'agent/59-aaaaaaaaaaaa', () => {}),
-    ).toBe(60);
+    expect(ensureDraftPr(api, state, 'agent/59-aaaaaaaaaaaa', () => {})).toBe(
+      60,
+    );
     expect(creates).toBe(0);
     expect(attempts).toBe(2);
     expect(patches).toBe(1);

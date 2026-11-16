@@ -36,7 +36,7 @@ export function isRetryablePublishError(
   return (
     state?.phase === 'IMPLEMENTING' &&
     state.inFlight?.gate === 'IMPLEMENTATION' &&
-    (error instanceof Error) &&
+    error instanceof Error &&
     ['PR is not exact draft head', 'PR head/base/draft state drifted'].includes(
       error.message,
     )
@@ -66,10 +66,7 @@ export async function runPilot(
       // receipt. runOnce/runner revalidate GitHub identity before recovery.
       // Neither an unverified model execution nor a different PR may retry.
       const state = store.load();
-      if (
-        !isRetryablePublishError(error, state) ||
-        transientRetries >= 8
-      )
+      if (!isRetryablePublishError(error, state) || transientRetries >= 8)
         throw error;
       transientRetries++;
       onProgress(`PUBLISH_RECONCILE_RETRY ${transientRetries}/8`);

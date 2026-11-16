@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { Orchestrator, type Evidence, type Ports } from './engine.js';
 import {
   approvedIssue,
@@ -21,6 +21,7 @@ import {
 import { publishHead } from './publish.js';
 import { loadModelRoutes } from './models.js';
 import { isSha, StateStore, type Gate } from './state.js';
+import { verifyInternalLock } from './supervised.js';
 
 type Command = { executable: string; args: string[]; timeoutMs: number };
 type CommandGate = Exclude<Gate, 'CI'>;
@@ -495,6 +496,8 @@ export function commandPorts(config: Config): Ports {
 }
 
 export async function runOnce(configPath: string): Promise<void> {
+  if (dirname(configPath) === join(homedir(), '.config/fair-platform/tasks'))
+    verifyInternalLock();
   const config = loadConfig(configPath);
   const store = new StateStore(config.stateFile);
   const api = new GhTransport(
@@ -508,7 +511,12 @@ export async function runOnce(configPath: string): Promise<void> {
     config.pilotMode === true,
   );
   const state = store.load() ?? approved;
-  if (state.taskId !== approved.taskId || state.specSha !== approved.specSha)
+  if (
+    state.taskId !== approved.taskId ||
+    state.specSha !== approved.specSha ||
+    state.baseSha !== approved.baseSha ||
+    state.specPath !== approved.specPath
+  )
     throw new Error('Active task differs from approved issue');
   // The lock covers one transition. Scheduler invokes this process repeatedly, serially.
   await store.withLock(() =>

@@ -29,20 +29,6 @@ export function pilotSummary(state: Readonly<TaskState>): string {
  * No issue is manufactured here: the ordinary authenticated Owner approval
  * requirements in runOnce() remain mandatory.
  */
-export function isRetryablePublishError(
-  error: unknown,
-  state: Readonly<TaskState> | undefined,
-): boolean {
-  return (
-    state?.phase === 'IMPLEMENTING' &&
-    state.inFlight?.gate === 'IMPLEMENTATION' &&
-    error instanceof Error &&
-    ['PR is not exact draft head', 'PR head/base/draft state drifted'].includes(
-      error.message,
-    )
-  );
-}
-
 export function isBudgetPauseError(
   error: unknown,
   state: Readonly<TaskState> | undefined,
@@ -78,11 +64,9 @@ export async function runPilot(
   const store = new StateStore(config.stateFile);
   // Bounded even if a malformed state machine cycles unexpectedly. The
   // separate model-call budget and max-rework count are enforced by the runner.
-  let transientRetries = 0;
   for (let tick = 0; tick < 40;) {
     try {
       await runOnce(configPath);
-      transientRetries = 0;
       tick++;
     } catch (error) {
       // Re-enter only the saved in-flight Implementation with its immutable
@@ -99,14 +83,7 @@ export async function runPilot(
         // development SHA and capacity on the next iteration.
         continue;
       }
-      if (!isRetryablePublishError(error, state) || transientRetries >= 8)
-        throw error;
-      transientRetries++;
-      onProgress(`PUBLISH_RECONCILE_RETRY ${transientRetries}/8`);
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, Math.min(transientRetries * 1000, 5000)),
-      );
-      continue;
+      throw error;
     }
     const state = store.load();
     if (!state) throw new Error('Pilot did not persist an active task');

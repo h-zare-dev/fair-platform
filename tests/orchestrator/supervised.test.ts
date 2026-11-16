@@ -18,8 +18,14 @@ import {
   paths,
 } from '../../scripts/orchestrator/supervised.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
+import { runOnce } from '../../scripts/orchestrator/runner.js';
 
 describe('supervised issue identity', () => {
+  it('refuses direct runner entry for supervised task config without global flock', async () => {
+    await expect(
+      runOnce(join(process.env.HOME!, '.config/fair-platform/tasks/99999.json')),
+    ).rejects.toThrow('requires the supervised lock');
+  });
   it('allows only an in-flight Implementation worktree through receipt recovery', () => {
     const state = newTask(
       59,

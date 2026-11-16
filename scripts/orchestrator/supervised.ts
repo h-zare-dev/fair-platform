@@ -339,7 +339,7 @@ function prepare(issue: number, approved: TaskState): void {
  * must be a child of the actual flock wrapper and the OS lock must be held.
  * This prevents a trivial FAIR_SUPERVISED_LOCKED=1 bypass.
  */
-function verifyInternalLock(): void {
+export function verifyInternalLock(): void {
   if (process.env.FAIR_SUPERVISED_LOCKED !== '1' || !existsSync(lockPath))
     throw new Error('Internal command requires the supervised lock');
   privatePath(lockPath);
@@ -396,10 +396,10 @@ async function main(): Promise<void> {
   if (internal && command === 'start')
     throw new Error('Internal start cannot hold the runner lock');
   if (!internal && command === 'start') {
-    // Prepare under flock, release it before starting the tmux runner.
-    // The runner immediately takes the same lock for its model chain.
     locked('prepare', issue);
-  } else if (!internal && (command === 'prepare' || command === 'run')) {
+    locked('tmux', issue);
+    return;
+  } else if (!internal) {
     locked(command, issue);
     return;
   }

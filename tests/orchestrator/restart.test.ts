@@ -148,4 +148,47 @@ describe('restart safety', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it('resumes an implementation publish error from its saved receipt without running the model twice', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fair-publish-interrupt-'));
+    try {
+      const store = new StateStore(join(dir, 'state.json'));
+      const state = newTask(59, 'docs/tasks/TASK-59.md', sha('a'), sha('b'));
+      let modelCalls = 0;
+      let publications = 0;
+      const evidence: Evidence = {
+        verdict: 'PASS',
+        sha: sha('c'),
+        evidenceId: 'persisted-implementation',
+      };
+      const ports: Ports = {
+        reconcile: () => Promise.resolve(),
+        developmentSha: () => Promise.resolve(sha('b')),
+        run: () => {
+          modelCalls++;
+          return Promise.resolve(evidence);
+        },
+        recover: () => Promise.resolve(evidence),
+        report: () => Promise.resolve(),
+        publish: () => {
+          publications++;
+          if (publications === 1)
+            throw new Error('PR is not exact draft head');
+          return Promise.resolve();
+        },
+      };
+      const engine = new Orchestrator(ports, (s) => store.save(s));
+      await engine.step(state);
+      await expect(engine.step(state)).rejects.toThrow('PR is not exact draft head');
+      const persisted = store.load()!;
+      expect(persisted.headSha).toBeUndefined();
+      expect(persisted.inFlight?.gate).toBe('IMPLEMENTATION');
+      await engine.step(persisted);
+      expect(persisted.phase).toBe('REVIEWING');
+      expect(persisted.headSha).toBe(sha('c'));
+      expect(modelCalls).toBe(1);
+      expect(publications).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

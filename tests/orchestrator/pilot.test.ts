@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   pilotSummary,
   PILOT_TERMINAL_PHASES,
+  isRetryablePublishError,
 } from '../../scripts/orchestrator/pilot.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
 
@@ -31,5 +32,37 @@ describe('supervised pilot control', () => {
     expect(pilotSummary(state)).toContain('PHASE=BLOCKED');
     expect(pilotSummary(state)).toContain(`HEAD=${sha('c')}`);
     expect(pilotSummary(state)).toContain('ERROR=PILOT_END_BEFORE_CI');
+  });
+  it('retries a transient PR publication failure only for a saved Implementation flight', () => {
+    const state = newTask(59, 'docs/tasks/TASK-59.md', sha('a'), sha('b'));
+    state.phase = 'IMPLEMENTING';
+    state.inFlight = {
+      gate: 'IMPLEMENTATION',
+      key: '59:1:IMPLEMENTATION',
+      startedAt: '2026-11-16T10:00:00Z',
+    };
+    expect(isRetryablePublishError(
+      new Error('PR is not exact draft head'),
+      state,
+    )).toBe(true);
+    expect(isRetryablePublishError(
+      new Error('PR head/base/draft state drifted'),
+      state,
+    )).toBe(true);
+    expect(isRetryablePublishError(
+      new Error('Missing authenticated Owner approval of exact spec'),
+      state,
+    )).toBe(false);
+    state.phase = 'REVIEWING';
+    expect(isRetryablePublishError(
+      new Error('PR is not exact draft head'),
+      state,
+    )).toBe(false);
+    state.phase = 'IMPLEMENTING';
+    state.inFlight = undefined;
+    expect(isRetryablePublishError(
+      new Error('PR is not exact draft head'),
+      state,
+    )).toBe(false);
   });
 });

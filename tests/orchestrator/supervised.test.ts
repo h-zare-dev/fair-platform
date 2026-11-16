@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
@@ -12,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   allowsInterruptedImplementation,
+  allowsReceiptBackedImplementationRework,
   allowsIdleRoleRefresh,
   assertLaunchReservation,
   verifyLaunchHandoff,
@@ -22,6 +24,7 @@ import {
 import { newTask } from '../../scripts/orchestrator/state.js';
 import {
   runOnce,
+  receiptFor,
   usesSupervisedResources,
 } from '../../scripts/orchestrator/runner.js';
 
@@ -276,6 +279,121 @@ describe('supervised issue identity', () => {
         expect(result.stderr).toContain('A supervised launch is pending');
         expect(readFileSync(launch, 'utf8')).toBe(saved);
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('recovers only a verified failed Implementation commit on the next rework', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-failed-implementation-'));
+    const worktree = join(root, 'repo');
+    const evidenceDir = join(root, 'evidence');
+    mkdirSync(worktree);
+    mkdirSync(evidenceDir);
+    try {
+      const git = (...args: string[]) =>
+        execFileSync('/usr/bin/git', ['-C', worktree, ...args], {
+          encoding: 'utf8',
+        }).trim();
+      git('init', '-q');
+      writeFileSync(join(worktree, 'fixture.txt'), 'base\n');
+      git('add', 'fixture.txt');
+      git(
+        '-c', 'user.name=Test',
+        '-c', 'user.email=test@example.test',
+        'commit', '-qm', 'base',
+      );
+      const baseSha = git('rev-parse', 'HEAD');
+      writeFileSync(join(worktree, 'fixture.txt'), 'failed attempt\n');
+      git('add', 'fixture.txt');
+      git(
+        '-c', 'user.name=Test',
+        '-c', 'user.email=test@example.test',
+        'commit', '-qm', 'failed implementation',
+      );
+      const failedSha = git('rev-parse', 'HEAD');
+
+      const state = newTask(
+        59, 'docs/tasks/example.md', 'a'.repeat(40), baseSha,
+      );
+      const evidence = {
+        verdict: 'FAIL' as const,
+        sha: failedSha,
+        evidenceId: 'failed-implementation-1',
+        defectCode: 'INCOMPLETE',
+      };
+      const key = `59:1:IMPLEMENTATION:${baseSha}:-`;
+      const receipt = receiptFor(state, 'IMPLEMENTATION', key, evidence);
+      const receiptPath = join(
+        evidenceDir, `${createHash('sha256').update(key).digest('hex')}.json`,
+      );
+      writeFileSync(receiptPath, JSON.stringify(receipt));
+
+      state.phase = 'REWORK';
+      state.attempt = 2;
+      state.reworks = 1;
+      state.transitions.push({
+        at: new Date().toISOString(),
+        phase: 'REWORK',
+        actor: 'orchestrator',
+        attempt: 2,
+        evidenceId: evidence.evidenceId,
+        errorCode: evidence.defectCode,
+      });
+      expect(
+        allowsReceiptBackedImplementationRework(
+          state, worktree, evidenceDir, failedSha,
+        ),
+      ).toBe(true);
+
+      state.phase = 'IMPLEMENTING';
+      state.transitions.push({
+        at: new Date().toISOString(),
+        phase: 'IMPLEMENTING',
+        actor: 'orchestrator',
+        attempt: 2,
+      });
+      expect(
+        allowsReceiptBackedImplementationRework(
+          state, worktree, evidenceDir, failedSha,
+        ),
+      ).toBe(true);
+
+      // A wrong receipt or a different failed attempt must not authorize
+      // divergence from the saved implementation SHA.
+      writeFileSync(
+        receiptPath,
+        JSON.stringify({ ...receipt, evidence: { ...evidence, sha: '0'.repeat(40) } }),
+      );
+      expect(
+        allowsReceiptBackedImplementationRework(
+          state, worktree, evidenceDir, failedSha,
+        ),
+      ).toBe(false);
+
+      writeFileSync(receiptPath, JSON.stringify(receipt));
+      state.transitions[0]!.evidenceId = 'different-failed-gate';
+      expect(
+        allowsReceiptBackedImplementationRework(
+          state, worktree, evidenceDir, failedSha,
+        ),
+      ).toBe(false);
+
+      // A persisted FAIL pending-report checkpoint is also recoverable.
+      state.transitions = [];
+      state.phase = 'IMPLEMENTING';
+      state.attempt = 1;
+      state.pendingReport = { gate: 'IMPLEMENTATION', key, evidence };
+      expect(
+        allowsReceiptBackedImplementationRework(
+          state, worktree, evidenceDir, failedSha,
+        ),
+      ).toBe(true);
+      state.pendingReport = undefined;
+      expect(
+        allowsReceiptBackedImplementationRework(
+          state, worktree, evidenceDir, failedSha,
+        ),
+      ).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

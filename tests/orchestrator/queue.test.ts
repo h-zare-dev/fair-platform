@@ -13,6 +13,11 @@ import {
   syncApprovedSpec,
 } from '../../scripts/orchestrator/queue.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
+import {
+  Orchestrator,
+  type Evidence,
+  type Ports,
+} from '../../scripts/orchestrator/engine.js';
 
 describe('queue admission', () => {
   it('syncs pinned development and spec objects without checkout', () => {
@@ -162,6 +167,82 @@ describe('queue admission', () => {
     expect(pendingLaunchStatus(45_001)).toBe('BLOCKED_RECONCILIATION');
     expect(pendingLaunchStatus(-1)).toBe('BLOCKED_RECONCILIATION');
     expect(pendingLaunchStatus(Number.NaN)).toBe('BLOCKED_RECONCILIATION');
+  });
+  it('runs two independent synthetic gates and advances', async () => {
+    const spec = 'a'.repeat(40);
+    const base = 'b'.repeat(40);
+    const states = new Map<number, ReturnType<typeof newTask>>();
+    const calls: string[] = [];
+    const targetSha = new Map([
+      [10, 'c'.repeat(40)],
+      [11, 'd'.repeat(40)],
+    ]);
+    const approved = () => ({ specSha: spec, baseSha: base });
+    const pick = (numbers: number[]) =>
+      selectEligibleQueueTask(
+        numbers,
+        base,
+        (issue) => states.get(issue),
+        approved,
+        () => false,
+      );
+    for (const issue of [10, 11]) {
+      states.set(
+        issue,
+        newTask(issue, 'docs/tasks/QUEUE.md', spec, base),
+      );
+    }
+    const ports: Ports = {
+      reconcile: () => Promise.resolve(),
+      developmentSha: () => Promise.resolve(base),
+      report: () => Promise.resolve(),
+      publish: (state) => {
+        state.prNumber = 100 + state.taskId;
+        return Promise.resolve();
+      },
+      run: (gate, state) => {
+        calls.push(`${state.taskId}:${gate}`);
+        const evidence: Evidence = {
+          verdict: gate === 'CI' ? 'BLOCKED' : 'PASS',
+          sha:
+            gate === 'IMPLEMENTATION'
+              ? targetSha.get(state.taskId)!
+              : state.headSha!,
+          evidenceId: `${state.taskId}-${gate}`,
+          ...(gate === 'CI'
+            ? { defectCode: 'PILOT_END_BEFORE_CI' }
+            : {}),
+        };
+        return Promise.resolve(evidence);
+      },
+    };
+    for (const expected of [10, 11]) {
+      const next = pick([10, 11]);
+      expect(next.issue).toBe(expected);
+      const task = next.state!;
+      const engine = new Orchestrator(ports, (state) => {
+        states.set(state.taskId, state);
+      });
+      for (let step = 0; step < 8; step++) {
+        if (safeTaskDisposition(task) === 'done') break;
+        await engine.step(task);
+      }
+      expect(safeTaskDisposition(task)).toBe('done');
+      expect(task.prNumber).toBe(100 + expected);
+    }
+    expect(pick([10, 11]).issue).toBeUndefined();
+    expect(calls).toEqual([
+      '10:IMPLEMENTATION',
+      '10:REVIEW',
+      '10:QA',
+      '10:CI',
+      '11:IMPLEMENTATION',
+      '11:REVIEW',
+      '11:QA',
+      '11:CI',
+    ]);
+    states.set(12, newTask(12, 'docs/tasks/QUEUE.md', spec, base));
+    expect(pick([10, 11, 12]).issue).toBe(12);
   });
   it('sorts and excludes PRs and blocked issues', () => {
     const api = {

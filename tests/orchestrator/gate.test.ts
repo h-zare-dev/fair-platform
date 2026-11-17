@@ -21,7 +21,7 @@ describe('Codex gate', () => {
     expect(codexSandboxForGate('IMPLEMENTATION')).toBe('danger-full-access');
     expect(codexSandboxForGate('REVIEW')).toBe('danger-full-access');
     expect(codexSandboxForGate('QA')).toBe('danger-full-access');
-    expect(codexSandboxForGate('CI')).toBe('danger-full-access');
+    expect(() => codexSandboxForGate('CI')).toThrow('Unsupported Codex gate');
   });
   it('commits sandbox edits through the trusted gate, not from Codex', () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-commit-boundary-'));

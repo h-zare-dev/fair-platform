@@ -38,12 +38,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Format check
-        run: |
-          pnpm exec prettier --write scripts/orchestrator/queue.ts tests/orchestrator/queue.test.ts
-          echo '__QUEUE_PRETTIER_DIFF_BEGIN__'
-          git diff --no-ext-diff -- scripts/orchestrator/queue.ts tests/orchestrator/queue.test.ts
-          echo '__QUEUE_PRETTIER_DIFF_END__'
-          pnpm format:check
+        run: pnpm format:check
 
       - name: Lint
         run: pnpm lint

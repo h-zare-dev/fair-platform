@@ -150,9 +150,9 @@ describe('queue admission', () => {
     ];
     expect(matchesSupervisedRunnerArguments(runner, 68, token)).toBe(true);
     expect(matchesSupervisedRunnerArguments(runner, 69, token)).toBe(false);
-    expect(
-      matchesSupervisedRunnerArguments(runner, 68, 'b'.repeat(64)),
-    ).toBe(false);
+    expect(matchesSupervisedRunnerArguments(runner, 68, 'b'.repeat(64))).toBe(
+      false,
+    );
     expect(
       matchesSupervisedRunnerArguments(
         ['/bin/bash', '-c', runner.join(' ')],

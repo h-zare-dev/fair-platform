@@ -166,9 +166,17 @@ describe('restart safety', () => {
         developmentSha: () => Promise.resolve(sha('b')),
         run: (gate) => {
           modelCalls++;
-          return Promise.resolve(gate === 'IMPLEMENTATION' ? evidence : {...evidence, evidenceId: `persisted-${gate}`});
+          return Promise.resolve(
+            gate === 'IMPLEMENTATION'
+              ? evidence
+              : { ...evidence, evidenceId: `persisted-${gate}` },
+          );
         },
-        recover: (gate) => Promise.resolve({...evidence, evidenceId: `persisted-${gate}`}),
+        recover: (gate) =>
+          Promise.resolve({
+            ...evidence,
+            evidenceId: `persisted-${gate}`,
+          }),
         report: () => Promise.resolve(),
         publish: () => {
           publications++;

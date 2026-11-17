@@ -174,6 +174,65 @@ function liveRunner(issue: number): number | undefined {
     return undefined;
   }
 }
+/**
+ * Deterministic, side-effect-free queue selection. Keep authorization and
+ * receipt identity checks in injected guards so a second candidate can be
+ * selected without resetting or rerunning an incomplete earlier task.
+ */
+export function selectEligibleQueueTask(
+  numbers: number[],
+  developmentSha: string,
+  readState: (issue: number) => TaskState | undefined,
+  checkApproval: (issue: number) => { specSha: string; baseSha: string },
+  receiptVerified: (issue: number, state: TaskState) => boolean,
+): {
+  issue?: number;
+  state?: TaskState;
+  blocked: boolean;
+  reconciliation: boolean;
+  completed: boolean;
+} {
+  let blocked = false;
+  let reconciliation = false;
+  let completed = false;
+  for (const issue of numbers) {
+    let state: TaskState | undefined;
+    try {
+      state = readState(issue);
+    } catch {
+      reconciliation = true;
+      continue;
+    }
+    const disposition = safeTaskDisposition(state);
+    if (disposition === 'done') {
+      completed = true;
+      continue;
+    }
+    if (
+      disposition === 'blocked' &&
+      (!state || state.phase === 'BLOCKED' || !receiptVerified(issue, state))
+    ) {
+      reconciliation = true;
+      continue;
+    }
+    try {
+      const approved = checkApproval(issue);
+      if (
+        approved.baseSha !== developmentSha ||
+        (state &&
+          (state.specSha !== approved.specSha ||
+            state.baseSha !== approved.baseSha))
+      ) {
+        blocked = true;
+        continue;
+      }
+      return { issue, state, blocked, reconciliation, completed };
+    } catch {
+      blocked = true;
+    }
+  }
+  return { blocked, reconciliation, completed };
+}
 export function queueStep(
   api: GitHubTransport,
   run: (issue: number) => void,
@@ -228,64 +287,48 @@ export function queueStep(
       lastError: 'LOCK_PROBE_FAILED',
       nextAction: 'Inspect global lock',
     };
-  let blocked = false;
-  let reconciliation = false;
-  let completed = false;
-  for (const issue of numbers) {
-    let state: TaskState | undefined;
+  const selection = selectEligibleQueueTask(
+    numbers,
+    developmentSha,
+    (issue) => new StateStore(paths(issue).state).load(),
+    (issue) => approvedIssue(api, issue, owner, true),
+    (issue, state) => recoverableCheckpoint(issue, state),
+  );
+  const { issue, state, blocked, reconciliation, completed } = selection;
+  if (issue !== undefined) {
     try {
-      state = new StateStore(paths(issue).state).load();
-    } catch {
-      reconciliation = true;
-      continue;
-    }
-    const disposition = safeTaskDisposition(state);
-    if (disposition === 'done') {
-      completed = true;
-      continue;
-    }
-    if (
-      disposition === 'blocked' &&
-      !(state && recoverableCheckpoint(issue, state))
-    ) {
-      reconciliation = true;
-      continue;
-    }
-    try {
-      const approved = approvedIssue(api, issue, owner, true);
-      if (
-        approved.baseSha !== developmentSha ||
-        (state &&
-          (state.specSha !== approved.specSha ||
-            state.baseSha !== approved.baseSha))
-      ) {
-        blocked = true;
-        continue;
-      }
       run(issue);
-      const pid = liveRunner(issue);
-      if (!pid)
-        return {
-          status: 'BLOCKED_RECONCILIATION',
-          issue,
-          phase: state?.phase ?? 'QUEUED',
-          sha: state?.headSha,
-          queueCount: numbers.length,
-          lastError: 'LAUNCH_IDENTITY_UNVERIFIED',
-          nextAction: 'Inspect reserved runner identity',
-        };
+    } catch {
       return {
-        status: 'RUNNING',
+        status: 'BLOCKED_RECONCILIATION',
         issue,
-        pid,
         phase: state?.phase ?? 'QUEUED',
         sha: state?.headSha,
         queueCount: numbers.length,
-        nextAction: 'Observe reserved tmux runner',
+        lastError: 'SUPERVISED_LAUNCH_REFUSED',
+        nextAction: 'Inspect admission failure without replaying a model gate',
       };
-    } catch {
-      blocked = true;
     }
+    const pid = liveRunner(issue);
+    if (!pid)
+      return {
+        status: 'BLOCKED_RECONCILIATION',
+        issue,
+        phase: state?.phase ?? 'QUEUED',
+        sha: state?.headSha,
+        queueCount: numbers.length,
+        lastError: 'LAUNCH_IDENTITY_UNVERIFIED',
+        nextAction: 'Inspect reserved runner identity',
+      };
+    return {
+      status: 'RUNNING',
+      issue,
+      pid,
+      phase: state?.phase ?? 'QUEUED',
+      sha: state?.headSha,
+      queueCount: numbers.length,
+      nextAction: 'Observe reserved tmux runner',
+    };
   }
   return {
     status: reconciliation

@@ -27,6 +27,7 @@ const repo = 'h-zare-dev/fair-platform';
 export type QueueStatus = {
   status:
     | 'IDLE'
+    | 'STARTING'
     | 'RUNNING'
     | 'PAUSED_QUOTA'
     | 'BLOCKED_APPROVAL'
@@ -146,6 +147,19 @@ function reservationIssue(): number | undefined {
     throw new Error('Invalid launch reservation');
   return value.issue;
 }
+/** Allow a short asynchronous tmux handoff without claiming a model is live. */
+export function pendingLaunchStatus(ageMs: number): QueueStatus['status'] {
+  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 45_000
+    ? 'STARTING'
+    : 'BLOCKED_RECONCILIATION';
+}
+function currentHandoffStatus(): QueueStatus['status'] {
+  try {
+    return pendingLaunchStatus(Date.now() - lstatSync(launchPath).mtimeMs);
+  } catch {
+    return 'BLOCKED_RECONCILIATION';
+  }
+}
 function liveRunner(issue: number): number | undefined {
   const session = `fair-task-${issue}`;
   const result = spawnSync(
@@ -253,15 +267,18 @@ export function queueStep(
         queueCount: numbers.length,
         nextAction: 'Wait for verified runner',
       };
+    const handoff = currentHandoffStatus();
     return {
-      status: 'BLOCKED_RECONCILIATION',
+      status: handoff,
       issue: reserved,
       phase: state?.phase,
       sha: state?.headSha,
       queueCount: numbers.length,
-      lastError: 'STALE_RESERVATION',
+      ...(handoff === 'STARTING' ? {} : { lastError: 'STALE_RESERVATION' }),
       nextAction:
-        'Owner must adjudicate reservation and exact receipt before clearing it',
+        handoff === 'STARTING'
+          ? 'Await verified tmux runner identity'
+          : 'Owner must adjudicate reservation and exact receipt before clearing it',
     };
   }
   mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -336,16 +353,23 @@ export function queueStep(
       };
     }
     const pid = liveRunner(issue);
-    if (!pid)
+    if (!pid) {
+      const handoff = currentHandoffStatus();
       return {
-        status: 'BLOCKED_RECONCILIATION',
+        status: handoff,
         issue,
         phase: state?.phase ?? 'QUEUED',
         sha: state?.headSha,
         queueCount: numbers.length,
-        lastError: 'LAUNCH_IDENTITY_UNVERIFIED',
-        nextAction: 'Inspect reserved runner identity',
+        ...(handoff === 'STARTING'
+          ? {}
+          : { lastError: 'LAUNCH_IDENTITY_UNVERIFIED' }),
+        nextAction:
+          handoff === 'STARTING'
+            ? 'Await verified tmux runner identity'
+            : 'Inspect reserved runner identity',
       };
+    }
     return {
       status: 'RUNNING',
       issue,
@@ -462,9 +486,13 @@ function main(): void {
           ? liveRunner(status.issue)
           : undefined;
       if (!pid) {
-        status.status = 'BLOCKED_RECONCILIATION';
-        status.lastError = 'RUNNER_IDENTITY_UNVERIFIED';
-        status.nextAction = 'Inspect saved task and reservation';
+        status.status = currentHandoffStatus();
+        if (status.status === 'STARTING') delete status.lastError;
+        else status.lastError = 'RUNNER_IDENTITY_UNVERIFIED';
+        status.nextAction =
+          status.status === 'STARTING'
+            ? 'Await verified tmux runner identity'
+            : 'Inspect saved task and reservation';
         delete status.pid;
       } else status.pid = pid;
     }

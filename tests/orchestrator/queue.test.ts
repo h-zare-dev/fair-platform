@@ -9,6 +9,7 @@ describe('queue admission', () => {
       {number: 3, labels:[{name:'agent:approved'}]},
       {number: 4, pull_request:{}, labels:[{name:'agent:approved'}]},
       {number: 5, labels:[{name:'agent:blocked'}]},
+      {number: 6, labels:[]},
     ], post: () => ({})};
     expect(eligibleIssues(api)).toEqual([3,9]);
   });

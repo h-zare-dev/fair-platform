@@ -193,8 +193,11 @@ export class Orchestrator {
       state.candidateSha = undefined;
       state.deploymentDigest = undefined;
       state.verdicts = {};
-      await this.ports.publish?.(state);
     }
+    // Publication is the last gate side effect. A QA receipt is immutable,
+    // so an interruption here can repeat only the idempotent Draft PR step.
+    if (gate === 'QA' && evidence.verdict === 'PASS')
+      await this.ports.publish?.(state);
     if (gate === 'CANDIDATE' && evidence.verdict === 'PASS') {
       if (!isSha(evidence.candidateSha ?? ''))
         throw new Error('Missing candidate SHA');

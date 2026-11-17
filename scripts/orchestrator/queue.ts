@@ -2,9 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { approvedIssue, GhTransport, type GitHubTransport } from './github.js';
 import { paths } from './supervised.js';
 import { StateStore, type TaskState } from './state.js';
+import { loadConfig, verifyReceipt, type Receipt } from './runner.js';
 
 const home = homedir();
 const root = join(home, '.local/state/fair-platform');
@@ -20,7 +22,7 @@ export function eligibleIssues(api: GitHubTransport): number[] {
   for (let page = 1; page <= 100; page++) {
     const rows = api.get(`/repos/${repo}/issues?state=open&labels=agent%3Aapproved&per_page=100&page=${page}`) as {number?:number;pull_request?:unknown;labels?:{name:string}[]}[];
     if (!Array.isArray(rows)) throw new Error('Invalid issue listing');
-    for (const row of rows) if (Number.isSafeInteger(row.number) && !row.pull_request && !row.labels?.some(x => x.name === 'agent:blocked')) result.push(row.number!);
+    for (const row of rows) if (Number.isSafeInteger(row.number) && !row.pull_request && row.labels?.some(x => x.name === 'agent:approved') && !row.labels.some(x => x.name === 'agent:blocked')) result.push(row.number!);
     if (rows.length < 100) return [...new Set(result)].sort((a,b) => a-b);
   }
   throw new Error('Issue listing exceeds verified page bound');
@@ -31,6 +33,21 @@ export function safeTaskDisposition(state: TaskState | undefined): 'new'|'resume
   if (['DONE','READY_FOR_OWNER_REVIEW'].includes(state.phase)) return 'done';
   if (state.phase === 'BLOCKED') return 'blocked';
   return 'resume';
+}
+/** A checkpoint can be resumed only after its exact receipt is independently verified. */
+export function recoverableCheckpoint(issue: number, state: TaskState): boolean {
+  const pending = state.inFlight ?? state.pendingReport;
+  if (!pending || !['IMPLEMENTATION','REVIEW','QA'].includes(pending.gate)) return false;
+  try {
+    const p = paths(issue);
+    const config = loadConfig(p.config);
+    if (config.issue !== issue || config.stateFile !== p.state || config.evidenceDir !== p.evidence) return false;
+    const key = `${issue}:${state.attempt}:${pending.gate}:${state.headSha ?? state.baseSha}:${state.candidateSha ?? '-'}`;
+    if (pending.key !== key) return false;
+    const receipt = JSON.parse(privateFile(join(p.evidence, `${createHash('sha256').update(key).digest('hex')}.json`))) as Receipt;
+    const evidence = verifyReceipt(config,state,pending.gate,key,receipt);
+    return !state.pendingReport || JSON.stringify(state.pendingReport.evidence) === JSON.stringify(evidence);
+  } catch { return false; }
 }
 function privateFile(path: string): string {
   const stat = lstatSync(path);
@@ -51,10 +68,15 @@ function reservationIssue(): number | undefined {
 }
 function liveRunner(issue: number): number | undefined {
   const session = `fair-task-${issue}`;
-  const result = spawnSync('/usr/bin/tmux', ['display-message','-p','-t',`=${session}:runner`,'#{pane_pid}'], {encoding:'utf8'});
-  const pid = Number(result.stdout?.trim());
+  const result = spawnSync('/usr/bin/tmux', ['display-message','-p','-t',`=${session}:runner`,'#{session_name} #{window_name} #{pane_pid}'], {encoding:'utf8'});
+  const match = new RegExp(`^${session} runner ([1-9][0-9]*)$`).exec(result.stdout?.trim() ?? '');
+  const pid = Number(match?.[1]);
   if (result.status !== 0 || !Number.isSafeInteger(pid) || pid < 2) return undefined;
-  try { readFileSync(`/proc/${pid}/stat`); return pid; } catch { return undefined; }
+  try {
+    const argv = readFileSync(`/proc/${pid}/cmdline`,'utf8');
+    if (!argv.includes('supervised.js run') || !argv.includes(` ${issue} `)) return undefined;
+    return pid;
+  } catch { return undefined; }
 }
 export function queueStep(api: GitHubTransport, run: (issue:number)=>void, developmentSha: string): QueueStatus {
   const numbers = eligibleIssues(api);
@@ -66,24 +88,27 @@ export function queueStep(api: GitHubTransport, run: (issue:number)=>void, devel
     return {status:'BLOCKED_RECONCILIATION',issue:reserved,phase:state?.phase,sha:state?.headSha,queueCount:numbers.length,lastError:'STALE_RESERVATION',nextAction:'Owner must adjudicate reservation and exact receipt before clearing it'};
   }
   const lock = spawnSync('/usr/bin/flock',['-n','-E','75',lockPath,'/usr/bin/true'],{stdio:'ignore'});
-  if (lock.status === 75) return {status:'RUNNING',queueCount:numbers.length,nextAction:'Wait for global lock holder'};
+  if (lock.status === 75) return {status:'BLOCKED_RECONCILIATION',queueCount:numbers.length,lastError:'UNIDENTIFIED_LOCK_HOLDER',nextAction:'Identify global lock holder before admission'};
   if (lock.status !== 0) return {status:'BLOCKED_RECONCILIATION',queueCount:numbers.length,lastError:'LOCK_PROBE_FAILED',nextAction:'Inspect global lock'};
   let blocked = false;
+  let reconciliation = false;
   let completed = false;
   for (const issue of numbers) {
     let state: TaskState | undefined;
-    try { state = new StateStore(paths(issue).state).load(); } catch { blocked = true; continue; }
+    try { state = new StateStore(paths(issue).state).load(); } catch { reconciliation = true; continue; }
     const disposition = safeTaskDisposition(state);
     if (disposition === 'done') { completed = true; continue; }
-    if (disposition === 'blocked') { blocked = true; continue; }
+    if (disposition === 'blocked' && !(state && recoverableCheckpoint(issue,state))) { reconciliation = true; continue; }
     try {
       const approved = approvedIssue(api,issue,owner,true);
       if (approved.baseSha !== developmentSha || (state && (state.specSha !== approved.specSha || state.baseSha !== approved.baseSha))) { blocked = true; continue; }
       run(issue);
-      return {status:'RUNNING',issue,phase:state?.phase ?? 'QUEUED',sha:state?.headSha,queueCount:numbers.length,nextAction:'Observe reserved tmux runner'};
+      const pid = liveRunner(issue);
+      if (!pid) return {status:'BLOCKED_RECONCILIATION',issue,phase:state?.phase ?? 'QUEUED',sha:state?.headSha,queueCount:numbers.length,lastError:'LAUNCH_IDENTITY_UNVERIFIED',nextAction:'Inspect reserved runner identity'};
+      return {status:'RUNNING',issue,pid,phase:state?.phase ?? 'QUEUED',sha:state?.headSha,queueCount:numbers.length,nextAction:'Observe reserved tmux runner'};
     } catch { blocked = true; }
   }
-  return {status:blocked?'BLOCKED_APPROVAL':completed?'DONE':'IDLE',queueCount:numbers.length,nextAction:blocked?'Inspect pinned approvals and task state':'Wait for new approved issue'};
+  return {status:reconciliation?'BLOCKED_RECONCILIATION':blocked?'BLOCKED_APPROVAL':completed?'DONE':'IDLE',queueCount:numbers.length,nextAction:reconciliation?'Inspect exact task receipt and reservation':blocked?'Inspect pinned approvals and task state':'Wait for new approved issue'};
 }
 function gh(): GhTransport {
   const token = privateFile(tokenPath).trim();
@@ -100,9 +125,10 @@ function main(): void {
   const command = process.argv[2];
   if (command === 'status') {
     const status: QueueStatus = existsSync(statusPath) ? JSON.parse(privateFile(statusPath)) as QueueStatus : {status:'IDLE',queueCount:0,nextAction:'Enable queue service'};
-    if (status.issue) {
-      const pid = liveRunner(status.issue);
-      if (!pid && status.status === 'RUNNING') { status.status = 'BLOCKED_RECONCILIATION'; status.nextAction = 'Inspect saved task and reservation'; delete status.pid; }
+    if (status.status === 'RUNNING') {
+      const reserved = reservationIssue();
+      const pid = status.issue && reserved === status.issue ? liveRunner(status.issue) : undefined;
+      if (!pid) { status.status = 'BLOCKED_RECONCILIATION'; status.lastError = 'RUNNER_IDENTITY_UNVERIFIED'; status.nextAction = 'Inspect saved task and reservation'; delete status.pid; }
       else status.pid = pid;
     }
     process.stdout.write(`${JSON.stringify(status)}\n`); return;

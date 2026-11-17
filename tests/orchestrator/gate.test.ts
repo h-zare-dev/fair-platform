@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CODEX_PRLIMIT_ARGS,
   codexSandboxForGate,
+  commitImplementationGateChanges,
   executeCodexGate,
 } from '../../scripts/orchestrator/gate.js';
 
@@ -16,6 +17,86 @@ describe('Codex gate', () => {
     expect(codexSandboxForGate('QA')).toBe('read-only');
     expect(codexSandboxForGate('CI')).toBe('read-only');
   });
+  it('commits sandbox edits through the trusted gate, not from Codex', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-commit-boundary-'));
+    const source = join(root, 'source');
+    const linked = join(root, 'implementation');
+    const branch = 'agent/66-68a6b3052084';
+    try {
+      execFileSync('/usr/bin/git', ['init', '-q', source]);
+      writeFileSync(join(source, 'fixture.txt'), 'before\\n');
+      execFileSync('/usr/bin/git', ['-C', source, 'add', '.']);
+      execFileSync('/usr/bin/git', [
+        '-C',
+        source,
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'commit',
+        '-qm',
+        'base',
+      ]);
+      const git = (...args: string[]) =>
+        execFileSync('/usr/bin/git', ['-C', linked, ...args], {
+          encoding: 'utf8',
+        }).trim();
+      const base = execFileSync(
+        '/usr/bin/git',
+        ['-C', source, 'rev-parse', 'HEAD'],
+        { encoding: 'utf8' },
+      ).trim();
+      execFileSync('/usr/bin/git', [
+        '-C', source, 'worktree', 'add', '-q', '-b', branch, linked, base,
+      ]);
+      expect(readFileSync(join(linked, '.git'), 'utf8')).toContain('gitdir:');
+
+      // A wrong branch, stale SHA, or no source changes must fail closed.
+      writeFileSync(join(linked, 'fixture.txt'), 'first change\\n');
+      expect(() =>
+        commitImplementationGateChanges(
+          linked,
+          'agent/66-000000000000',
+          base,
+          'PASS',
+        ),
+      ).toThrow('branch changed');
+      expect(() =>
+        commitImplementationGateChanges(linked, branch, 'a'.repeat(40), 'PASS'),
+      ).toThrow('HEAD');
+      expect(git('rev-parse', 'HEAD')).toBe(base);
+
+      const passed = commitImplementationGateChanges(
+        linked, branch, base, 'PASS',
+      );
+      expect(passed).not.toBe(base);
+      expect(git('status', '--porcelain')).toBe('');
+      expect(git('log', '-1', '--format=%an <%ae>')).toBe(
+        'Fair Platform Agent <fair-platform-agent@users.noreply.github.com>',
+      );
+      expect(() =>
+        commitImplementationGateChanges(linked, branch, passed, 'PASS'),
+      ).toThrow('PASS without source changes');
+
+      // A BLOCKED gate must preserve forensic edits without staging them.
+      writeFileSync(join(linked, 'fixture.txt'), 'blocked edit\\n');
+      expect(
+        commitImplementationGateChanges(linked, branch, passed, 'BLOCKED'),
+      ).toBe(passed);
+      expect(git('rev-parse', 'HEAD')).toBe(passed);
+      expect(git('status', '--porcelain')).not.toBe('');
+
+      // A valid FAIL may commit its changes for receipt-backed rework.
+      const failed = commitImplementationGateChanges(
+        linked, branch, passed, 'FAIL',
+      );
+      expect(failed).not.toBe(passed);
+      expect(git('status', '--porcelain')).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not impose RLIMIT_AS on Codex', () => {
     expect(CODEX_PRLIMIT_ARGS).toEqual(['--cpu=3600', '--nofile=1024']);
     expect(CODEX_PRLIMIT_ARGS.some((arg) => arg.startsWith('--as'))).toBe(

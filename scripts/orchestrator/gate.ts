@@ -39,14 +39,14 @@ const roles: Record<string, Role> = {
 
 export const CODEX_PRLIMIT_ARGS = ['--cpu=3600', '--nofile=1024'] as const;
 /**
- * Codex must never receive unrestricted filesystem access from an
- * unattended agent. The implementation may write only its own worktree;
- * independent Review and QA must remain read-only.
+ * Explicit Owner-requested full Codex sandbox access for all model gates.
+ * Keep SHA-bound independent Review/QA validation and Owner merge controls;
+ * full host access must only run under an account without production secrets.
  */
 export function codexSandboxForGate(
-  gate: string,
-): 'workspace-write' | 'read-only' {
-  return gate === 'IMPLEMENTATION' ? 'workspace-write' : 'read-only';
+  _gate: string,
+): 'danger-full-access' {
+  return 'danger-full-access';
 }
 
 /**
@@ -225,8 +225,8 @@ export function executeCodexGate(
   )
     throw new Error('Role worktree has uncommitted changes');
   // Install exact locked dependencies for each isolated worktree without
-  // executing unreviewed package lifecycle scripts. This runs before Codex,
-  // so read-only Review/QA can execute tests and do not mutate source code.
+  // executing unreviewed package lifecycle scripts. Review/QA must still
+  // preserve their clean, exact-SHA worktrees regardless of sandbox access.
   const safePath = [
     dirname(process.execPath),
     dirname(input.pnpmExecutable),

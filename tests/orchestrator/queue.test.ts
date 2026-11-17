@@ -36,13 +36,7 @@ describe('queue admission', () => {
     };
     try {
       execFileSync('/usr/bin/git', ['init', '-q', '--bare', remote]);
-      execFileSync('/usr/bin/git', [
-        'init',
-        '-q',
-        '-b',
-        'development',
-        source,
-      ]);
+      execFileSync('/usr/bin/git', ['init', '-q', '-b', 'development', source]);
       writeFileSync(join(source, 'README.md'), 'base');
       const base = commit(source, 'base');
       git(source, 'remote', 'add', 'origin', remote);

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   eligibleIssues,
+  matchesSupervisedRunnerArguments,
   pendingLaunchStatus,
   safeTaskDisposition,
   selectEligibleQueueTask,
@@ -132,6 +133,28 @@ describe('queue admission', () => {
     states.get(10)!.phase = 'BLOCKED';
     expect(select().issue).toBe(11);
     expect(select().reconciliation).toBe(true);
+  });
+  it('requires a real child runner with exact issue and reservation token', () => {
+    const token = 'a'.repeat(64);
+    const runner = [
+      '/usr/bin/node',
+      '/home/test/repo/scripts/orchestrator/dist/supervised.js',
+      'run',
+      '68',
+      token,
+    ];
+    expect(matchesSupervisedRunnerArguments(runner, 68, token)).toBe(true);
+    expect(matchesSupervisedRunnerArguments(runner, 69, token)).toBe(false);
+    expect(
+      matchesSupervisedRunnerArguments(runner, 68, 'b'.repeat(64)),
+    ).toBe(false);
+    expect(
+      matchesSupervisedRunnerArguments(
+        ['/bin/bash', '-c', runner.join(' ')],
+        68,
+        token,
+      ),
+    ).toBe(false);
   });
   it('does not claim a live model during tmux startup', () => {
     expect(pendingLaunchStatus(0)).toBe('STARTING');

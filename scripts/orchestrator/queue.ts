@@ -139,10 +139,12 @@ function reservationIssue(): number | undefined {
   const value = JSON.parse(privateFile(launchPath)) as {
     issue?: number;
     session?: string;
+    token?: string;
   };
   if (
     !Number.isSafeInteger(value.issue) ||
-    value.session !== `fair-task-${value.issue}`
+    value.session !== `fair-task-${value.issue}` ||
+    !/^[a-f0-9]{64}$/.test(value.token ?? '')
   )
     throw new Error('Invalid launch reservation');
   return value.issue;
@@ -160,6 +162,22 @@ function currentHandoffStatus(): QueueStatus['status'] {
     return 'BLOCKED_RECONCILIATION';
   }
 }
+/** Verify the real child Node runner, not just a tmux pane shell. */
+export function matchesSupervisedRunnerArguments(
+  args: string[],
+  issue: number,
+  token: string,
+): boolean {
+  return (
+    Number.isSafeInteger(issue) &&
+    /^[a-f0-9]{64}$/.test(token) &&
+    args.length >= 5 &&
+    args[1]?.endsWith('/scripts/orchestrator/dist/supervised.js') === true &&
+    args[2] === 'run' &&
+    args[3] === String(issue) &&
+    args[4] === token
+  );
+}
 function liveRunner(issue: number): number | undefined {
   const session = `fair-task-${issue}`;
   const result = spawnSync(
@@ -176,17 +194,50 @@ function liveRunner(issue: number): number | undefined {
   const match = new RegExp(`^${session} runner ([1-9][0-9]*)$`).exec(
     result.stdout?.trim() ?? '',
   );
-  const pid = Number(match?.[1]);
-  if (result.status !== 0 || !Number.isSafeInteger(pid) || pid < 2)
+  const panePid = Number(match?.[1]);
+  if (result.status !== 0 || !Number.isSafeInteger(panePid) || panePid < 2)
     return undefined;
   try {
-    const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-    if (!argv.includes('supervised.js run') || !argv.includes(` ${issue} `))
+    const pidFile = join(root, 'tasks', String(issue), 'runner.pid');
+    const stat = lstatSync(pidFile);
+    if (!stat.isFile() || stat.uid !== process.getuid?.())
       return undefined;
-    return pid;
+    if (readFileSync(pidFile, 'utf8').trim() !== String(panePid))
+      return undefined;
+    const reservation = JSON.parse(privateFile(launchPath)) as {
+      issue?: number;
+      session?: string;
+      token?: string;
+    };
+    if (
+      reservation.issue !== issue ||
+      reservation.session !== session ||
+      !/^[a-f0-9]{64}$/.test(reservation.token ?? '')
+    )
+      return undefined;
+    const children = readFileSync(
+      `/proc/${panePid}/task/${panePid}/children`,
+      'utf8',
+    )
+      .trim()
+      .split(/\s+/);
+    for (const item of children) {
+      const childPid = Number(item);
+      if (!Number.isSafeInteger(childPid) || childPid < 2) continue;
+      try {
+        const args = readFileSync(`/proc/${childPid}/cmdline`, 'utf8')
+          .split('\0')
+          .filter(Boolean);
+        if (matchesSupervisedRunnerArguments(args, issue, reservation.token!))
+          return childPid;
+      } catch {
+        // A process may have already exited. Never claim a stale PID.
+      }
+    }
   } catch {
     return undefined;
   }
+  return undefined;
 }
 /**
  * Deterministic, side-effect-free queue selection. Keep authorization and

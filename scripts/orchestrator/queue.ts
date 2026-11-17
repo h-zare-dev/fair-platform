@@ -297,6 +297,32 @@ export function queueStep(
   const { issue, state, blocked, reconciliation, completed } = selection;
   if (issue !== undefined) {
     try {
+      const approved = approvedIssue(api, issue, owner, true);
+      const issueDetails = api.get(`/repos/${repo}/issues/${issue}`) as {
+        body?: string;
+      };
+      const specCommit = /^Pilot spec commit SHA: ([a-f0-9]{40})$/m.exec(
+        issueDetails.body ?? '',
+      );
+      if (!specCommit) throw new Error('Missing pinned spec commit');
+      syncApprovedSpec(
+        process.cwd(),
+        specCommit[1]!,
+        approved.specPath,
+        approved.specSha,
+      );
+    } catch {
+      return {
+        status: 'BLOCKED_APPROVAL',
+        issue,
+        phase: state?.phase ?? 'QUEUED',
+        sha: state?.headSha,
+        queueCount: numbers.length,
+        lastError: 'APPROVED_SPEC_SYNC_FAILED',
+        nextAction: 'Verify immutable spec commit, blob and Git connectivity',
+      };
+    }
+    try {
       run(issue);
     } catch {
       return {
@@ -391,6 +417,37 @@ export function syncApprovedDevelopment(
   const local = git(['rev-parse', 'refs/remotes/origin/development']);
   if (local.status !== 0 || local.stdout.trim() !== remoteSha)
     throw new Error('QUEUE_DEVELOPMENT_IDENTITY_MISMATCH');
+}
+/**
+ * The approved immutable specification can live on a separate branch.
+ * Fetch just its pinned commit when missing, and verify the pinned blob.
+ * No source checkout, task state or worktree is modified.
+ */
+export function syncApprovedSpec(
+  sourceRepo: string,
+  commitSha: string,
+  specPath: string,
+  specSha: string,
+): void {
+  if (
+    !/^[a-f0-9]{40}$/.test(commitSha) ||
+    !/^[a-f0-9]{40}$/.test(specSha) ||
+    !/^docs\/tasks\/[\w-]+\.md$/.test(specPath)
+  )
+    throw new Error('Invalid pinned specification identity');
+  const git = (args: string[]) =>
+    spawnSync('/usr/bin/git', ['-C', sourceRepo, ...args], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+  if (git(['cat-file', '-e', `${commitSha}^{commit}`]).status !== 0) {
+    const fetched = git(['fetch', '--quiet', '--no-tags', 'origin', commitSha]);
+    if (fetched.status !== 0) throw new Error('QUEUE_SPEC_FETCH_FAILED');
+  }
+  const result = git(['rev-parse', `${commitSha}:${specPath}`]);
+  if (result.status !== 0 || result.stdout.trim() !== specSha)
+    throw new Error('QUEUE_SPEC_IDENTITY_MISMATCH');
 }
 function main(): void {
   const command = process.argv[2];

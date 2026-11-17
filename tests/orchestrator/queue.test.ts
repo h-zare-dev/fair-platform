@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   eligibleIssues,
   safeTaskDisposition,
+  selectEligibleQueueTask,
   syncApprovedDevelopment,
 } from '../../scripts/orchestrator/queue.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
@@ -64,6 +65,51 @@ describe('queue admission', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+  it('adopts the second approved task after the first reaches a verified terminal state', () => {
+    const base = 'b'.repeat(40);
+    const spec = 'a'.repeat(40);
+    const states = new Map(
+      [10, 11].map((issue) => [
+        issue,
+        newTask(issue, 'docs/tasks/OPS-068-durable-agent-queue-resume.md', spec, base),
+      ] as const),
+    );
+    const read = (issue: number) => states.get(issue);
+    const approve = (_issue: number) => ({
+      specSha: spec,
+      baseSha: base,
+    });
+    const select = () =>
+      selectEligibleQueueTask(
+        [10, 11],
+        base,
+        read,
+        approve,
+        () => false,
+      );
+    expect(select().issue).toBe(10);
+    states.get(10)!.phase = 'DONE';
+    expect(select().issue).toBe(11);
+    states.get(11)!.phase = 'DONE';
+    const finished = select();
+    expect(finished.issue).toBeUndefined();
+    expect(finished.completed).toBe(true);
+
+    // A stale base or an unresolved historical task cannot be admitted.
+    states.get(11)!.phase = 'QUEUED';
+    expect(
+      selectEligibleQueueTask(
+        [11],
+        'c'.repeat(40),
+        read,
+        approve,
+        () => false,
+      ).issue,
+    ).toBeUndefined();
+    states.get(10)!.phase = 'BLOCKED';
+    expect(select().issue).toBe(11);
+    expect(select().reconciliation).toBe(true);
   });
   it('sorts and excludes PRs and blocked issues', () => {
     const api = {

@@ -139,7 +139,7 @@ describe('queue admission', () => {
     expect(select().issue).toBe(11);
     expect(select().reconciliation).toBe(true);
   });
-  it('requires a real child runner with exact issue and reservation token', () => {
+  it('verifies exact runner PID identity and token', () => {
     const token = 'a'.repeat(64);
     const runner = [
       '/usr/bin/node',
@@ -187,10 +187,7 @@ describe('queue admission', () => {
         () => false,
       );
     for (const issue of [10, 11]) {
-      states.set(
-        issue,
-        newTask(issue, 'docs/tasks/QUEUE.md', spec, base),
-      );
+      states.set(issue, newTask(issue, 'docs/tasks/QUEUE.md', spec, base));
     }
     const ports: Ports = {
       reconcile: () => Promise.resolve(),
@@ -209,9 +206,7 @@ describe('queue admission', () => {
               ? targetSha.get(state.taskId)!
               : state.headSha!,
           evidenceId: `${state.taskId}-${gate}`,
-          ...(gate === 'CI'
-            ? { defectCode: 'PILOT_END_BEFORE_CI' }
-            : {}),
+          ...(gate === 'CI' ? { defectCode: 'PILOT_END_BEFORE_CI' } : {}),
         };
         return Promise.resolve(evidence);
       },

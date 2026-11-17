@@ -187,7 +187,7 @@ export function selectEligibleQueueTask(
   receiptVerified: (issue: number, state: TaskState) => boolean,
 ): {
   issue?: number;
-  state?: TaskState;
+  state?: TaskState | undefined;
   blocked: boolean;
   reconciliation: boolean;
   completed: boolean;

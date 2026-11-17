@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -13,139 +20,387 @@ const root = join(home, '.local/state/fair-platform');
 const statusPath = join(root, 'queue.json');
 const launchPath = join(root, 'supervised.launch');
 const lockPath = join(root, 'supervised.lock');
+const workerLockPath = join(root, 'queue-worker.lock');
 const tokenPath = join(home, '.local/share/fair-platform/github-token');
 const owner = 'h-zare-dev';
 const repo = 'h-zare-dev/fair-platform';
-export type QueueStatus = { status: 'IDLE'|'RUNNING'|'PAUSED_QUOTA'|'BLOCKED_APPROVAL'|'BLOCKED_RECONCILIATION'|'DONE'; issue?: number; phase?: string | undefined; sha?: string | undefined; queueCount: number; pid?: number | undefined; lastError?: string; nextAction: string };
+export type QueueStatus = {
+  status:
+    | 'IDLE'
+    | 'RUNNING'
+    | 'PAUSED_QUOTA'
+    | 'BLOCKED_APPROVAL'
+    | 'BLOCKED_RECONCILIATION'
+    | 'DONE';
+  issue?: number;
+  phase?: string | undefined;
+  sha?: string | undefined;
+  queueCount: number;
+  pid?: number | undefined;
+  lastError?: string;
+  nextAction: string;
+};
 export function eligibleIssues(api: GitHubTransport): number[] {
   const result: number[] = [];
   for (let page = 1; page <= 100; page++) {
-    const rows = api.get(`/repos/${repo}/issues?state=open&labels=agent%3Aapproved&per_page=100&page=${page}`) as {number?:number;pull_request?:unknown;labels?:{name:string}[]}[];
+    const rows = api.get(
+      `/repos/${repo}/issues?state=open&labels=agent%3Aapproved&per_page=100&page=${page}`,
+    ) as {
+      number?: number;
+      pull_request?: unknown;
+      labels?: { name: string }[];
+    }[];
     if (!Array.isArray(rows)) throw new Error('Invalid issue listing');
-    for (const row of rows) if (Number.isSafeInteger(row.number) && !row.pull_request && row.labels?.some(x => x.name === 'agent:approved') && !row.labels.some(x => x.name === 'agent:blocked')) result.push(row.number!);
-    if (rows.length < 100) return [...new Set(result)].sort((a,b) => a-b);
+    for (const row of rows)
+      if (
+        Number.isSafeInteger(row.number) &&
+        !row.pull_request &&
+        row.labels?.some((x) => x.name === 'agent:approved') &&
+        !row.labels.some((x) => x.name === 'agent:blocked')
+      )
+        result.push(row.number!);
+    if (rows.length < 100) return [...new Set(result)].sort((a, b) => a - b);
   }
   throw new Error('Issue listing exceeds verified page bound');
 }
-export function safeTaskDisposition(state: TaskState | undefined): 'new'|'resume'|'done'|'blocked' {
+export function safeTaskDisposition(
+  state: TaskState | undefined,
+): 'new' | 'resume' | 'done' | 'blocked' {
   if (!state) return 'new';
   if (state.inFlight || state.pendingReport) return 'blocked';
-  if (['DONE','READY_FOR_OWNER_REVIEW'].includes(state.phase)) return 'done';
+  if (['DONE', 'READY_FOR_OWNER_REVIEW'].includes(state.phase)) return 'done';
   if (state.phase === 'BLOCKED') return 'blocked';
   return 'resume';
 }
 /** A checkpoint can be resumed only after its exact receipt is independently verified. */
-export function recoverableCheckpoint(issue: number, state: TaskState): boolean {
+export function recoverableCheckpoint(
+  issue: number,
+  state: TaskState,
+): boolean {
   const pending = state.inFlight ?? state.pendingReport;
-  if (!pending || !['IMPLEMENTATION','REVIEW','QA'].includes(pending.gate)) return false;
+  if (!pending || !['IMPLEMENTATION', 'REVIEW', 'QA'].includes(pending.gate))
+    return false;
   try {
     const p = paths(issue);
     const config = loadConfig(p.config);
-    if (config.issue !== issue || config.stateFile !== p.state || config.evidenceDir !== p.evidence) return false;
+    if (
+      config.issue !== issue ||
+      config.stateFile !== p.state ||
+      config.evidenceDir !== p.evidence
+    )
+      return false;
     const key = `${issue}:${state.attempt}:${pending.gate}:${state.headSha ?? state.baseSha}:${state.candidateSha ?? '-'}`;
     if (pending.key !== key) return false;
-    const receipt = JSON.parse(privateFile(join(p.evidence, `${createHash('sha256').update(key).digest('hex')}.json`))) as Receipt;
-    const evidence = verifyReceipt(config,state,pending.gate,key,receipt);
-    return !state.pendingReport || JSON.stringify(state.pendingReport.evidence) === JSON.stringify(evidence);
-  } catch { return false; }
+    const receipt = JSON.parse(
+      privateFile(
+        join(
+          p.evidence,
+          `${createHash('sha256').update(key).digest('hex')}.json`,
+        ),
+      ),
+    ) as Receipt;
+    const evidence = verifyReceipt(config, state, pending.gate, key, receipt);
+    return (
+      !state.pendingReport ||
+      JSON.stringify(state.pendingReport.evidence) === JSON.stringify(evidence)
+    );
+  } catch {
+    return false;
+  }
 }
 function privateFile(path: string): string {
   const stat = lstatSync(path);
-  if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o077)) throw new Error('Unsafe private file');
+  if (!stat.isFile() || stat.uid !== process.getuid?.() || stat.mode & 0o077)
+    throw new Error('Unsafe private file');
   return readFileSync(path, 'utf8');
 }
 function saveStatus(status: QueueStatus): void {
-  mkdirSync(root, {recursive:true,mode:0o700});
+  mkdirSync(root, { recursive: true, mode: 0o700 });
   const temp = `${statusPath}.${process.pid}.tmp`;
-  writeFileSync(temp, JSON.stringify(status), {mode:0o600});
+  writeFileSync(temp, JSON.stringify(status), { mode: 0o600 });
   renameSync(temp, statusPath);
 }
 function reservationIssue(): number | undefined {
   if (!existsSync(launchPath)) return undefined;
-  const value = JSON.parse(privateFile(launchPath)) as {issue?:number;session?:string};
-  if (!Number.isSafeInteger(value.issue) || value.session !== `fair-task-${value.issue}`) throw new Error('Invalid launch reservation');
+  const value = JSON.parse(privateFile(launchPath)) as {
+    issue?: number;
+    session?: string;
+  };
+  if (
+    !Number.isSafeInteger(value.issue) ||
+    value.session !== `fair-task-${value.issue}`
+  )
+    throw new Error('Invalid launch reservation');
   return value.issue;
 }
 function liveRunner(issue: number): number | undefined {
   const session = `fair-task-${issue}`;
-  const result = spawnSync('/usr/bin/tmux', ['display-message','-p','-t',`=${session}:runner`,'#{session_name} #{window_name} #{pane_pid}'], {encoding:'utf8'});
-  const match = new RegExp(`^${session} runner ([1-9][0-9]*)$`).exec(result.stdout?.trim() ?? '');
+  const result = spawnSync(
+    '/usr/bin/tmux',
+    [
+      'display-message',
+      '-p',
+      '-t',
+      `=${session}:runner`,
+      '#{session_name} #{window_name} #{pane_pid}',
+    ],
+    { encoding: 'utf8' },
+  );
+  const match = new RegExp(`^${session} runner ([1-9][0-9]*)$`).exec(
+    result.stdout?.trim() ?? '',
+  );
   const pid = Number(match?.[1]);
-  if (result.status !== 0 || !Number.isSafeInteger(pid) || pid < 2) return undefined;
+  if (result.status !== 0 || !Number.isSafeInteger(pid) || pid < 2)
+    return undefined;
   try {
-    const argv = readFileSync(`/proc/${pid}/cmdline`,'utf8');
-    if (!argv.includes('supervised.js run') || !argv.includes(` ${issue} `)) return undefined;
+    const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+    if (!argv.includes('supervised.js run') || !argv.includes(` ${issue} `))
+      return undefined;
     return pid;
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
-export function queueStep(api: GitHubTransport, run: (issue:number)=>void, developmentSha: string): QueueStatus {
+export function queueStep(
+  api: GitHubTransport,
+  run: (issue: number) => void,
+  developmentSha: string,
+): QueueStatus {
   const numbers = eligibleIssues(api);
   const reserved = reservationIssue();
   if (reserved !== undefined) {
     const pid = liveRunner(reserved);
     const state = new StateStore(paths(reserved).state).load();
-    if (pid) return {status:'RUNNING', issue:reserved, pid, phase:state?.phase, sha:state?.headSha, queueCount:numbers.length, nextAction:'Wait for verified runner'};
-    return {status:'BLOCKED_RECONCILIATION',issue:reserved,phase:state?.phase,sha:state?.headSha,queueCount:numbers.length,lastError:'STALE_RESERVATION',nextAction:'Owner must adjudicate reservation and exact receipt before clearing it'};
+    if (pid)
+      return {
+        status: 'RUNNING',
+        issue: reserved,
+        pid,
+        phase: state?.phase,
+        sha: state?.headSha,
+        queueCount: numbers.length,
+        nextAction: 'Wait for verified runner',
+      };
+    return {
+      status: 'BLOCKED_RECONCILIATION',
+      issue: reserved,
+      phase: state?.phase,
+      sha: state?.headSha,
+      queueCount: numbers.length,
+      lastError: 'STALE_RESERVATION',
+      nextAction:
+        'Owner must adjudicate reservation and exact receipt before clearing it',
+    };
   }
-  const lock = spawnSync('/usr/bin/flock',['-n','-E','75',lockPath,'/usr/bin/true'],{stdio:'ignore'});
-  if (lock.status === 75) return {status:'BLOCKED_RECONCILIATION',queueCount:numbers.length,lastError:'UNIDENTIFIED_LOCK_HOLDER',nextAction:'Identify global lock holder before admission'};
-  if (lock.status !== 0) return {status:'BLOCKED_RECONCILIATION',queueCount:numbers.length,lastError:'LOCK_PROBE_FAILED',nextAction:'Inspect global lock'};
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  if (!existsSync(lockPath))
+    writeFileSync(lockPath, '', { flag: 'wx', mode: 0o600 });
+  privateFile(lockPath);
+  const lock = spawnSync(
+    '/usr/bin/flock',
+    ['-n', '-E', '75', lockPath, '/usr/bin/true'],
+    { stdio: 'ignore' },
+  );
+  if (lock.status === 75)
+    return {
+      status: 'BLOCKED_RECONCILIATION',
+      queueCount: numbers.length,
+      lastError: 'UNIDENTIFIED_LOCK_HOLDER',
+      nextAction: 'Identify global lock holder before admission',
+    };
+  if (lock.status !== 0)
+    return {
+      status: 'BLOCKED_RECONCILIATION',
+      queueCount: numbers.length,
+      lastError: 'LOCK_PROBE_FAILED',
+      nextAction: 'Inspect global lock',
+    };
   let blocked = false;
   let reconciliation = false;
   let completed = false;
   for (const issue of numbers) {
     let state: TaskState | undefined;
-    try { state = new StateStore(paths(issue).state).load(); } catch { reconciliation = true; continue; }
-    const disposition = safeTaskDisposition(state);
-    if (disposition === 'done') { completed = true; continue; }
-    if (disposition === 'blocked' && !(state && recoverableCheckpoint(issue,state))) { reconciliation = true; continue; }
     try {
-      const approved = approvedIssue(api,issue,owner,true);
-      if (approved.baseSha !== developmentSha || (state && (state.specSha !== approved.specSha || state.baseSha !== approved.baseSha))) { blocked = true; continue; }
+      state = new StateStore(paths(issue).state).load();
+    } catch {
+      reconciliation = true;
+      continue;
+    }
+    const disposition = safeTaskDisposition(state);
+    if (disposition === 'done') {
+      completed = true;
+      continue;
+    }
+    if (
+      disposition === 'blocked' &&
+      !(state && recoverableCheckpoint(issue, state))
+    ) {
+      reconciliation = true;
+      continue;
+    }
+    try {
+      const approved = approvedIssue(api, issue, owner, true);
+      if (
+        approved.baseSha !== developmentSha ||
+        (state &&
+          (state.specSha !== approved.specSha ||
+            state.baseSha !== approved.baseSha))
+      ) {
+        blocked = true;
+        continue;
+      }
       run(issue);
       const pid = liveRunner(issue);
-      if (!pid) return {status:'BLOCKED_RECONCILIATION',issue,phase:state?.phase ?? 'QUEUED',sha:state?.headSha,queueCount:numbers.length,lastError:'LAUNCH_IDENTITY_UNVERIFIED',nextAction:'Inspect reserved runner identity'};
-      return {status:'RUNNING',issue,pid,phase:state?.phase ?? 'QUEUED',sha:state?.headSha,queueCount:numbers.length,nextAction:'Observe reserved tmux runner'};
-    } catch { blocked = true; }
+      if (!pid)
+        return {
+          status: 'BLOCKED_RECONCILIATION',
+          issue,
+          phase: state?.phase ?? 'QUEUED',
+          sha: state?.headSha,
+          queueCount: numbers.length,
+          lastError: 'LAUNCH_IDENTITY_UNVERIFIED',
+          nextAction: 'Inspect reserved runner identity',
+        };
+      return {
+        status: 'RUNNING',
+        issue,
+        pid,
+        phase: state?.phase ?? 'QUEUED',
+        sha: state?.headSha,
+        queueCount: numbers.length,
+        nextAction: 'Observe reserved tmux runner',
+      };
+    } catch {
+      blocked = true;
+    }
   }
-  return {status:reconciliation?'BLOCKED_RECONCILIATION':blocked?'BLOCKED_APPROVAL':completed?'DONE':'IDLE',queueCount:numbers.length,nextAction:reconciliation?'Inspect exact task receipt and reservation':blocked?'Inspect pinned approvals and task state':'Wait for new approved issue'};
+  return {
+    status: reconciliation
+      ? 'BLOCKED_RECONCILIATION'
+      : blocked
+        ? 'BLOCKED_APPROVAL'
+        : completed
+          ? 'DONE'
+          : 'IDLE',
+    queueCount: numbers.length,
+    nextAction: reconciliation
+      ? 'Inspect exact task receipt and reservation'
+      : blocked
+        ? 'Inspect pinned approvals and task state'
+        : 'Wait for new approved issue',
+  };
 }
 function gh(): GhTransport {
   const token = privateFile(tokenPath).trim();
-  const which = spawnSync('/usr/bin/which',['gh'],{encoding:'utf8'});
+  const which = spawnSync('/usr/bin/which', ['gh'], { encoding: 'utf8' });
   if (which.status !== 0) throw new Error('GitHub CLI unavailable');
-  return new GhTransport(token,which.stdout.trim());
+  return new GhTransport(token, which.stdout.trim());
 }
 function development(api: GitHubTransport): string {
-  const ref = api.get(`/repos/${repo}/git/ref/heads/development`) as {object?:{sha?:string}};
-  if (!/^[a-f0-9]{40}$/.test(ref.object?.sha ?? '')) throw new Error('Invalid development ref');
+  const ref = api.get(`/repos/${repo}/git/ref/heads/development`) as {
+    object?: { sha?: string };
+  };
+  if (!/^[a-f0-9]{40}$/.test(ref.object?.sha ?? ''))
+    throw new Error('Invalid development ref');
   return ref.object!.sha!;
 }
 function main(): void {
   const command = process.argv[2];
   if (command === 'status') {
-    const status: QueueStatus = existsSync(statusPath) ? JSON.parse(privateFile(statusPath)) as QueueStatus : {status:'IDLE',queueCount:0,nextAction:'Enable queue service'};
+    const status: QueueStatus = existsSync(statusPath)
+      ? (JSON.parse(privateFile(statusPath)) as QueueStatus)
+      : { status: 'IDLE', queueCount: 0, nextAction: 'Enable queue service' };
     if (status.status === 'RUNNING') {
       const reserved = reservationIssue();
-      const pid = status.issue && reserved === status.issue ? liveRunner(status.issue) : undefined;
-      if (!pid) { status.status = 'BLOCKED_RECONCILIATION'; status.lastError = 'RUNNER_IDENTITY_UNVERIFIED'; status.nextAction = 'Inspect saved task and reservation'; delete status.pid; }
-      else status.pid = pid;
+      const pid =
+        status.issue && reserved === status.issue
+          ? liveRunner(status.issue)
+          : undefined;
+      if (!pid) {
+        status.status = 'BLOCKED_RECONCILIATION';
+        status.lastError = 'RUNNER_IDENTITY_UNVERIFIED';
+        status.nextAction = 'Inspect saved task and reservation';
+        delete status.pid;
+      } else status.pid = pid;
     }
-    process.stdout.write(`${JSON.stringify(status)}\n`); return;
+    process.stdout.write(`${JSON.stringify(status)}\n`);
+    return;
   }
-  if (command !== 'worker') throw new Error('Usage: queue.js worker|status');
+  if (command === 'worker') {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    if (!existsSync(workerLockPath))
+      writeFileSync(workerLockPath, '', { flag: 'wx', mode: 0o600 });
+    privateFile(workerLockPath);
+    const child = spawnSync(
+      '/usr/bin/flock',
+      [
+        '-n',
+        workerLockPath,
+        process.execPath,
+        process.argv[1]!,
+        'internal-worker',
+      ],
+      { stdio: 'inherit' },
+    );
+    if (child.status !== 0) process.exitCode = child.status ?? 1;
+    return;
+  }
+  if (command !== 'internal-worker')
+    throw new Error('Usage: queue.js worker|status');
+  // A direct internal invocation cannot claim an existing worker's lock.
+  const probe = spawnSync(
+    '/usr/bin/flock',
+    ['-n', '-E', '75', workerLockPath, '/usr/bin/true'],
+    { stdio: 'ignore' },
+  );
+  if (probe.status !== 75)
+    throw new Error('Queue worker requires its exclusive lock');
+  const parentArgs = readFileSync(
+    `/proc/${process.ppid}/cmdline`,
+    'utf8',
+  ).split('\0');
+  if (
+    parentArgs[0] !== '/usr/bin/flock' ||
+    parentArgs[1] !== '-n' ||
+    parentArgs[2] !== workerLockPath ||
+    parentArgs[3] !== process.execPath ||
+    parentArgs[4] !== process.argv[1] ||
+    parentArgs[5] !== 'internal-worker'
+  )
+    throw new Error('Queue worker lock holder identity is unverified');
   let stopping = false;
-  process.on('SIGTERM',()=>{stopping=true;});
+  process.on('SIGTERM', () => {
+    stopping = true;
+  });
   const tick = () => {
     try {
       const api = gh();
-      const status = queueStep(api, issue => {
-        const child = spawnSync(process.execPath,[resolve('scripts/orchestrator/dist/supervised.js'),'start',String(issue)],{stdio:'ignore'});
-        if (child.status !== 0) throw new Error('Supervised launch refused');
-      },development(api));
+      const status = queueStep(
+        api,
+        (issue) => {
+          const child = spawnSync(
+            process.execPath,
+            [
+              resolve('scripts/orchestrator/dist/supervised.js'),
+              'start',
+              String(issue),
+            ],
+            { stdio: 'ignore' },
+          );
+          if (child.status !== 0) throw new Error('Supervised launch refused');
+        },
+        development(api),
+      );
       saveStatus(status);
-    } catch { saveStatus({status:'BLOCKED_RECONCILIATION',queueCount:0,lastError:'QUEUE_POLL_FAILED',nextAction:'Inspect private service journal and GitHub connectivity'}); }
-    if (!stopping) setTimeout(tick,30_000);
+    } catch {
+      saveStatus({
+        status: 'BLOCKED_RECONCILIATION',
+        queueCount: 0,
+        lastError: 'QUEUE_POLL_FAILED',
+        nextAction: 'Inspect private service journal and GitHub connectivity',
+      });
+    }
+    if (!stopping) setTimeout(tick, 30_000);
   };
   tick();
 }

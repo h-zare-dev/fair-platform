@@ -21,7 +21,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$repo
-ExecStart=/usr/bin/flock -n $state_dir/queue-worker.lock $node_bin $repo/scripts/orchestrator/dist/queue.js worker
+ExecStart=$node_bin $repo/scripts/orchestrator/dist/queue.js worker
 Restart=on-failure
 RestartSec=30
 UMask=0077

@@ -68,7 +68,20 @@ export function safeTaskDisposition(
 ): 'new' | 'resume' | 'done' | 'blocked' {
   if (!state) return 'new';
   if (state.inFlight || state.pendingReport) return 'blocked';
-  if (['DONE', 'READY_FOR_OWNER_REVIEW'].includes(state.phase)) return 'done';
+  // The supervised pilot deliberately records a BLOCKED CI transition after
+  // publishing the Draft PR. That is its successful, Owner-held terminal
+  // boundary, not an invitation to reconcile or start CI automatically.
+  if (
+    ['DONE', 'READY_FOR_OWNER_REVIEW'].includes(state.phase) ||
+    (state.phase === 'BLOCKED' &&
+      !!state.prNumber &&
+      !!state.headSha &&
+      state.verdicts.IMPLEMENTATION?.verdict === 'PASS' &&
+      state.verdicts.REVIEW?.verdict === 'PASS' &&
+      state.verdicts.QA?.verdict === 'PASS' &&
+      state.transitions.at(-1)?.errorCode === 'PILOT_END_BEFORE_CI')
+  )
+    return 'done';
   if (state.phase === 'BLOCKED') return 'blocked';
   return 'resume';
 }

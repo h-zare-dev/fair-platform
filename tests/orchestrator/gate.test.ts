@@ -17,11 +17,11 @@ import {
 } from '../../scripts/orchestrator/gate.js';
 
 describe('Codex gate', () => {
-  it('uses write-scoped Implementation and read-only independent gates', () => {
-    expect(codexSandboxForGate('IMPLEMENTATION')).toBe('workspace-write');
-    expect(codexSandboxForGate('REVIEW')).toBe('read-only');
-    expect(codexSandboxForGate('QA')).toBe('read-only');
-    expect(codexSandboxForGate('CI')).toBe('read-only');
+  it('uses full Codex sandbox access for every role as Owner requested', () => {
+    expect(codexSandboxForGate('IMPLEMENTATION')).toBe('danger-full-access');
+    expect(codexSandboxForGate('REVIEW')).toBe('danger-full-access');
+    expect(codexSandboxForGate('QA')).toBe('danger-full-access');
+    expect(codexSandboxForGate('CI')).toBe('danger-full-access');
   });
   it('commits sandbox edits through the trusted gate, not from Codex', () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-commit-boundary-'));

@@ -1,11 +1,76 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   eligibleIssues,
   safeTaskDisposition,
+  syncApprovedDevelopment,
 } from '../../scripts/orchestrator/queue.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
 
 describe('queue admission', () => {
+  it('fetches only origin/development and verifies the exact remote SHA', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fair-queue-fetch-'));
+    const remote = join(root, 'remote.git');
+    const source = join(root, 'source');
+    const peer = join(root, 'peer');
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('/usr/bin/git', ['-C', cwd, ...args], {
+        encoding: 'utf8',
+      }).trim();
+    const commit = (cwd: string, message: string) => {
+      git(cwd, 'add', 'README.md');
+      git(
+        cwd,
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'commit',
+        '-qm',
+        message,
+      );
+      return git(cwd, 'rev-parse', 'HEAD');
+    };
+    try {
+      execFileSync('/usr/bin/git', ['init', '-q', '--bare', remote]);
+      execFileSync('/usr/bin/git', [
+        'init',
+        '-q',
+        '-b',
+        'development',
+        source,
+      ]);
+      writeFileSync(join(source, 'README.md'), 'base');
+      const base = commit(source, 'base');
+      git(source, 'remote', 'add', 'origin', remote);
+      git(source, 'push', '-q', '-u', 'origin', 'development');
+      syncApprovedDevelopment(source, base);
+
+      execFileSync('/usr/bin/git', [
+        'clone',
+        '-q',
+        '-b',
+        'development',
+        remote,
+        peer,
+      ]);
+      writeFileSync(join(peer, 'README.md'), 'advanced');
+      const newer = commit(peer, 'advance remote');
+      git(peer, 'push', '-q', 'origin', 'development');
+      syncApprovedDevelopment(source, newer);
+      expect(git(source, 'rev-parse', 'HEAD')).toBe(base);
+      expect(git(source, 'rev-parse', 'origin/development')).toBe(newer);
+      expect(() => syncApprovedDevelopment(source, base)).toThrow(
+        'QUEUE_DEVELOPMENT_IDENTITY_MISMATCH',
+      );
+      expect(git(source, 'status', '--porcelain')).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('sorts and excludes PRs and blocked issues', () => {
     const api = {
       get: () => [

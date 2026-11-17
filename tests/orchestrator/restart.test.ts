@@ -149,7 +149,7 @@ describe('restart safety', () => {
     }
   });
 
-  it('resumes an implementation publish error from its saved receipt without running the model twice', async () => {
+  it('resumes a post-QA Draft PR error from its saved receipt without running QA twice', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'fair-publish-interrupt-'));
     try {
       const store = new StateStore(join(dir, 'state.json'));
@@ -164,11 +164,19 @@ describe('restart safety', () => {
       const ports: Ports = {
         reconcile: () => Promise.resolve(),
         developmentSha: () => Promise.resolve(sha('b')),
-        run: () => {
+        run: (gate) => {
           modelCalls++;
-          return Promise.resolve(evidence);
+          return Promise.resolve(
+            gate === 'IMPLEMENTATION'
+              ? evidence
+              : { ...evidence, evidenceId: `persisted-${gate}` },
+          );
         },
-        recover: () => Promise.resolve(evidence),
+        recover: (gate) =>
+          Promise.resolve({
+            ...evidence,
+            evidenceId: `persisted-${gate}`,
+          }),
         report: () => Promise.resolve(),
         publish: () => {
           publications++;
@@ -178,16 +186,18 @@ describe('restart safety', () => {
       };
       const engine = new Orchestrator(ports, (s) => store.save(s));
       await engine.step(state);
+      await engine.step(state);
+      await engine.step(state);
       await expect(engine.step(state)).rejects.toThrow(
         'PR is not exact draft head',
       );
       const persisted = store.load()!;
-      expect(persisted.headSha).toBeUndefined();
-      expect(persisted.inFlight?.gate).toBe('IMPLEMENTATION');
-      await engine.step(persisted);
-      expect(persisted.phase).toBe('REVIEWING');
       expect(persisted.headSha).toBe(sha('c'));
-      expect(modelCalls).toBe(1);
+      expect(persisted.inFlight?.gate).toBe('QA');
+      await engine.step(persisted);
+      expect(persisted.phase).toBe('CI');
+      expect(persisted.headSha).toBe(sha('c'));
+      expect(modelCalls).toBe(3);
       expect(publications).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });

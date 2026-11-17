@@ -344,8 +344,7 @@ export function syncApprovedDevelopment(
     'origin',
     '+refs/heads/development:refs/remotes/origin/development',
   ]);
-  if (fetch.status !== 0)
-    throw new Error('QUEUE_DEVELOPMENT_FETCH_FAILED');
+  if (fetch.status !== 0) throw new Error('QUEUE_DEVELOPMENT_FETCH_FAILED');
   const local = git(['rev-parse', 'refs/remotes/origin/development']);
   if (local.status !== 0 || local.stdout.trim() !== remoteSha)
     throw new Error('QUEUE_DEVELOPMENT_IDENTITY_MISMATCH');

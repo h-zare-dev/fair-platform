@@ -69,25 +69,20 @@ describe('queue admission', () => {
   it('adopts the second approved task after the first reaches a verified terminal state', () => {
     const base = 'b'.repeat(40);
     const spec = 'a'.repeat(40);
-    const states = new Map(
-      [10, 11].map((issue) => [
+    const make = (issue: number) =>
+      newTask(
         issue,
-        newTask(issue, 'docs/tasks/OPS-068-durable-agent-queue-resume.md', spec, base),
-      ] as const),
-    );
-    const read = (issue: number) => states.get(issue);
-    const approve = (_issue: number) => ({
-      specSha: spec,
-      baseSha: base,
-    });
-    const select = () =>
-      selectEligibleQueueTask(
-        [10, 11],
+        'docs/tasks/OPS-068-durable-agent-queue-resume.md',
+        spec,
         base,
-        read,
-        approve,
-        () => false,
       );
+    const states = new Map<number, ReturnType<typeof newTask>>();
+    states.set(10, make(10));
+    states.set(11, make(11));
+    const read = (issue: number) => states.get(issue);
+    const approve = () => ({ specSha: spec, baseSha: base });
+    const select = () =>
+      selectEligibleQueueTask([10, 11], base, read, approve, () => false);
     expect(select().issue).toBe(10);
     states.get(10)!.phase = 'DONE';
     expect(select().issue).toBe(11);

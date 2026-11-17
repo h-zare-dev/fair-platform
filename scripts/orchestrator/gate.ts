@@ -43,7 +43,8 @@ export const CODEX_PRLIMIT_ARGS = ['--cpu=3600', '--nofile=1024'] as const;
  * Keep SHA-bound independent Review/QA validation and Owner merge controls;
  * full host access must only run under an account without production secrets.
  */
-export function codexSandboxForGate(_gate: string): 'danger-full-access' {
+export function codexSandboxForGate(gate: string): 'danger-full-access' {
+  if (!Object.hasOwn(roles, gate)) throw new Error('Unsupported Codex gate');
   return 'danger-full-access';
 }
 

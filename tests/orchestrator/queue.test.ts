@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   eligibleIssues,
+  pendingLaunchStatus,
   safeTaskDisposition,
   selectEligibleQueueTask,
   syncApprovedDevelopment,
@@ -131,6 +132,13 @@ describe('queue admission', () => {
     states.get(10)!.phase = 'BLOCKED';
     expect(select().issue).toBe(11);
     expect(select().reconciliation).toBe(true);
+  });
+  it('does not claim a live model during tmux startup', () => {
+    expect(pendingLaunchStatus(0)).toBe('STARTING');
+    expect(pendingLaunchStatus(44_999)).toBe('STARTING');
+    expect(pendingLaunchStatus(45_001)).toBe('BLOCKED_RECONCILIATION');
+    expect(pendingLaunchStatus(-1)).toBe('BLOCKED_RECONCILIATION');
+    expect(pendingLaunchStatus(Number.NaN)).toBe('BLOCKED_RECONCILIATION');
   });
   it('sorts and excludes PRs and blocked issues', () => {
     const api = {

@@ -93,15 +93,14 @@ describe('queue admission', () => {
 
     // A stale base or an unresolved historical task cannot be admitted.
     states.get(11)!.phase = 'QUEUED';
-    expect(
-      selectEligibleQueueTask(
-        [11],
-        'c'.repeat(40),
-        read,
-        approve,
-        () => false,
-      ).issue,
-    ).toBeUndefined();
+    const stale = selectEligibleQueueTask(
+      [11],
+      'c'.repeat(40),
+      read,
+      approve,
+      () => false,
+    );
+    expect(stale.issue).toBeUndefined();
     states.get(10)!.phase = 'BLOCKED';
     expect(select().issue).toBe(11);
     expect(select().reconciliation).toBe(true);

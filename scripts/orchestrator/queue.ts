@@ -200,8 +200,7 @@ function liveRunner(issue: number): number | undefined {
   try {
     const pidFile = join(root, 'tasks', String(issue), 'runner.pid');
     const stat = lstatSync(pidFile);
-    if (!stat.isFile() || stat.uid !== process.getuid?.())
-      return undefined;
+    if (!stat.isFile() || stat.uid !== process.getuid?.()) return undefined;
     if (readFileSync(pidFile, 'utf8').trim() !== String(panePid))
       return undefined;
     const reservation = JSON.parse(privateFile(launchPath)) as {

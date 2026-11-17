@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,11 +8,12 @@ import {
   safeTaskDisposition,
   selectEligibleQueueTask,
   syncApprovedDevelopment,
+  syncApprovedSpec,
 } from '../../scripts/orchestrator/queue.js';
 import { newTask } from '../../scripts/orchestrator/state.js';
 
 describe('queue admission', () => {
-  it('fetches only origin/development and verifies the exact remote SHA', () => {
+  it('syncs pinned development and spec objects without checkout', () => {
     const root = mkdtempSync(join(tmpdir(), 'fair-queue-fetch-'));
     const remote = join(root, 'remote.git');
     const source = join(root, 'source');
@@ -62,6 +63,32 @@ describe('queue admission', () => {
         'QUEUE_DEVELOPMENT_IDENTITY_MISMATCH',
       );
       expect(git(source, 'status', '--porcelain')).toBe('');
+
+      git(peer, 'switch', '-q', '-c', 'spec/fixture');
+      const path = 'docs/tasks/OPS-fixture.md';
+      mkdirSync(join(peer, 'docs/tasks'), { recursive: true });
+      writeFileSync(join(peer, path), '# Pinned fixture');
+      git(peer, 'add', path);
+      git(
+        peer,
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'commit',
+        '-qm',
+        'pin spec',
+      );
+      const specCommit = git(peer, 'rev-parse', 'HEAD');
+      const specBlob = git(peer, 'rev-parse', `${specCommit}:${path}`);
+      git(peer, 'push', '-q', 'origin', 'spec/fixture');
+
+      syncApprovedSpec(source, specCommit, path, specBlob);
+      expect(git(source, 'rev-parse', `${specCommit}:${path}`)).toBe(specBlob);
+      expect(git(source, 'rev-parse', 'HEAD')).toBe(base);
+      expect(() =>
+        syncApprovedSpec(source, specCommit, path, '0'.repeat(40)),
+      ).toThrow('QUEUE_SPEC_IDENTITY_MISMATCH');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

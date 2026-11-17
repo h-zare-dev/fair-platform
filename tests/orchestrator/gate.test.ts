@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -47,7 +53,15 @@ describe('Codex gate', () => {
         { encoding: 'utf8' },
       ).trim();
       execFileSync('/usr/bin/git', [
-        '-C', source, 'worktree', 'add', '-q', '-b', branch, linked, base,
+        '-C',
+        source,
+        'worktree',
+        'add',
+        '-q',
+        '-b',
+        branch,
+        linked,
+        base,
       ]);
       expect(readFileSync(join(linked, '.git'), 'utf8')).toContain('gitdir:');
 
@@ -67,7 +81,10 @@ describe('Codex gate', () => {
       expect(git('rev-parse', 'HEAD')).toBe(base);
 
       const passed = commitImplementationGateChanges(
-        linked, branch, base, 'PASS',
+        linked,
+        branch,
+        base,
+        'PASS',
       );
       expect(passed).not.toBe(base);
       expect(git('status', '--porcelain')).toBe('');
@@ -88,7 +105,10 @@ describe('Codex gate', () => {
 
       // A valid FAIL may commit its changes for receipt-backed rework.
       const failed = commitImplementationGateChanges(
-        linked, branch, passed, 'FAIL',
+        linked,
+        branch,
+        passed,
+        'FAIL',
       );
       expect(failed).not.toBe(passed);
       expect(git('status', '--porcelain')).toBe('');
@@ -96,7 +116,6 @@ describe('Codex gate', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
-
   it('does not impose RLIMIT_AS on Codex', () => {
     expect(CODEX_PRLIMIT_ARGS).toEqual(['--cpu=3600', '--nofile=1024']);
     expect(CODEX_PRLIMIT_ARGS.some((arg) => arg.startsWith('--as'))).toBe(

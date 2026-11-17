@@ -215,19 +215,14 @@ function liveRunner(issue: number): number | undefined {
       !/^[a-f0-9]{64}$/.test(reservation.token ?? '')
     )
       return undefined;
-    const children = readFileSync(
-      `/proc/${panePid}/task/${panePid}/children`,
-      'utf8',
-    )
-      .trim()
-      .split(/\s+/);
+    const procFile = `/proc/${panePid}/task/${panePid}/children`;
+    const children = readFileSync(procFile, 'utf8').trim().split(/\s+/);
     for (const item of children) {
       const childPid = Number(item);
       if (!Number.isSafeInteger(childPid) || childPid < 2) continue;
       try {
-        const args = readFileSync(`/proc/${childPid}/cmdline`, 'utf8')
-          .split('\0')
-          .filter(Boolean);
+        const cmdline = readFileSync(`/proc/${childPid}/cmdline`, 'utf8');
+        const args = cmdline.split('\0').filter(Boolean);
         if (matchesSupervisedRunnerArguments(args, issue, reservation.token!))
           return childPid;
       } catch {

@@ -66,7 +66,7 @@ describe('queue admission', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
-  it('adopts the second approved task after the first reaches a verified terminal state', () => {
+  it('advances to the next approved task after completion', () => {
     const base = 'b'.repeat(40);
     const spec = 'a'.repeat(40);
     const make = (issue: number) =>

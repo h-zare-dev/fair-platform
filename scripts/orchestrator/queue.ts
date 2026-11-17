@@ -8,7 +8,7 @@ import {
   renameSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { approvedIssue, GhTransport, type GitHubTransport } from './github.js';
 import { paths } from './supervised.js';

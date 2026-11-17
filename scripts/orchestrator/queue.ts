@@ -317,6 +317,39 @@ function development(api: GitHubTransport): string {
     throw new Error('Invalid development ref');
   return ref.object!.sha!;
 }
+/**
+ * Refresh only the remote-tracking development ref. Never checkout/reset the
+ * source tree or rebase a task. The remote GitHub API identity is checked
+ * against the fetched Git object before any admission.
+ */
+export function syncApprovedDevelopment(
+  sourceRepo: string,
+  remoteSha: string,
+): void {
+  if (!/^[a-f0-9]{40}$/.test(remoteSha))
+    throw new Error('Invalid remote development SHA');
+  const git = (args: string[]) =>
+    spawnSync('/usr/bin/git', ['-C', sourceRepo, ...args], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+  const base = git(['rev-parse', '--show-toplevel']);
+  if (base.status !== 0 || base.stdout.trim() !== resolve(sourceRepo))
+    throw new Error('Queue source repository identity mismatch');
+  const fetch = git([
+    'fetch',
+    '--quiet',
+    '--no-tags',
+    'origin',
+    '+refs/heads/development:refs/remotes/origin/development',
+  ]);
+  if (fetch.status !== 0)
+    throw new Error('QUEUE_DEVELOPMENT_FETCH_FAILED');
+  const local = git(['rev-parse', 'refs/remotes/origin/development']);
+  if (local.status !== 0 || local.stdout.trim() !== remoteSha)
+    throw new Error('QUEUE_DEVELOPMENT_IDENTITY_MISMATCH');
+}
 function main(): void {
   const command = process.argv[2];
   if (command === 'status') {
@@ -388,6 +421,8 @@ function main(): void {
   const tick = () => {
     try {
       const api = gh();
+      const currentDevelopment = development(api);
+      syncApprovedDevelopment(process.cwd(), currentDevelopment);
       const status = queueStep(
         api,
         (issue) => {
@@ -402,7 +437,7 @@ function main(): void {
           );
           if (child.status !== 0) throw new Error('Supervised launch refused');
         },
-        development(api),
+        currentDevelopment,
       );
       saveStatus(status);
     } catch {

@@ -1,10 +1,10 @@
 [Unit]
-Description=Fair staging encrypted off-host backup
+Description=Fair staging encrypted backup (operator-selected policy)
 OnFailure=fair-staging-alert@%n.service
 [Service]
 Type=oneshot
 User=root
 EnvironmentFile=/etc/fair-staging/backup.env
-ExecStart=/opt/fair-staging/tooling/backup.sh
+ExecStart=/opt/fair-staging/tooling/backup-with-settings.sh
 StandardOutput=journal
 StandardError=null

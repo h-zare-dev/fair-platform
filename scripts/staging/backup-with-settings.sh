@@ -4,4 +4,8 @@ set -euo pipefail
 set -a
 source /etc/fair-staging/backup.env
 set +a
-exec /opt/fair-staging/tooling/backup.sh
+case "${BACKUP_POLICY:-offsite}" in
+  offsite) exec /opt/fair-staging/tooling/backup.sh ;;
+  local-verified-v1) exec /opt/fair-staging/tooling/backup-local.sh ;;
+  *) printf 'BACKUP_POLICY_UNSUPPORTED\n' >&2; exit 1 ;;
+esac

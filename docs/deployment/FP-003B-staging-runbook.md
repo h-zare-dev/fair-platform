@@ -2,6 +2,18 @@
 
 **Status:** DRAFT operator runbook; commands are **plans**, not evidence of a configured server. See [FP-003B task specification](../tasks/FP-003B-operational-dashboard.md) and [ADR 0015](../adr/0015-public-https-staging-and-controlled-delivery.md).
 
+> **Owner override (2026-11-18):** This historical design contract's off-host backup, persistent deploy-key and default-off repository-variable requirements have a limited exception for the **already running synthetic test VPS**. See [ADR 0016](../adr/0016-disposable-staging-local-backup-and-owner-merge-cd.md). The Owner has already verified public Owner login/logout and synthetic data. After the Owner merges the local-backup/CD PR, the `development` push workflow automatically provisions same-host encrypted backup, isolated restore, restricted transient SSH release credentials and deploys if all gates pass. The old off-host instructions below are **not applicable to that exception**. VPS/disk loss destroys these local-only backups. No live/production finances are authorized.
+
+### Current staging post-merge procedure (pending merge verification)
+
+1. The Owner alone merges the reviewed Draft PR to protected `development`. No other manual trigger or server command is needed for an ordinary application-only release.
+2. Actions `CI` must pass `quality`, `security`, `containers`, `owner-merge`, `publish` and `deploy`. `deploy` uses the already configured `staging-bootstrap` environment and pinned SSH host fingerprint. It retains the accepted PostgreSQL image, not the freshly rebuilt PostgreSQL helper's digest.
+3. The initial run creates `/etc/fair-staging/backup.env` with `BACKUP_POLICY=local-verified-v1`, encrypted backups in `/var/backups/fair-staging`, seven-day local retention, verified isolated restore evidence, exact accepted migration-hash baseline, timers, and final host activation. Later merges retain these files and do not reseed or reset the Owner.
+4. The Release verifies the current GitHub merge tip, config hash, reviewed migration hashes, recent isolated restore, database identity and running services, then backs up and deploys new API/Web/Caddy immutable digests. A successful workflow emits `STAGING_RELEASE_OK <sha>`. Failures block and require Owner investigation; **never** clear `release-state.json` or remove volumes to force a deployment.
+5. After a green run, open `https://panel.fairisfair.ir/dashboard` and verify Owner login, logout, sessions and synthetic data. Running in staging does not authorize live Pasarguard integration or billing.
+
+**Warning:** A future FP-004 migration change may intentionally stop automatic release until its exact additive migration and hash are reviewed. The pipeline is automatic, but it does not weaken the financial schema-safety gates for unconditional deployment.
+
 ## Environment identity
 
 - Domain: `panel.fairisfair.ir`, Cloudflare **DNS-only** (grey cloud).

@@ -70,8 +70,14 @@ class Commands:
 
     def run(self, args, capture=False):
         # All diagnostics stay on the host. Never stream container/SQL/SSH errors to CI.
+        # A short-lived GH Actions packages:read credential is mounted ONLY under
+        # /run on the VPS and removed after the release; sudo strips runner env.
+        env = os.environ.copy()
+        registry = Path('/run/fair-staging-docker-auth/config.json')
+        if os.geteuid() == 0 and registry.is_file():
+            env['DOCKER_CONFIG'] = str(registry.parent)
         process = subprocess.Popen(args, cwd=self.root, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, start_new_session=True)
+                                   stderr=subprocess.PIPE, start_new_session=True, env=env)
         try:
             stdout, _ = process.communicate(timeout=self.timeout)
         except (subprocess.TimeoutExpired, KeyboardInterrupt, ReleaseError) as error:
@@ -176,6 +182,11 @@ def deploy(root, settings_dir, release, commands):
                 'schema': SCHEMA}:
             raise ReleaseError('POSTGRES_TRANSITION_UNAPPROVED')
     evidence = json.loads((settings_dir / 'restore-verified.json').read_text())
+    backup_policy = activation.get('backupPolicy', 'offsite')
+    if backup_policy not in ('offsite', 'local-verified-v1'):
+        raise ReleaseError('BACKUP_POLICY_UNAPPROVED')
+    if backup_policy == 'local-verified-v1' and evidence.get('backupPolicy') != backup_policy:
+        raise ReleaseError('RESTORE_EVIDENCE_REQUIRED')
     restored = datetime.datetime.fromisoformat(evidence['verifiedAt'])
     if restored.tzinfo is None or not 0 <= (datetime.datetime.now(datetime.timezone.utc)-restored).total_seconds() <= 30*86400:
         raise ReleaseError('RESTORE_EVIDENCE_REQUIRED')

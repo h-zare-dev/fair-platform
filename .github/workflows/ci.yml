@@ -52,6 +52,9 @@ jobs:
       - name: Owner merge authorization regression tests
         run: python3 -m unittest discover -s tests/release -p test_owner_merge.py
 
+      - name: Staging diagnostics regression tests
+        run: python3 -m unittest discover -s tests/release -p test_diagnose_release.py
+
       - name: Build
         run: pnpm build
 

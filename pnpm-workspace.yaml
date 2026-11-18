@@ -13,3 +13,11 @@ allowBuilds:
 overrides:
   source-map-js: ^1.2.2
   sharp: ^0.35.5
+
+# Temporary dev-tool advisory exception (Vitest/Vite -> picomatch 4.0.7).
+# As of 2026-11-18 the upstream GHSA has NO patched version. The staged
+# API and Web runtime images exclude devDependencies and test tooling.
+# Review weekly and remove when the fixed version is available.
+audit:
+  ignore:
+    - GHSA-fc5q-39xc-vjpf

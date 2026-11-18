@@ -2,7 +2,6 @@
 """Root-owned forced-command entrypoint. Only validated image manifests enter via stdin.
 Install/config updates are human-controlled; never accept shell commands or Compose uploads.
 """
-import datetime
 import fcntl
 import hashlib
 import json
@@ -149,6 +148,10 @@ def deploy(root, settings_dir, release, commands):
     activation = json.loads((settings_dir / 'activation.json').read_text())
     if activation.get('approval') != 'owner-approved-v1' or activation.get('schema') != SCHEMA:
         raise ReleaseError('STAGING_NOT_ACTIVATED')
+    # Explicit Owner-directed exception for disposable synthetic staging only.
+    # Never infer permission to skip backups from missing/unrecognized settings.
+    if activation.get('backupPolicy') != 'staging-no-backup-v1':
+        raise ReleaseError('STAGING_NO_BACKUP_POLICY_REQUIRED')
     if release['configHash'] != config_hash(root):
         raise ReleaseError('CONFIG_REQUIRES_OPERATOR_UPGRADE')
     previous_path = root / 'current.json'
@@ -181,15 +184,6 @@ def deploy(root, settings_dir, release, commands):
                 'from': previous['postgres'], 'to': release['postgres'], 'sha': release['sha'],
                 'schema': SCHEMA}:
             raise ReleaseError('POSTGRES_TRANSITION_UNAPPROVED')
-    evidence = json.loads((settings_dir / 'restore-verified.json').read_text())
-    backup_policy = activation.get('backupPolicy', 'offsite')
-    if backup_policy not in ('offsite', 'local-verified-v1'):
-        raise ReleaseError('BACKUP_POLICY_UNAPPROVED')
-    if backup_policy == 'local-verified-v1' and evidence.get('backupPolicy') != backup_policy:
-        raise ReleaseError('RESTORE_EVIDENCE_REQUIRED')
-    restored = datetime.datetime.fromisoformat(evidence['verifiedAt'])
-    if restored.tzinfo is None or not 0 <= (datetime.datetime.now(datetime.timezone.utc)-restored).total_seconds() <= 30*86400:
-        raise ReleaseError('RESTORE_EVIDENCE_REQUIRED')
     accepted_env = root / 'current.env'
     identity = database_identity(commands, accepted_env, previous['postgres'])
     # Fixed root-owned tooling names cannot be supplied by the SSH caller.
@@ -210,10 +204,6 @@ def deploy(root, settings_dir, release, commands):
             state.update(status='uncertain', failure=(str(error) if isinstance(error, ReleaseError)
                                                     else 'COMMAND_INTERRUPTED_OR_TIMEOUT'))
             atomic(state_path, json.dumps(state))
-            if name == 'backup':
-                commands.run(['docker', 'rm', '-f', 'fair-staging-backup'])
-                if commands.run(['docker', 'ps', '-aq', '--filter', 'name=^/fair-staging-backup$'], True).strip():
-                    raise ReleaseError('BACKUP_ORPHAN_OPERATOR_REQUIRED')
             raise ReleaseError(name.upper().replace('-', '_') + '_FAILED_OPERATOR_REQUIRED') from None
         state.update(status='in-progress', completed=name)
         atomic(state_path, json.dumps(state))
@@ -234,7 +224,7 @@ def deploy(root, settings_dir, release, commands):
                 raise ReleaseError('ORPHAN_OPERATION_OPERATOR_REQUIRED')
             raise
 
-    phase('pull', lambda: commands.compose(env, 'pull', 'owner-api', 'web', 'migrate', 'caddy', 'postgres', 'backup'))
+    phase('pull', lambda: commands.compose(env, 'pull', 'owner-api', 'web', 'migrate', 'caddy', 'postgres'))
     for key in ['api', 'web', 'caddy', 'postgres']:
         image = release[key]
         labels = json.loads(commands.run(['docker', 'image', 'inspect', '--format', '{{json .Config.Labels}}', image], True))
@@ -255,9 +245,6 @@ def deploy(root, settings_dir, release, commands):
         raise ReleaseError('MIGRATION_COMPATIBILITY_UNPROVEN')
     if database_identity(commands, accepted_env, previous['postgres']) != identity:
         raise ReleaseError('DATABASE_CHANGED_DURING_PREFLIGHT')
-    phase('backup', lambda: commands.run([str(root / 'tooling' / 'backup-with-settings.sh')]))
-    if database_identity(commands, accepted_env, previous['postgres']) != identity:
-        raise ReleaseError('DATABASE_CHANGED_DURING_BACKUP')
     # Recheck branch advancement immediately before risky work. No workflow-order assumption.
     try:
         freshness(commands, high, release['sha'])

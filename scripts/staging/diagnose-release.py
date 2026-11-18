@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Redacted staging diagnostics and one tightly gated preflight resolution.
+"""Redacted staging diagnostics and tightly gated one-time journal resolutions.
 
 Run only through the Owner-gated, host-key-pinned GitHub Actions workflow.
 The database check starts a disposable migration *inspection* container; it
@@ -34,6 +34,7 @@ OPERATIONS = (
 )
 RECOVERY_CANDIDATE = '91177cf00a8a2a141fc98068469a4ed15b0fee81'
 RECOVERY_ACCEPTED = '06715bb74698074e5b8d536c563d8a1a9e791602'
+RECOVERY_BACKUP_CANDIDATE = '5f02f07f4445a6fe5dc7365dc7a01dc514267b7a'
 
 
 class DiagnosticError(Exception):
@@ -85,6 +86,8 @@ def same_migrations(approved, actual):
 
 def evidence_fresh(activation, evidence, now=None):
     policy = activation.get('backupPolicy', 'offsite')
+    if policy == 'staging-no-backup-v1':
+        return True  # Deliberate Owner policy; no restore evidence is required.
     if policy not in ('offsite', 'local-verified-v1'):
         return False
     if policy == 'local-verified-v1' and evidence.get('backupPolicy') != policy:
@@ -146,6 +149,18 @@ class Docker:
                        'node', 'dist/owner/release-check.js', timeout=180, cwd=root)
         return json.loads(raw)
 
+    def backup_inactive(self):
+        # A daily backup must not be running during journal resolution.
+        for name in ('fair-staging-backup.timer', 'fair-staging-backup.service'):
+            try:
+                result = subprocess.run(['systemctl', 'is-active', name],
+                                        capture_output=True, text=True, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                return False
+            if result.returncode not in (3, 4) or result.stdout.strip() not in ('inactive', 'unknown'):
+                return False
+        return True
+
 
 def diagnose(root, settings, docker, now=None):
     state = read_json(root / 'release-state.json')
@@ -153,11 +168,16 @@ def diagnose(root, settings, docker, now=None):
     high = read_json(root / 'high-water.json')
     approval = read_json(settings / 'compatible-migrations.json')
     activation = read_json(settings / 'activation.json')
-    restore = read_json(settings / 'restore-verified.json')
+    no_backup = activation.get('backupPolicy') == 'staging-no-backup-v1'
+    restore = {} if no_backup else read_json(settings / 'restore-verified.json')
 
     checks = {}
     checks['accepted_schema'] = accepted.get('schema') == 'fp003b-v1'
     checks['activation_schema'] = activation.get('schema') == 'fp003b-v1'
+    checks['activation_owner_approved'] = activation.get('approval') == 'owner-approved-v1'
+    checks['backup_policy_approved'] = activation.get('backupPolicy') in ('local-verified-v1', 'staging-no-backup-v1')
+    if no_backup:
+        checks['automatic_backup_inactive'] = docker.backup_inactive()
     checks['accepted_env_images'] = accepted_env_matches(root, accepted)
     digest = hashlib.sha256()
     for name in ('compose.yml', 'Caddyfile'):
@@ -178,7 +198,8 @@ def diagnose(root, settings, docker, now=None):
     checks['postgres_preflight_image_id'] = database['Image'] == recorded.get('image')
     checks['postgres_preflight_mounts_unordered'] = same_mounts(
         recorded.get('mounts'), database.get('Mounts'))
-    checks['restore_evidence_recent'] = evidence_fresh(activation, restore, now)
+    # For staging-no-backup-v1 this means explicit Owner policy, NOT a verified restore.
+    checks['recovery_policy_gate_satisfied'] = evidence_fresh(activation, restore, now)
 
     # A failed query is reported as unavailable. It never prints Docker stderr.
     try:
@@ -204,11 +225,84 @@ def diagnose(root, settings, docker, now=None):
              and safe_sha(previous.get('sha')) == journal['accepted_sha']
              and journal['high_water_sha'] == journal['accepted_sha']
              and journal['candidate_sha'] != journal['accepted_sha'])
+    failed_backup = (
+        no_backup and journal['status'] == 'uncertain' and journal['phase'] == 'backup'
+        and journal['completed'] == 'preflight'
+        and journal['candidate_sha'] == RECOVERY_BACKUP_CANDIDATE
+        and safe_sha((state.get('candidate') or {}).get('sha')) == RECOVERY_BACKUP_CANDIDATE
+        and journal['accepted_sha'] == RECOVERY_ACCEPTED
+        and journal['high_water_sha'] == RECOVERY_ACCEPTED
+        and safe_sha(previous.get('sha')) == RECOVERY_ACCEPTED
+    )
     return {
         'journal': journal,
         'checks': checks,
         'operator_reconciliation_candidate': early and all(checks.values()),
+        'operator_failed_backup_reconciliation_candidate': failed_backup and all(checks.values()),
         'persistent_changes_made': False,
+    }
+
+
+def reconcile_failed_backup(root, settings, docker, now=None):
+    """Resolve only observed Nov 18 backup failure; no backup, DB or service writes.
+
+    Caller MUST hold deployment.lock. Never retry the abandoned deployment.
+    """
+    report = diagnose(root, settings, docker, now)
+    if not report['operator_failed_backup_reconciliation_candidate']:
+        raise DiagnosticError('BACKUP_RECONCILIATION_REFUSED')
+    path = root / 'release-state.json'
+    if path.is_symlink():
+        raise DiagnosticError('SYMLINK_REFUSED')
+    original = path.read_bytes()
+    state = json.loads(original)
+    if (state.get('sha') != RECOVERY_BACKUP_CANDIDATE
+            or state.get('status') != 'uncertain' or state.get('phase') != 'backup'
+            or state.get('completed') != 'preflight'
+            or (state.get('candidate') or {}).get('sha') != RECOVERY_BACKUP_CANDIDATE
+            or state.get('previous') != read_json(root / 'current.json')
+            or read_json(root / 'current.json').get('sha') != RECOVERY_ACCEPTED
+            or read_json(root / 'high-water.json').get('sha') != RECOVERY_ACCEPTED):
+        raise DiagnosticError('RECORD_CHANGED_DURING_RECONCILIATION')
+
+    archive = root / ('release-state.before-' + RECOVERY_BACKUP_CANDIDATE[:8] + '.json')
+    fd = os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'wb') as file:
+        file.write(original)
+        file.flush()
+        os.fsync(file.fileno())
+    updated = dict(state)
+    updated['status'] = 'resolved'
+    updated['outcome'] = 'owner-verified-aborted-in-obsolete-backup-stage'
+    updated['resolution'] = {
+        'acceptedSha': RECOVERY_ACCEPTED,
+        'candidateSha': RECOVERY_BACKUP_CANDIDATE,
+        'verifiedAt': (now or dt.datetime.now(dt.timezone.utc)).isoformat(),
+        'checks': {key: 'PASS' for key in report['checks']},
+        'authorization': 'Owner-approved-staging-no-backup-reconciliation',
+    }
+    fd, temporary = tempfile.mkstemp(prefix='.failed-backup-reconcile-', dir=root)
+    try:
+        with os.fdopen(fd, 'w') as file:
+            json.dump(updated, file, sort_keys=True)
+            file.write('\n')
+            file.flush()
+            os.fsync(file.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return {
+        'status': 'resolved', 'outcome': updated['outcome'],
+        'reconciled_candidate_sha': RECOVERY_BACKUP_CANDIDATE,
+        'retained_accepted_sha': RECOVERY_ACCEPTED,
+        'original_journal_preserved': True, 'database_or_service_changes': False,
     }
 
 
@@ -288,7 +382,7 @@ def reconcile_preflight(root, settings, docker, now=None):
 
 
 def main():
-    if sys.argv[1:] not in ([], ['--reconcile-preflight']):
+    if sys.argv[1:] not in ([], ['--reconcile-preflight'], ['--reconcile-failed-backup']):
         raise DiagnosticError('NO_ARGUMENTS_ALLOWED')
     os.umask(0o077)
     # The same lock is held from inspection through the migration SELECT.
@@ -301,6 +395,8 @@ def main():
             raise DiagnosticError('DEPLOYMENT_BUSY') from None
         if sys.argv[1:] == ['--reconcile-preflight']:
             result = reconcile_preflight(ROOT, SETTINGS, Docker())
+        elif sys.argv[1:] == ['--reconcile-failed-backup']:
+            result = reconcile_failed_backup(ROOT, SETTINGS, Docker())
         else:
             result = diagnose(ROOT, SETTINGS, Docker())
     finally:

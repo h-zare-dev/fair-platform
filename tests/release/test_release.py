@@ -1,4 +1,3 @@
-import datetime
 import importlib.util
 import json
 import subprocess
@@ -36,12 +35,8 @@ class Commands:
         if self.failure == 'health-timeout' and 'health-monitor.sh' in args[0] and not self.failed:
             self.failed = True
             raise subprocess.TimeoutExpired(args, 900)
-        if self.failure in ['backup-timeout', 'interrupt'] and 'backup-with-settings.sh' in args[0]:
-            raise subprocess.TimeoutExpired(args, 900) if self.failure == 'backup-timeout' else KeyboardInterrupt()
         if args[0] == 'docker':
             return json.dumps({'org.opencontainers.image.revision': self.test.candidate['sha'], 'org.opencontainers.image.source': 'https://github.com/h-zare-dev/fair-platform'})
-        if self.failure == 'backup' and 'backup-with-settings.sh' in args[0]:
-            raise release.ReleaseError('COMMAND_FAILED')
         return ''
 
     def github(self, path):
@@ -60,6 +55,8 @@ class Commands:
             raise subprocess.TimeoutExpired(args, 900)
         if self.failure == 'migration-timeout' and args[-1] == 'migrate':
             raise subprocess.TimeoutExpired(args, 900)
+        if self.failure == 'interrupt' and args[-1] == 'migrate':
+            raise KeyboardInterrupt()
         if 'dist/owner/release-check.js' in args:
             return json.dumps({'schema': release.SCHEMA, 'configuredMigrations': ['approved', 'new-unreviewed'] if self.failure == 'pending-migration' else ['approved'], 'migrations':['approved'], 'hashes': {'approved': 'hash' if self.failure != 'compatibility' else 'changed'}})
         if self.failure == 'migration' and args[-1] == 'migrate' and args[0] == 'run':
@@ -84,10 +81,9 @@ class ReleaseTests(unittest.TestCase):
         self.candidate = self.manifest('b')
         (self.root/'current.json').write_text(json.dumps(self.previous))
         (self.root/'current.env').write_text('known-good')
-        (self.settings/'activation.json').write_text(json.dumps({'approval': 'owner-approved-v1', 'schema':release.SCHEMA, 'acmeEmail':'operator@example.invalid','secretsDir':'/etc/fair-staging/secrets'}))
+        (self.settings/'activation.json').write_text(json.dumps({'approval': 'owner-approved-v1', 'schema':release.SCHEMA, 'acmeEmail':'operator@example.invalid','secretsDir':'/etc/fair-staging/secrets','backupPolicy':'staging-no-backup-v1'}))
         (self.settings/'compatible-migrations.json').write_text(json.dumps({'configuredMigrations':['approved'],'hashes':{'approved':'hash'}}))
         (self.settings/'compatible-postgres.json').write_text(json.dumps({'from':self.previous['postgres'], 'to':self.candidate['postgres'], 'sha':self.candidate['sha'], 'schema':release.SCHEMA}))
-        (self.settings/'restore-verified.json').write_text(json.dumps({'verifiedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}))
 
     def manifest(self, sha):
         return {'sha':sha*40,'schema':release.SCHEMA,'configHash':release.config_hash(self.root),
@@ -116,17 +112,19 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError,'INITIAL_ACCEPTANCE_REQUIRED'): self.deploy()
         self.assertEqual(self.commands.calls,[])
 
-    def test_backup_failure_stops_before_migration(self):
-        with self.assertRaisesRegex(release.ReleaseError,'BACKUP_FAILED_OPERATOR_REQUIRED'): self.deploy('backup')
-        self.assertNotIn(('run','--rm','-T','migrate'),self.commands.calls)
+    def test_deployment_never_pulls_or_runs_backup_and_restore(self):
+        self.assertIn('STAGING_RELEASE_OK', self.deploy())
+        self.assertFalse(any('backup-with-settings' in str(call) or 'restore-verify' in str(call)
+                             or (call[0] == 'pull' and 'backup' in call)
+                             for call in self.commands.calls))
 
-    def test_incompatible_migrations_stop_before_backup(self):
+    def test_incompatible_migrations_stop_before_migration(self):
         with self.assertRaisesRegex(release.ReleaseError,'MIGRATION_COMPATIBILITY_UNPROVEN'): self.deploy('compatibility')
-        self.assertFalse(any('backup-with-settings.sh' in str(c) for c in self.commands.calls))
+        self.assertFalse(any(c[0]=='up' for c in self.commands.calls))
 
     def test_unapproved_pending_migration_stops_even_when_prior_file_hashes_match(self):
         with self.assertRaisesRegex(release.ReleaseError,'MIGRATION_COMPATIBILITY_UNPROVEN'): self.deploy('pending-migration')
-        self.assertFalse(any('backup-with-settings.sh' in str(c) for c in self.commands.calls))
+        self.assertFalse(any(c[0]=='up' for c in self.commands.calls))
 
     def test_failed_migration_does_not_rollback_or_launch_app(self):
         with self.assertRaisesRegex(release.ReleaseError,'MIGRATION_FAILED_OPERATOR_REQUIRED'): self.deploy('migration')
@@ -151,31 +149,38 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError,'CONFIG_REQUIRES_OPERATOR_UPGRADE'): self.deploy()
         self.assertEqual(self.commands.calls,[])
 
-    def test_stale_restore_evidence_stops_before_pull(self):
-        (self.settings/'restore-verified.json').write_text(json.dumps({'verifiedAt':'2020-01-01T00:00:00+00:00'}))
-        with self.assertRaisesRegex(release.ReleaseError,'RESTORE_EVIDENCE_REQUIRED'): self.deploy()
-        self.assertEqual(self.commands.calls,[])
+    def test_absent_restore_evidence_does_not_block_disposable_staging(self):
+        self.assertFalse((self.settings/'restore-verified.json').exists())
+        self.assertIn('STAGING_RELEASE_OK', self.deploy())
 
-    def test_local_only_policy_requires_local_restore_evidence(self):
+    def test_legacy_backup_policy_requires_owner_transition(self):
         activation = json.loads((self.settings/'activation.json').read_text())
         activation['backupPolicy'] = 'local-verified-v1'
         (self.settings/'activation.json').write_text(json.dumps(activation))
-        with self.assertRaisesRegex(release.ReleaseError, 'RESTORE_EVIDENCE_REQUIRED'):
+        with self.assertRaisesRegex(release.ReleaseError, 'STAGING_NO_BACKUP_POLICY_REQUIRED'):
             self.deploy()
         self.assertEqual(self.commands.calls, [])
-
-        record = json.loads((self.settings/'restore-verified.json').read_text())
-        record['backupPolicy'] = 'local-verified-v1'
-        (self.settings/'restore-verified.json').write_text(json.dumps(record))
-        self.assertIn('STAGING_RELEASE_OK', self.deploy())
 
     def test_unknown_backup_policy_fails_closed(self):
         activation = json.loads((self.settings/'activation.json').read_text())
         activation['backupPolicy'] = 'unreviewed-offsite-bypass'
         (self.settings/'activation.json').write_text(json.dumps(activation))
-        with self.assertRaisesRegex(release.ReleaseError, 'BACKUP_POLICY_UNAPPROVED'):
+        with self.assertRaisesRegex(release.ReleaseError, 'STAGING_NO_BACKUP_POLICY_REQUIRED'):
             self.deploy()
         self.assertEqual(self.commands.calls, [])
+
+    def test_post_merge_staging_tooling_never_enables_backup_timer(self):
+        scripts = Path(__file__).resolve().parents[2] / 'scripts/staging'
+        activation = (scripts / 'activate-local-test-vps.sh').read_text()
+        delivery = (scripts / 'ci-post-merge-local.sh').read_text()
+        self.assertIn('systemctl disable --now fair-staging-backup.timer', activation)
+        self.assertIn("'staging-no-backup-v1'", activation)
+        self.assertNotIn('systemctl enable --now fair-staging-backup.timer', activation)
+        self.assertNotIn('backup-with-settings.sh', delivery)
+        self.assertNotIn('backup-local.sh', delivery)
+        self.assertNotIn('restore-verify.sh', delivery)
+        self.assertNotIn('backup.timer', delivery)
+        self.assertNotIn('backup.service', delivery)
 
     def state(self):
         return json.loads((self.root/'release-state.json').read_text())
@@ -191,13 +196,13 @@ class ReleaseTests(unittest.TestCase):
         tools = [c for c in self.commands.calls if c[0] == 'run']
         self.assertTrue(tools)
         self.assertTrue(all('--no-deps' in c for c in tools))
-        backup = next(i for i,c in enumerate(self.commands.calls) if 'backup-with-settings.sh' in str(c))
         db_up = next(i for i,c in enumerate(self.commands.calls) if c[0] == 'up' and 'postgres' in c)
-        self.assertLess(backup, db_up)
+        preflight = next(i for i,c in enumerate(self.commands.calls) if 'dist/owner/release-check.js' in c)
+        self.assertLess(preflight, db_up)
         self.assertEqual(self.state()['outcome'], 'accepted')
 
-    def test_failed_backup_and_rejected_compatibility_preserve_database(self):
-        for failure in ['backup', 'compatibility']:
+    def test_rejected_compatibility_preserves_database(self):
+        for failure in ['compatibility', 'pending-migration']:
             with self.subTest(failure=failure):
                 with self.assertRaises(release.ReleaseError): self.deploy(failure)
                 self.assertEqual(self.commands.accepted_image, self.previous['postgres'])
@@ -205,7 +210,7 @@ class ReleaseTests(unittest.TestCase):
                 (self.root/'release-state.json').unlink()
 
     def test_timeouts_and_interruption_record_state_and_block_reentry(self):
-        for failure, phase in [('migration-timeout','migration'), ('backup-timeout','backup'), ('interrupt','backup')]:
+        for failure, phase in [('migration-timeout','migration'), ('interrupt','migration')]:
             with self.subTest(failure=failure):
                 with self.assertRaises(release.ReleaseError): self.deploy(failure)
                 self.assertEqual(self.state()['phase'], phase)
@@ -302,14 +307,14 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(errors)
         self.assertEqual(json.loads((self.root/'current.json').read_text()),self.candidate)
 
-    def test_branch_advancement_during_backup_prevents_risky_work(self):
+    def test_branch_advancement_during_preflight_prevents_risky_work(self):
         commands = Commands(self)
-        original = commands.run
-        def run(args,capture=False):
-            result = original(args,capture)
-            if 'backup-with-settings.sh' in args[0]: commands.tip='c'*40
+        original = commands.compose
+        def run(env,*args,capture=False):
+            result = original(env,*args,capture=capture)
+            if 'dist/owner/release-check.js' in args: commands.tip='c'*40
             return result
-        commands.run = run
+        commands.compose = run
         with self.assertRaisesRegex(release.ReleaseError,'RELEASE_SUPERSEDED'):
             release.deploy(self.root,self.settings,self.candidate,commands)
         self.assertFalse(any(c[0]=='up' for c in commands.calls))
@@ -317,13 +322,13 @@ class ReleaseTests(unittest.TestCase):
 
     def test_phase_is_durable_before_external_side_effect(self):
         commands = Commands(self)
-        original = commands.run
-        def run(args,capture=False):
-            if 'backup-with-settings.sh' in args[0]:
-                self.assertEqual(self.state()['phase'],'backup')
+        original = commands.compose
+        def run(env,*args,capture=False):
+            if 'dist/owner/release-check.js' in args:
+                self.assertEqual(self.state()['phase'],'preflight')
                 self.assertEqual(self.state()['status'],'in-progress')
-            return original(args,capture)
-        commands.run=run
+            return original(env,*args,capture=capture)
+        commands.compose=run
         release.deploy(self.root,self.settings,self.candidate,commands)
 
     def test_unknown_database_after_startup_blocks_rollback_and_next_release(self):

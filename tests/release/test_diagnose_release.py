@@ -20,6 +20,10 @@ class FakeDocker:
         self.drift = False
         self.mount_order = True
         self.migration_drift = False
+        self.backup_active = False
+
+    def backup_inactive(self):
+        return not self.backup_active
 
     def operations_absent(self):
         return not self.orphan
@@ -88,6 +92,7 @@ class DiagnosisTests(unittest.TestCase):
         })
         self.write(self.settings / 'compatible-migrations.json', self.baseline)
         self.write(self.settings / 'activation.json', {
+            'approval': 'owner-approved-v1',
             'backupPolicy': 'local-verified-v1', 'schema': 'fp003b-v1',
         })
         self.now = dt.datetime(2026, 11, 18, tzinfo=dt.timezone.utc)
@@ -216,6 +221,72 @@ class DiagnosisTests(unittest.TestCase):
         })
         self.assertFalse(self.run_diagnostic()['operator_reconciliation_candidate'])
 
+    def set_failed_backup_journal(self):
+        record = diagnostics.read_json(self.root / 'release-state.json')
+        record.update(sha=diagnostics.RECOVERY_BACKUP_CANDIDATE,
+                      candidate={'sha': diagnostics.RECOVERY_BACKUP_CANDIDATE},
+                      status='uncertain', phase='backup', completed='preflight')
+        self.write(self.root / 'release-state.json', record)
+        activation = diagnostics.read_json(self.settings / 'activation.json')
+        activation['backupPolicy'] = 'staging-no-backup-v1'
+        self.write(self.settings / 'activation.json', activation)
+        (self.settings / 'restore-verified.json').unlink(missing_ok=True)
+
+    def test_no_backup_policy_allows_missing_restore_evidence(self):
+        self.set_failed_backup_journal()
+        report = self.run_diagnostic()
+        self.assertTrue(report['checks']['recovery_policy_gate_satisfied'])
+        self.assertTrue(report['checks']['automatic_backup_inactive'])
+        self.assertTrue(report['operator_failed_backup_reconciliation_candidate'])
+
+    def test_failed_backup_reconciliation_preserves_accepted_state(self):
+        self.set_failed_backup_journal()
+        original = (self.root / 'release-state.json').read_bytes()
+        current = (self.root / 'current.json').read_bytes()
+        high = (self.root / 'high-water.json').read_bytes()
+        result = diagnostics.reconcile_failed_backup(self.root, self.settings, self.docker, self.now)
+        self.assertEqual(result['status'], 'resolved')
+        self.assertFalse(result['database_or_service_changes'])
+        archive = self.root / ('release-state.before-' + diagnostics.RECOVERY_BACKUP_CANDIDATE[:8] + '.json')
+        self.assertEqual(archive.read_bytes(), original)
+        self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(diagnostics.read_json(self.root / 'release-state.json')['outcome'],
+                         'owner-verified-aborted-in-obsolete-backup-stage')
+        self.assertEqual((self.root / 'current.json').read_bytes(), current)
+        self.assertEqual((self.root / 'high-water.json').read_bytes(), high)
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_failed_backup(self.root, self.settings, self.docker, self.now)
+
+    def test_failed_backup_recovery_refuses_unreviewed_incidents_and_drift(self):
+        def prepare():
+            self.set_failed_backup_journal()
+            return self.root / 'release-state.json'
+        with self.subTest('wrong candidate'):
+            path = prepare()
+            record = diagnostics.read_json(path)
+            record['sha'] = record['candidate']['sha'] = 'f' * 40
+            self.write(path, record)
+            with self.assertRaises(diagnostics.DiagnosticError):
+                diagnostics.reconcile_failed_backup(self.root, self.settings, self.docker, self.now)
+        with self.subTest('active backup timer'):
+            prepare()
+            self.docker.backup_active = True
+            with self.assertRaises(diagnostics.DiagnosticError):
+                diagnostics.reconcile_failed_backup(self.root, self.settings, self.docker, self.now)
+            self.docker.backup_active = False
+        with self.subTest('different volume'):
+            prepare()
+            self.mounts[0]['Source'] = '/new-secret'
+            with self.assertRaises(diagnostics.DiagnosticError):
+                diagnostics.reconcile_failed_backup(self.root, self.settings, self.docker, self.now)
+            self.mounts[0]['Source'] = '/restricted'
+        with self.subTest('orphan'):
+            prepare()
+            self.docker.orphan = True
+            with self.assertRaises(diagnostics.DiagnosticError):
+                diagnostics.reconcile_failed_backup(self.root, self.settings, self.docker, self.now)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
     def test_migration_catalog_exactness(self):
         self.assertTrue(diagnostics.same_migrations(self.baseline, self.migration_report))
         for mutation in (
@@ -261,6 +332,17 @@ class DiagnosisTests(unittest.TestCase):
         self.assertIn('environment: staging-bootstrap', workflow)
         self.assertIn('StrictHostKeyChecking=yes', workflow)
         self.assertIn('python3 - --reconcile-preflight', workflow)
+
+        workflow = (ROOT / '.github/workflows/staging-reconcile-failed-backup.yml').read_text()
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertNotIn('pull_request:', workflow)
+        self.assertNotIn('push:', workflow)
+        self.assertIn('github.ref_protected', workflow)
+        self.assertIn("github.actor == 'h-zare-dev'", workflow)
+        self.assertIn('RECONCILE_5F02F07_BACKUP_TO_06715BB', workflow)
+        self.assertIn('environment: staging-bootstrap', workflow)
+        self.assertIn('StrictHostKeyChecking=yes', workflow)
+        self.assertIn('python3 - --reconcile-failed-backup', workflow)
 
 
 if __name__ == '__main__':

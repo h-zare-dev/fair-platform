@@ -76,7 +76,7 @@ jobs:
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           exit-code: '1'
-          trivyignores: .github/security/caddy-go-jose-v3-temporary-exception.yaml
+          trivyignores: .github/security/staging-source-temporary-exceptions.yaml
           skip-dirs: node_modules,.git
 
   containers:

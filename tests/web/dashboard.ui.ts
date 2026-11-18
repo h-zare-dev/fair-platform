@@ -252,11 +252,13 @@ test('server-rendered login cannot submit a password through a GET URL before hy
     });
     const page = await context.newPage();
     await page.goto('https://panel.fairisfair.ir/login');
-    await expect(page.getByLabel('Owner password')).toBeDisabled();
-    await expect(page.getByRole('button')).toBeDisabled();
+    await expect(page.getByLabel('گذرواژهٔ مدیر اصلی')).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: 'آماده‌سازی ورود…' }),
+    ).toBeDisabled();
     await expect(page.locator('form')).toHaveAttribute('method', 'post');
     await expect(
-      page.getByText('JavaScript is required for secure sign in.'),
+      page.getByText('برای ورود امن باید جاوااسکریپت فعال باشد.'),
     ).toBeVisible();
     expect(new URL(page.url()).search).toBe('');
   } finally {

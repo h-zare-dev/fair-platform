@@ -58,6 +58,41 @@ must still reconcile the state under the deployment lock following the
 marks a journal resolved, changes `current.json`/`high-water.json`, removes an
 orphan, restores or downgrades a database, or executes a new deployment.
 
+## One-time Owner-controlled preflight reconciliation
+
+The original Owner-authorized diagnostic run for PR #74 on 2026-11-18 reported
+every check as `true`, including migrations/hashes, PostgreSQL mounts compared
+unordered, current image refs, restore evidence, config hash and no orphan
+containers. The abandoned PR #72 journal had candidate `91177cf...`, phase and
+completed `preflight`, while the accepted current/high-water were both
+`06715bb...`. The diagnostic itself did not change state.
+
+The separate **Staging preflight reconciliation (Owner only)** workflow has
+no push or PR trigger. After the human Owner reviews and merges its code, the
+Owner must intentionally dispatch it on protected `development` with the exact
+confirmation `RECONCILE_91177CF_TO_06715BB`. This is the Owner's express
+authorization to modify the single named journal.
+
+The reviewed script takes `deployment.lock` exclusively and **rechecks all
+diagnostic conditions** at execution time. It additionally requires exact
+full candidate and accepted SHAs, status `in-progress`, `phase=preflight`,
+`completed=preflight`, the recorded previous manifest and high-water identity,
+and matching accepted image refs in `current.env`. Any mismatch refuses the
+operation without changing the journal. The actual preflight phase completed
+before any backup, migration, database-image or startup phase was journaled.
+
+Only after every condition passes, it preserves the **exact original**
+`release-state.json` as a mode-0600, exclusive-create evidence file
+`release-state.before-91177cf.json`, then atomically and durably sets that
+existing journal's `status=resolved` with an explicit
+`owner-verified-aborted-after-preflight` outcome and a verification timestamp.
+It cannot be replayed or used for any other candidate. It does not change
+`current.json`, `current.env`, `high-water.json`, images, containers, backups,
+volumes or PostgreSQL; it does not start a deployment. Another release must
+still pass normal GitHub Owner-merge, CI, ancestry, backup, migration and health
+gates. Use the latest eligible post-merge deploy job, not the superseded PR #72
+workflow.
+
 Test coverage: `tests/release/test_diagnose_release.py` runs in the unprivileged
 `quality` job and exercises mount reordering versus drift, orphan/image/config
 drift, migration and hash mismatches, stale restore evidence, and secret-free

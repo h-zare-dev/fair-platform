@@ -7,6 +7,7 @@ import {
   Res,
   Module,
   HttpException,
+  HttpCode,
   type ArgumentsHost,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -16,12 +17,56 @@ import {
 } from '@nestjs/platform-fastify';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { PricingError } from '@fair-platform/pricing';
+import type { PricingReader } from './infrastructure/pricing-store.js';
 import type { OwnerAuth } from './application/auth.js';
 import {
   OwnerOperations,
   type OperationsReader,
 } from './application/operations.js';
 export const COOKIE = '__Host-fair_owner';
+const decimal = z.string().regex(/^(0|[1-9][0-9]{0,18})$/);
+const positive = z.string().regex(/^[1-9][0-9]{0,18}$/);
+const source = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/);
+const stamp = z
+  .string()
+  .regex(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z$/);
+const window = { effectiveFrom: stamp, effectiveUntil: stamp.nullable() };
+const plan = z
+  .object({ sourceInstanceId: source, name: z.string().trim().min(1).max(100) })
+  .strict();
+const version = z
+  .object({
+    sourceInstanceId: source,
+    planId: positive.optional(),
+    billingAdminId: decimal.optional(),
+    mode: z.enum(['PER_GIB', 'FIXED', 'MIXED']),
+    rateTomanPerGiB: positive.nullable(),
+    fixedPackages: z
+      .record(positive, positive)
+      .refine((v) => Object.keys(v).length <= 100),
+    ...window,
+  })
+  .strict()
+  .refine((v) => (v.planId === undefined) !== (v.billingAdminId === undefined));
+const assignment = z
+  .object({
+    sourceInstanceId: source,
+    planId: positive,
+    billingAdminId: decimal.nullable(),
+    ...window,
+  })
+  .strict();
+const quoteInput = z
+  .object({
+    sourceInstanceId: source,
+    billingAdminId: decimal,
+    occurredAt: stamp,
+    billableBytes: positive,
+    purpose: z.enum(['FULL_PACKAGE', 'POSITIVE_DELTA']),
+    unlimited: z.boolean().optional(),
+  })
+  .strict();
 export function sessionToken(cookie: string | undefined): string | null {
   const matches =
     cookie
@@ -34,11 +79,43 @@ export async function createOwnerApi(
   auth: OwnerAuth,
   reader: OperationsReader,
   origin: string,
+  pricing?: PricingReader,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
     if (!(await auth.authenticated(sessionToken(req.headers.cookie))))
       throw new HttpException('Unauthorized', 401);
+  }
+  function input<T>(schema: z.ZodType<T>, raw: unknown): T {
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) throw new HttpException('Invalid request', 400);
+    return parsed.data;
+  }
+  async function priceWrite<T>(
+    req: FastifyRequest,
+    schema: z.ZodType<T>,
+    fn: (v: T) => Promise<unknown>,
+  ) {
+    csrf(req);
+    await requireOwner(req);
+    if (!pricing) throw new HttpException('Unavailable', 503);
+    try {
+      return await fn(input(schema, req.body));
+    } catch (e) {
+      if (e instanceof PricingError)
+        throw new HttpException(
+          e.code,
+          e.code === 'PRICING_MISSING' ? 422 : 400,
+        );
+      if (
+        typeof e === 'object' &&
+        e !== null &&
+        'code' in e &&
+        ['23P01', '23505', '23503', '23514', '22003'].includes(String(e.code))
+      )
+        throw new HttpException('Pricing conflict or invalid reference', 409);
+      throw e;
+    }
   }
   // Origin + JSON-only requests + mandatory custom header cannot be forged by a cross-origin HTML form.
   // No CORS is enabled. Never trust client X-Forwarded-* for auth or rate limiting.
@@ -121,6 +198,26 @@ export async function createOwnerApi(
     @Get('operations/issues') issues(@Req() req: FastifyRequest) {
       return this.read('issues', req);
     }
+    @Get('pricing/config') async pricingConfig(@Req() req: FastifyRequest) {
+      await requireOwner(req);
+      if (!pricing) throw new HttpException('Unavailable', 503);
+      const q = input(z.object({ source: source }).strict(), req.query);
+      return pricing.list(q.source);
+    }
+    @Post('pricing/plans') pricingPlan(@Req() req: FastifyRequest) {
+      return priceWrite(req, plan, (v) => pricing!.createPlan(v));
+    }
+    @Post('pricing/versions') pricingVersion(@Req() req: FastifyRequest) {
+      return priceWrite(req, version, (v) => pricing!.createVersion(v));
+    }
+    @Post('pricing/assignments') pricingAssignment(@Req() req: FastifyRequest) {
+      return priceWrite(req, assignment, (v) => pricing!.assign(v));
+    }
+    @Post('pricing/quote')
+    @HttpCode(200)
+    pricingQuote(@Req() req: FastifyRequest) {
+      return priceWrite(req, quoteInput, (v) => pricing!.quote(v));
+    }
   }
   @Controller('health')
   class HealthController {
@@ -142,7 +239,7 @@ export async function createOwnerApi(
     OwnerModule,
     new FastifyAdapter({
       logger: false,
-      bodyLimit: 4096,
+      bodyLimit: 16384,
       trustProxy: false,
       requestTimeout: 10000,
     }),

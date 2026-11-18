@@ -14,7 +14,7 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 | Correction | **FP-001B — Nullable Actor** | Merged (PR #32); Owner-held 30-day regression accepted | `by.id=null` no longer loses otherwise valid events; no accounting posting |
 | Infrastructure | **CI after development merges** | Merged (PR #33) | GitHub `quality` on PR, pushes to `development`/`main`, manual dispatch |
 | **NEXT** | **FP-003B — Public HTTPS Owner Dashboard + Staging CI/CD** | **Implementation approved 2026-10-14; Draft PR #36 implementation/verification; first staging activation pending** | Production-like dedicated public staging at `panel.fairisfair.ir`, Owner-only login/CLI, safe synthetic operations, Docker/Caddy/PostgreSQL, automatic post-merge staging deploy. No live billing/webhook |
-| Next | **FP-004 — Pricing Engine** | Planned; detailed spec pending | Per-GiB, Fixed, Mixed, precedence/overrides, effective-dated rules, integer-Toman output |
+| Next | **FP-004 — Pricing Engine** | Owner-approved specification; feature implementation in progress | Per-GiB, Fixed, Mixed, precedence/overrides, effective-dated rules, integer-Toman output and Owner UI |
 | Next | **FP-005 — First Shadow Accounting: User Create** | Planned; detailed spec pending | User-create financial classification and **SHADOW** charges using FP-002 |
 | Next | **FP-006 — Existing-User Baselines and Update Accounting** | Planned; detailed spec pending | Reliable initial state, update increases/decreases, state and ownership/transfer handling |
 | Next | **FP-007 — Reset, Correlation, Renewal and Next Plan** | Planned; detailed spec pending | Manual/automatic reset, Reset+Update one renewal, actual Next Plan application and stable financial-operation identity |
@@ -30,7 +30,7 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 
 ## Financial design decisions already established
 
-- **Toman is integer (PostgreSQL BIGINT)**, never floating-point money. Canonical traffic is integer **bytes**; the FP-002 approved billing/display basis is **1 GiB = 1,073,741,824 bytes**, so quantities may be fractional GiB without rounding stored bytes. For a non-integral **final Toman** result, rounding policy remains **undecided** until the FP-004 Owner-approved specification. Do not choose silently.
+- **Toman is integer (PostgreSQL BIGINT)**, never floating-point money. Canonical traffic is integer **bytes**; the FP-002 approved billing/display basis is **1 GiB = 1,073,741,824 bytes**, so quantities may be fractional GiB without rounding stored bytes. **FP-004 Owner decision (2026-11-18): CEIL the final fractional Toman once; never round traffic bytes or interim money.**
 - Real monthly/automatic usage resets are billable **without requiring a human Actor**; valid null Actor metadata must not discard an event. Actual Next Plan activation/reset is billable for the resulting package. Merely configuring a reset strategy or Next Plan is **not** billable.
 - Correlated Reset + Update yields **one renewal charge** for the final package. Correlation is source-time-based, user-identity-aware, order-independent and Owner-configurable (default 120 seconds); do not infer Next Plan mapping/activation without evidence.
 - Billing Admin owns the charge, not Actor Admin. Replayed duplicates create no extra financial effect; each distinct genuine monthly reset remains an independent billable operation.

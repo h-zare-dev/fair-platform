@@ -13,7 +13,7 @@ This document is the authoritative source for v1.0 business/accounting semantics
 - Store integer Toman amounts as `BIGINT`-compatible values.
 - Never use floating point for money.
 - No Rial or multi-currency in v1.0.
-- Use exact integer/rational arithmetic. A **final** non-integral Toman outcome needs a separately Owner-approved rounding rule in FP-004; do not silently choose a rounding mode or use floating-point money.
+- Use exact integer/rational arithmetic. **FP-004 Owner-approved decision (2026-11-18): round the final positive fractional Toman outcome upward (CEIL) once**, never round billable byte quantities or use floating-point money.
 
 ## Traffic
 - Canonical normalized unit: bytes (`BIGINT`).

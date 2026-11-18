@@ -5,6 +5,7 @@ import { PostgresOwnerOperations } from './infrastructure/operations.js';
 import { passwords } from './infrastructure/password.js';
 import { OwnerAuth } from './application/auth.js';
 import { createOwnerApi } from './app.js';
+import { PostgresPricingStore } from './infrastructure/pricing-store.js';
 async function main() {
   const config = z
     .object({
@@ -25,6 +26,7 @@ async function main() {
       auth,
       new PostgresOwnerOperations(db),
       config.OWNER_ORIGIN,
+      new PostgresPricingStore(db),
     );
     const cleanup = setInterval(() => {
       void store.cleanup().catch(() => console.error('OWNER_CLEANUP_FAILED'));

@@ -15,5 +15,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON fair_owner_sessions, fair_owner_login_bu
 GRANT INSERT, DELETE ON fair_owner_audit TO fair_owner_runtime;
 GRANT SELECT (created_at) ON fair_owner_audit TO fair_owner_runtime;
 GRANT USAGE ON SEQUENCE fair_owner_audit_id_seq TO fair_owner_runtime;
+GRANT SELECT, INSERT ON fair_pricing_plans, fair_pricing_rule_versions, fair_pricing_fixed_packages, fair_pricing_assignments TO fair_owner_runtime;
+GRANT INSERT ON fair_pricing_audit TO fair_owner_runtime;
+GRANT USAGE ON SEQUENCE fair_pricing_plans_id_seq, fair_pricing_rule_versions_id_seq, fair_pricing_assignments_id_seq, fair_pricing_audit_id_seq TO fair_owner_runtime;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO fair_backup;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO fair_backup;

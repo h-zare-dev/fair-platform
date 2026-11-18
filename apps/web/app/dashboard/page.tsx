@@ -8,11 +8,9 @@ export default async function DashboardPage() {
   if (session === 'unavailable')
     return (
       <main className="login-shell">
-        <h1>Operations unavailable</h1>
-        <p role="alert">
-          The service could not verify your session. Please try again.
-        </p>
-        <a href="/dashboard">Try again</a>
+        <h1>پنل مدیریت در دسترس نیست</h1>
+        <p role="alert">نشست شما قابل تأیید نیست. لطفاً دوباره تلاش کنید.</p>
+        <a href="/dashboard">تلاش دوباره</a>
       </main>
     );
   return <Dashboard />;

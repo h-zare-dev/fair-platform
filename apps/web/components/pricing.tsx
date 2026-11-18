@@ -1,5 +1,13 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import {
+  asciiDigits,
+  fixedRowsToCatalog,
+  formatGiB,
+  formatInteger,
+  formatUtc,
+  gibToBytes,
+} from '../lib/traffic';
 
 interface Plan {
   id: string;
@@ -36,29 +44,22 @@ interface Quote {
 }
 const numeric = /^(0|[1-9]\d*)$/;
 const iso = (v: string) => {
-  if (!v.trim()) throw Error('UTC timestamp is required.');
+  if (!v.trim()) throw Error('تاریخ و ساعت به وقت UTC الزامی است.');
   const d = new Date(v);
-  if (!Number.isFinite(d.getTime())) throw Error('Invalid UTC timestamp.');
+  if (!Number.isFinite(d.getTime()))
+    throw Error('تاریخ یا ساعت UTC معتبر نیست.');
   return d.toISOString();
 };
-function fixedCatalog(text: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  if (!text.trim()) return result;
-  const entries = text.split(',');
-  if (entries.length > 100) throw Error('Maximum 100 fixed packages.');
-  for (const entry of entries) {
-    const parts = entry.trim().split(':');
-    if (
-      parts.length !== 2 ||
-      !parts.every((v) => numeric.test(v.trim()) && v.trim() !== '0')
-    )
-      throw Error('Use bytes:toman, bytes:toman (positive integers).');
-    const key = parts[0].trim();
-    if (Object.hasOwn(result, key)) throw Error('Duplicate package bytes.');
-    result[key] = parts[1].trim();
-  }
-  return result;
-}
+const modeLabel: Record<string, string> = {
+  PER_GIB: 'قیمت به‌ازای گیگابایت',
+  FIXED: 'بسته با قیمت ثابت',
+  MIXED: 'ترکیبی',
+};
+const quoteSource: Record<string, string> = {
+  DEFAULT_PLAN: 'طرح پیش‌فرض',
+  ASSIGNED_PLAN: 'طرح اختصاص‌یافته',
+  ADMIN_OVERRIDE: 'قیمت اختصاصی مدیر',
+};
 async function endpoint<T>(path: string, payload?: unknown): Promise<T> {
   const response = await fetch(`/api/v1/owner/pricing/${path}`, {
     method: payload === undefined ? 'GET' : 'POST',
@@ -73,11 +74,11 @@ async function endpoint<T>(path: string, payload?: unknown): Promise<T> {
   });
   if (response.status === 401) {
     window.location.assign('/login');
-    throw Error('Owner session expired.');
+    throw Error('نشست شما منقضی شده است؛ دوباره وارد شوید.');
   }
   if (!response.ok)
     throw Error(
-      `Pricing request rejected (${response.status}). Check dates, access, and conflicts.`,
+      `درخواست قیمت‌گذاری پذیرفته نشد (کد ${response.status}). تاریخ‌ها، دسترسی و تداخل بازه‌ها را بررسی کنید.`,
     );
   return response.json() as Promise<T>;
 }
@@ -93,12 +94,12 @@ export function PricingManagement() {
   const [adminId, setAdminId] = useState('');
   const [mode, setMode] = useState<'PER_GIB' | 'FIXED' | 'MIXED'>('PER_GIB');
   const [rate, setRate] = useState('');
-  const [packages, setPackages] = useState('');
+  const [packageRows, setPackageRows] = useState([{ gib: '', toman: '' }]);
   const [from, setFrom] = useState('2026-12-01T00:00:00Z');
   const [until, setUntil] = useState('2027-01-01T00:00:00Z');
   const [assignAdmin, setAssignAdmin] = useState('');
   const [assignPlan, setAssignPlan] = useState('');
-  const [bytes, setBytes] = useState('1073741824');
+  const [gib, setGib] = useState('1');
   const [quoteAdmin, setQuoteAdmin] = useState('9001');
   const [quoteAt, setQuoteAt] = useState('2026-12-15T00:00:00Z');
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -133,9 +134,11 @@ export function PricingManagement() {
     try {
       await fn();
       await refresh();
-      setNotice(`${label} saved. Existing history remains immutable.`);
+      setNotice(
+        `${label} با موفقیت ثبت شد. سوابق قبلی بدون تغییر باقی می‌مانند.`,
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Operation failed.');
+      setError(e instanceof Error ? e.message : 'عملیات انجام نشد.');
     } finally {
       setLoading(false);
     }
@@ -149,9 +152,16 @@ export function PricingManagement() {
     void action(fn, label);
   }
   const validAdmin = (v: string) => {
-    if (!numeric.test(v))
-      throw Error('Admin ID must be a nonnegative integer.');
-    return v;
+    const normalized = asciiDigits(v);
+    if (!numeric.test(normalized))
+      throw Error('شناسهٔ مدیر باید عدد صحیح غیرمنفی باشد.');
+    return normalized;
+  };
+  const validRate = (v: string) => {
+    const normalized = asciiDigits(v);
+    if (!/^[1-9]\d*$/.test(normalized))
+      throw Error('نرخ هر گیگابایت باید عدد صحیح مثبت به تومان باشد.');
+    return normalized;
   };
   async function preview() {
     setLoading(true);
@@ -162,34 +172,43 @@ export function PricingManagement() {
         sourceInstanceId: source,
         billingAdminId: validAdmin(quoteAdmin),
         occurredAt: iso(quoteAt),
-        billableBytes: bytes,
+        billableBytes: gibToBytes(gib),
         purpose: 'FULL_PACKAGE',
       });
       setQuote(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Quote unavailable.');
+      setError(
+        e instanceof Error ? e.message : 'پیش‌نمایش قیمت در دسترس نیست.',
+      );
     } finally {
       setLoading(false);
     }
   }
   return (
-    <section className="pricing-card" aria-label="Pricing configuration">
+    <section
+      className="pricing-card"
+      id="pricing"
+      aria-label="تنظیمات قیمت‌گذاری"
+    >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">FP-004 / SHADOW ONLY</p>
-          <h2>Pricing configuration</h2>
+          <p className="eyebrow">مدیریت تعرفه‌ها · فاز چهارم</p>
+          <h2>ساخت و مدیریت بسته‌های اینترنت</h2>
         </div>
-        <span className="badge">OWNER ONLY</span>
+        <span className="badge">فقط مدیر اصلی</span>
       </div>
-      <p className="muted">
-        Configuration and synthetic quotes only. No ledger charge or live
-        billing. Effective windows are UTC and half-open [from, until).
+      <p className="muted pricing-description">
+        این بخش مخصوص تنظیم تعرفه و محاسبهٔ آزمایشی است؛ هیچ مبلغی از حساب کسی
+        کسر یا ثبت مالی زنده نمی‌شود. هر گیگابایت در این سامانه برابر با
+        ۱٬۰۷۳٬۷۴۱٬۸۲۴ بایت (GiB) است. بازه‌های زمانی به وقت UTC و بدون احتساب
+        لحظهٔ پایان‌اند.
       </p>
-      <label>
-        Pricing source ID{' '}
+      <label className="source-field">
+        شناسهٔ منبع قیمت‌گذاری
         <input
           value={source}
           maxLength={100}
+          dir="ltr"
           onChange={(e) => setSource(e.target.value)}
         />
       </label>
@@ -210,22 +229,26 @@ export function PricingManagement() {
               e,
               () =>
                 endpoint('plans', { sourceInstanceId: source, name: planName }),
-              'Plan',
+              'طرح جدید',
             )
           }
         >
-          <h3>1. Create plan</h3>
+          <span className="step-number">۰۱</span>
+          <h3>ایجاد طرح</h3>
+          <p className="muted">
+            ابتدا برای بسته یا تعرفهٔ خود یک نام انتخاب کنید.
+          </p>
           <label>
-            Plan name{' '}
+            نام طرح
             <input
               required
               maxLength={100}
               value={planName}
               onChange={(e) => setPlanName(e.target.value)}
-              placeholder="Standard"
+              placeholder="مثلاً بستهٔ یک‌ماههٔ ۵۰ گیگابایت"
             />
           </label>
-          <button disabled={loading}>Create plan</button>
+          <button disabled={loading}>ثبت طرح جدید</button>
         </form>
         <form
           onSubmit={(e) =>
@@ -239,42 +262,53 @@ export function PricingManagement() {
                     : { billingAdminId: validAdmin(adminId) }),
                   mode,
                   rateTomanPerGiB:
-                    mode === 'FIXED' ? null : rate.trim() || null,
-                  fixedPackages: fixedCatalog(packages),
+                    mode === 'FIXED'
+                      ? null
+                      : rate.trim()
+                        ? validRate(rate)
+                        : null,
+                  fixedPackages:
+                    mode === 'PER_GIB'
+                      ? {}
+                      : fixedRowsToCatalog(packageRows, mode === 'MIXED'),
                   effectiveFrom: iso(from),
                   effectiveUntil: until.trim() ? iso(until) : null,
                 }),
-              'Rule version',
+              'نسخهٔ جدید تعرفه',
             )
           }
         >
-          <h3>2. Add immutable rule version</h3>
+          <span className="step-number">۰۲</span>
+          <h3>تعریف تعرفه و حجم</h3>
+          <p className="muted">
+            تعرفه‌های ثبت‌شده قابل ویرایش نیستند؛ نسخهٔ جدید بسازید.
+          </p>
           <label>
-            Rule for{' '}
+            تعرفه برای
             <select value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="plan">Plan</option>
-              <option value="override">Billing Admin override</option>
+              <option value="plan">یک طرح</option>
+              <option value="override">قیمت اختصاصی مدیر حساب</option>
             </select>
           </label>
           {target === 'plan' ? (
             <label>
-              Plan{' '}
+              انتخاب طرح
               <select
                 required
                 value={planId}
                 onChange={(e) => setPlanId(e.target.value)}
               >
-                <option value="">Choose plan</option>
+                <option value="">یک طرح انتخاب کنید</option>
                 {config?.plans.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} (#{p.id})
+                    {p.name} (شناسهٔ {p.id})
                   </option>
                 ))}
               </select>
             </label>
           ) : (
             <label>
-              Billing Admin ID{' '}
+              شناسهٔ مدیر حساب
               <input
                 required
                 value={adminId}
@@ -284,19 +318,19 @@ export function PricingManagement() {
             </label>
           )}
           <label>
-            Mode{' '}
+            مدل محاسبهٔ قیمت
             <select
               value={mode}
               onChange={(e) => setMode(e.target.value as typeof mode)}
             >
-              <option value="PER_GIB">Per GiB</option>
-              <option value="FIXED">Fixed exact bytes</option>
-              <option value="MIXED">Mixed</option>
+              <option value="PER_GIB">به‌ازای هر گیگابایت</option>
+              <option value="FIXED">بسته با قیمت ثابت</option>
+              <option value="MIXED">ترکیبی</option>
             </select>
           </label>
           {mode !== 'FIXED' && (
             <label>
-              Toman per GiB (integer){' '}
+              قیمت هر گیگابایت (تومان، عدد صحیح)
               <input
                 value={rate}
                 required={mode === 'PER_GIB'}
@@ -306,29 +340,90 @@ export function PricingManagement() {
             </label>
           )}
           {mode !== 'PER_GIB' && (
-            <label>
-              Fixed packages: bytes:toman, ...{' '}
-              <textarea
-                rows={2}
-                value={packages}
-                onChange={(e) => setPackages(e.target.value)}
-                placeholder="1073741824:12000, 2147483648:22000"
-              />
-            </label>
+            <fieldset className="fixed-package-editor">
+              <legend>بسته‌های دارای قیمت ثابت</legend>
+              <p className="field-hint">
+                حجم و قیمت را جدا وارد کنید؛ مثلاً ۵۰ گیگابایت و ۱۵۰٬۰۰۰ تومان.
+              </p>
+              {packageRows.map((row, index) => (
+                <div className="package-row" key={index}>
+                  <label>
+                    حجم (گیگابایت)
+                    <input
+                      value={row.gib}
+                      inputMode="decimal"
+                      placeholder="50"
+                      onChange={(e) =>
+                        setPackageRows((rows) =>
+                          rows.map((old, i) =>
+                            i === index ? { ...old, gib: e.target.value } : old,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    قیمت (تومان)
+                    <input
+                      value={row.toman}
+                      inputMode="numeric"
+                      placeholder="150000"
+                      onChange={(e) =>
+                        setPackageRows((rows) =>
+                          rows.map((old, i) =>
+                            i === index
+                              ? { ...old, toman: e.target.value }
+                              : old,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="secondary package-remove"
+                    aria-label={`حذف بستهٔ شمارهٔ ${formatInteger(index + 1)}`}
+                    disabled={packageRows.length === 1}
+                    onClick={() =>
+                      setPackageRows((rows) =>
+                        rows.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="secondary add-package"
+                disabled={packageRows.length >= 100}
+                onClick={() =>
+                  setPackageRows((rows) => [...rows, { gib: '', toman: '' }])
+                }
+              >
+                + افزودن بستهٔ دیگر
+              </button>
+            </fieldset>
           )}
           <label>
-            Effective from (UTC){' '}
+            زمان شروع اعتبار (UTC)
             <input
               required
               value={from}
+              dir="ltr"
               onChange={(e) => setFrom(e.target.value)}
             />
           </label>
           <label>
-            Effective until (UTC; blank = infinity){' '}
-            <input value={until} onChange={(e) => setUntil(e.target.value)} />
+            زمان پایان اعتبار (UTC؛ خالی = نامحدود)
+            <input
+              dir="ltr"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+            />
           </label>
-          <button disabled={loading}>Save new rule version</button>
+          <button disabled={loading}>ثبت نسخهٔ جدید تعرفه</button>
         </form>
         <form
           onSubmit={(e) =>
@@ -344,39 +439,43 @@ export function PricingManagement() {
                   effectiveFrom: iso(from),
                   effectiveUntil: until.trim() ? iso(until) : null,
                 }),
-              'Assignment',
+              'اختصاص طرح',
             )
           }
         >
-          <h3>3. Assign plan</h3>
+          <span className="step-number">۰۳</span>
+          <h3>اختصاص طرح</h3>
+          <p className="muted">
+            طرح را پیش‌فرض کنید یا به مدیر خاصی اختصاص دهید.
+          </p>
           <label>
-            Plan{' '}
+            طرح
             <select
               required
               value={assignPlan}
               onChange={(e) => setAssignPlan(e.target.value)}
             >
-              <option value="">Choose plan</option>
+              <option value="">یک طرح انتخاب کنید</option>
               {config?.plans.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} (#{p.id})
+                  {p.name} (شناسهٔ {p.id})
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Billing Admin ID (blank = default plan){' '}
+            شناسهٔ مدیر حساب (خالی = طرح پیش‌فرض)
             <input
               value={assignAdmin}
               onChange={(e) => setAssignAdmin(e.target.value)}
-              placeholder="Default for this source"
+              placeholder="پیش‌فرض برای این منبع"
             />
           </label>
           <p className="muted">
-            Uses effective dates in step 2. Overlapping assignments are
-            rejected.
+            بازهٔ اعتبار از مرحلهٔ دوم گرفته می‌شود. بازه‌های هم‌پوشان پذیرفته
+            نمی‌شوند.
           </p>
-          <button disabled={loading}>Save assignment</button>
+          <button disabled={loading}>ثبت اختصاص طرح</button>
         </form>
         <form
           onSubmit={(e) => {
@@ -384,9 +483,13 @@ export function PricingManagement() {
             void preview();
           }}
         >
-          <h3>4. Synthetic quote preview</h3>
+          <span className="step-number">۰۴</span>
+          <h3>محاسبهٔ آزمایشی هزینه</h3>
+          <p className="muted">
+            یک حجم دلخواه را وارد کنید؛ هیچ پرداختی انجام نمی‌شود.
+          </p>
           <label>
-            Billing Admin ID{' '}
+            شناسهٔ مدیر حساب
             <input
               required
               value={quoteAdmin}
@@ -394,83 +497,120 @@ export function PricingManagement() {
             />
           </label>
           <label>
-            Billable bytes{' '}
+            حجم بسته (گیگابایت)
             <input
               required
-              value={bytes}
-              onChange={(e) => setBytes(e.target.value)}
+              value={gib}
+              onChange={(e) => setGib(e.target.value)}
+              inputMode="decimal"
+              placeholder="مثلاً 50"
             />
           </label>
           <label>
-            Source timestamp UTC{' '}
+            زمان رویداد (UTC)
             <input
               required
               value={quoteAt}
+              dir="ltr"
               onChange={(e) => setQuoteAt(e.target.value)}
             />
           </label>
-          <button disabled={loading}>Preview, do not charge</button>
+          <button disabled={loading}>محاسبهٔ قیمت بدون ثبت هزینه</button>
           {quote && (
-            <p role="status" className="pricing-success">
-              <strong>{quote.amountToman} Toman</strong> · {quote.source} ·
-              version #{quote.ruleVersionId} · {quote.mode}
-            </p>
+            <div role="status" className="pricing-success quote-result">
+              <span>هزینهٔ محاسبه‌شده</span>
+              <strong>{formatInteger(quote.amountToman)} تومان</strong>
+              <span>
+                {formatGiB(quote.billableBytes)} ·{' '}
+                {quoteSource[quote.source] ?? quote.source}
+              </span>
+              <small>
+                نسخهٔ {formatInteger(quote.ruleVersionId)} ·{' '}
+                {modeLabel[quote.mode] ?? quote.mode}
+              </small>
+            </div>
           )}
         </form>
       </div>
-      <h3>Persisted rules (latest first, source-scoped)</h3>
+      <h3>
+        تاریخچهٔ تعرفه‌ها{' '}
+        <span className="subheading">(جدیدترین نسخه ابتدا)</span>
+      </h3>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>Version / plan</th>
-              <th>Admin</th>
-              <th>Mode</th>
-              <th>Rate</th>
-              <th>Effective UTC</th>
+              <th>نسخه / طرح</th>
+              <th>مدیر حساب</th>
+              <th>مدل تعرفه</th>
+              <th>مبلغ و حجم بسته‌ها</th>
+              <th>بازهٔ اعتبار (UTC)</th>
             </tr>
           </thead>
           <tbody>
             {config?.versions.map((v) => (
               <tr key={v.id}>
                 <td>
-                  #{v.id} · {v.planId ?? 'Override'}
+                  نسخهٔ {formatInteger(v.id)} ·{' '}
+                  {v.planId ? `طرح ${formatInteger(v.planId)}` : 'قیمت اختصاصی'}
                 </td>
-                <td>{v.billingAdminId ?? '—'}</td>
                 <td>
-                  {v.mode}
+                  {v.billingAdminId ? formatInteger(v.billingAdminId) : '—'}
+                </td>
+                <td>
+                  {modeLabel[v.mode] ?? v.mode}
                   <small>
-                    {Object.keys(v.fixedPackages).length} fixed prices
+                    {formatInteger(Object.keys(v.fixedPackages).length)} بستهٔ
+                    ثابت
                   </small>
                 </td>
-                <td>{v.rateTomanPerGiB ?? 'Exact only'}</td>
                 <td>
-                  {v.effectiveFrom} → {v.effectiveUntil ?? '∞'}
+                  {v.rateTomanPerGiB
+                    ? `${formatInteger(v.rateTomanPerGiB)} تومان / گیگابایت`
+                    : 'فقط قیمت بسته‌ای'}
+                  {Object.entries(v.fixedPackages).map(([bytes, toman]) => (
+                    <small key={bytes}>
+                      {formatGiB(bytes)}: {formatInteger(toman)} تومان
+                    </small>
+                  ))}
+                </td>
+                <td>
+                  {formatUtc(v.effectiveFrom)} تا{' '}
+                  {v.effectiveUntil
+                    ? formatUtc(v.effectiveUntil)
+                    : 'بدون پایان'}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <h3>Active and scheduled assignments</h3>
+      <h3>طرح‌های اختصاص‌یافته و زمان‌بندی‌شده</h3>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>Assignment</th>
-              <th>Billing Admin</th>
-              <th>Plan</th>
-              <th>Effective UTC</th>
+              <th>اختصاص</th>
+              <th>مدیر حساب</th>
+              <th>طرح</th>
+              <th>بازهٔ اعتبار (UTC)</th>
             </tr>
           </thead>
           <tbody>
             {config?.assignments.map((a) => (
               <tr key={a.id}>
-                <td>#{a.id}</td>
-                <td>{a.billingAdminId ?? 'System default'}</td>
-                <td>#{a.planId}</td>
+                <td>{formatInteger(a.id)}</td>
                 <td>
-                  {a.effectiveFrom} → {a.effectiveUntil ?? '∞'}
+                  {a.billingAdminId
+                    ? formatInteger(a.billingAdminId)
+                    : 'پیش‌فرض سامانه'}
+                </td>
+                <td>{formatInteger(a.planId)}</td>
+                <td>
+                  {formatUtc(a.effectiveFrom)} تا{' '}
+                  {a.effectiveUntil
+                    ? formatUtc(a.effectiveUntil)
+                    : 'بدون پایان'}
                 </td>
               </tr>
             ))}

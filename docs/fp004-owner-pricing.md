@@ -6,12 +6,14 @@ Status: implementation candidate for **Owner review**, not automatically authori
 
 1. Sign into the existing Owner dashboard (`https://panel.fairisfair.ir/dashboard`). The Pricing configuration section appears below ingestion events and issues.
 2. Enter the **source instance ID**. Plan names are unique per source. Create a plan.
-3. Add an immutable rule version for that plan. Supported modes: `PER_GIB` (positive integer Toman/GiB), `FIXED` (exact `bytes:toman` entries), `MIXED` (exact entries first; per-GiB fallback). `FIXED` has no rate; `MIXED` can omit its rate if exact-only behavior is wanted.
+3. Add an immutable rule version for that plan. Supported modes: `PER_GIB` (positive integer Toman/GiB), `FIXED` (exact packages), `MIXED` (exact entries first; per-GiB fallback). In the **Persian dashboard**, enter fixed-package **size (GiB)** and **price (Toman)** in separate fields, for example size `50`, price `150000` (50 GiB for 150,000 Toman); add rows for additional sizes. The UI converts the GiB value to an exact integer byte key for the unchanged API. `FIXED` has no rate; `MIXED` can omit its rate if exact-only behavior is wanted.
 4. Select the plan in Assign plan. Leave Billing Admin ID empty to set the source's default, or enter a nonnegative Billing Admin ID to assign a specific admin. Rule versions and assignments must cover the requested source timestamp.
 5. For a special override, add a rule version with **Billing Admin override** selected; it has priority over assigned/default plans. The fixed-catalog failure of a selected higher-priority rule does **not** fall through to a lower tier.
-6. Use Synthetic quote preview with the exact billable **bytes**, Billing Admin ID, and source event UTC timestamp. The result shows integer Toman and the immutable rule version ID; it does **not** create a transaction.
+6. Use Synthetic quote preview with billable **GiB**, Billing Admin ID, and source event UTC timestamp. The UI converts GiB to exact bytes before sending the unchanged API request. It supports fractional GiB only when the value represents an exact whole number of bytes; it never silently rounds. The result shows integer Toman and the immutable rule version ID; it does **not** create a transaction.
 
 All dates must be UTC, preferably `YYYY-MM-DDTHH:mm:ssZ`. Windows are `[effectiveFrom,effectiveUntil)`. A blank end means infinity. **Existing version and assignment rows cannot be modified or deleted.** For changes, plan the non-overlapping successor window beforehand. The current implementation does not support retroactive correction of an infinite/open-ended rule; use finite windows if revisions will be needed.
+
+The Owner UI is Persian/RTL on login, operational dashboard, pricing forms and history tables. The light/dark toggle persists only a non-sensitive preference in browser local storage; sessions and credentials are unchanged. Displayed event volumes, fixed package sizes and preview quantities are in GiB (1 GiB = 1,073,741,824 bytes), not decimal SI GB. Canonical event/database/API values remain exact integer bytes. Future financial reports still require their independently authorized milestones.
 
 ## API boundaries
 

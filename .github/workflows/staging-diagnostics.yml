@@ -1,6 +1,13 @@
 name: Staging release diagnostics (Owner only)
 
 on:
+  # One automatic, read-only report after the Owner merges this diagnostic tool.
+  # Ordinary app merges do not run it; manual Owner-only diagnosis remains available.
+  push:
+    branches: [development]
+    paths:
+      - .github/workflows/staging-diagnostics.yml
+      - scripts/staging/diagnose-release.py
   workflow_dispatch:
     inputs:
       confirmation:
@@ -18,11 +25,12 @@ concurrency:
 jobs:
   diagnose:
     if: >-
-      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/development' &&
       github.ref_protected &&
       github.actor == 'h-zare-dev' &&
-      inputs.confirmation == 'DIAGNOSE_STAGING'
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' &&
+        inputs.confirmation == 'DIAGNOSE_STAGING'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: staging-bootstrap

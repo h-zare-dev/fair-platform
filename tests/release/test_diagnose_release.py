@@ -162,6 +162,9 @@ class DiagnosisTests(unittest.TestCase):
     def test_workflow_keeps_staging_secrets_out_of_pr_events(self):
         workflow = (ROOT / '.github/workflows/staging-diagnostics.yml').read_text()
         self.assertIn('workflow_dispatch:', workflow)
+        self.assertIn('push:', workflow)
+        self.assertIn('paths:', workflow)
+        self.assertIn('scripts/staging/diagnose-release.py', workflow)
         self.assertNotIn('pull_request:', workflow)
         self.assertIn('github.ref_protected', workflow)
         self.assertIn("github.actor == 'h-zare-dev'", workflow)

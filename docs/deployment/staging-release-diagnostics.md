@@ -17,13 +17,18 @@ destination, access mode and type were unchanged.
 
 ## Execution and security boundary
 
-After human review and **Owner-only merge**, open **Actions → Staging release
-diagnostics (Owner only) → Run workflow**, select protected `development` and
-enter `DIAGNOSE_STAGING`.
+After human review and **Owner-only merge**, a single diagnostic run starts
+automatically because the reviewed workflow and script paths have changed.
+Thereafter it can also be rerun explicitly via **Actions → Staging release
+diagnostics (Owner only) → Run workflow**, with protected `development` selected
+and confirmation `DIAGNOSE_STAGING`. Ordinary application pushes do not trigger
+this workflow.
 
-- Only the `h-zare-dev` actor, a protected `development` ref, the exact
-  confirmation string and the existing `staging-bootstrap` GitHub Environment
-  can start the privileged job. Pull requests receive no SSH credentials.
+- Only the `h-zare-dev` actor, a protected `development` ref and the existing
+  `staging-bootstrap` GitHub Environment can start the privileged job. Manual
+  runs additionally require the exact confirmation string. Automatic runs
+  require an Owner merge changing the *specific diagnostic code/workflow paths*.
+  Pull requests receive no SSH credentials.
 - The job first verifies the immutable, independently pinned Ed25519 host-key
   fingerprint. The temporary root password remains a masked Environment Secret
   and is not printed, committed, transmitted to any other host or given as a

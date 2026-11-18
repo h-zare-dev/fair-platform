@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { PricingManagement } from './pricing';
 interface Summary {
   pendingBatches: string;
   start: string;
@@ -403,6 +404,7 @@ export function Dashboard() {
             </>
           )
         )}
+        <PricingManagement />
         <footer>
           Fair Platform · Synthetic operations only · No live source connection
         </footer>

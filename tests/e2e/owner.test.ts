@@ -437,6 +437,10 @@ it('strict pagination/range validation and database outage fail safely', async (
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
   await db.undoLastMigration({ transaction: 'all' });
   expect(
+    await db.query("SELECT to_regclass('fair_pricing_plans')::text AS name"),
+  ).toEqual([{ name: null }]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
     await db.query(
       "SELECT to_regclass('owner_events_all_source_time')::text AS name",
     ),

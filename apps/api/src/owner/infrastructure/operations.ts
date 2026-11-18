@@ -222,6 +222,7 @@ export class PostgresOwnerOperations implements OperationsReader {
       this.db.query('SELECT token_hash FROM fair_owner_sessions LIMIT 1'),
       this.db.query('SELECT id FROM fair_owner_login_budget LIMIT 1'),
       this.db.query('SELECT password_hash FROM fair_owner WHERE FALSE'),
+      this.db.query('SELECT id FROM fair_pricing_rule_versions LIMIT 1'),
     ]);
   }
 }

@@ -58,9 +58,9 @@ try:
     proof = json.loads(run(compose+['run', '--rm', '--no-deps', '-T', 'migrate', 'node',
                                    'dist/owner/release-check.js'], 'RELEASE_PROOF').stdout)
     assert proof['schema'] == 'fp003b-v1'
-    assert proof['configuredMigrations'] == ['OwnerDashboard1791000000000', 'OwnerGlobalTimeIndexes1791100000000', 'PasarguardInbox1790000000000']
+    assert proof['configuredMigrations'] == ['OwnerDashboard1791000000000', 'OwnerGlobalTimeIndexes1791100000000', 'PasarguardInbox1790000000000', 'PricingEngine1791200000000']
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 3 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == 4 and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
     grants += "\nALTER ROLE fair_backup PASSWORD 'synthetic-backup-test-only';\n"
     run(compose+['exec', '-T', 'postgres', 'psql', '-U', 'fair_migrator', '-d', 'fair_staging',

@@ -56,7 +56,7 @@ class DiagnosisTests(unittest.TestCase):
             (self.root / name).write_bytes(content)
             digest.update(name.encode() + b'\0' + content)
         self.accepted = {
-            'sha': 'a' * 40,
+            'sha': diagnostics.RECOVERY_ACCEPTED,
             'schema': 'fp003b-v1',
             'configHash': digest.hexdigest(),
             'api': 'api@digest', 'web': 'web@digest',
@@ -74,11 +74,15 @@ class DiagnosisTests(unittest.TestCase):
             'hashes': {'x': 'digest'},
         }
         self.write(self.root / 'current.json', self.accepted)
-        self.write(self.root / 'high-water.json', {'sha': 'a' * 40})
+        self.write(self.root / 'high-water.json', {'sha': diagnostics.RECOVERY_ACCEPTED})
+        (self.root / 'current.env').write_text('\n'.join(
+            f'{key}_IMAGE={self.accepted[service]}' for key, service in
+            (('API', 'api'), ('WEB', 'web'), ('CADDY', 'caddy'), ('POSTGRES', 'postgres'))
+        ) + '\n')
         self.write(self.root / 'release-state.json', {
-            'sha': 'b' * 40, 'status': 'in-progress', 'phase': 'preflight',
+            'sha': diagnostics.RECOVERY_CANDIDATE, 'status': 'in-progress', 'phase': 'preflight',
             'completed': 'preflight', 'previous': self.accepted,
-            'candidate': {'sha': 'b' * 40},
+            'candidate': {'sha': diagnostics.RECOVERY_CANDIDATE},
             'database': {'id': 'c' * 64, 'image': 'sha256:' + 'd' * 64,
                          'mounts': self.mounts},
         })
@@ -132,6 +136,79 @@ class DiagnosisTests(unittest.TestCase):
         (self.root / 'Caddyfile').write_text('unexpected change')
         self.assertFalse(self.run_diagnostic()['operator_reconciliation_candidate'])
 
+    def test_accepted_env_drift_blocks_reconciliation(self):
+        (self.root / 'current.env').write_text('POSTGRES_IMAGE=unexpected\n')
+        self.assertFalse(self.run_diagnostic()['operator_reconciliation_candidate'])
+
+    def test_resolution_preserves_original_journal_and_accepted_state(self):
+        original = (self.root / 'release-state.json').read_bytes()
+        before = (self.root / 'current.json').read_bytes()
+        high = (self.root / 'high-water.json').read_bytes()
+        result = diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertEqual(result['status'], 'resolved')
+        self.assertFalse(result['database_or_service_changes'])
+        archive = self.root / ('release-state.before-' + diagnostics.RECOVERY_CANDIDATE[:8] + '.json')
+        self.assertEqual(archive.read_bytes(), original)
+        self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+        state = diagnostics.read_json(self.root / 'release-state.json')
+        self.assertEqual(state['status'], 'resolved')
+        self.assertEqual(state['outcome'], 'owner-verified-aborted-after-preflight')
+        self.assertEqual(state['resolution']['verifiedAt'], self.now.isoformat())
+        self.assertEqual((self.root / 'current.json').read_bytes(), before)
+        self.assertEqual((self.root / 'high-water.json').read_bytes(), high)
+
+    def test_resolution_fails_closed_for_unapproved_candidate(self):
+        path = self.root / 'release-state.json'
+        record = json.loads(path.read_text())
+        record['sha'] = record['candidate']['sha'] = 'f' * 40
+        self.write(path, record)
+        original = path.read_bytes()
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
+    def test_resolution_fails_closed_for_an_orphan_without_writing(self):
+        self.docker.orphan = True
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
+    def test_resolution_refuses_journal_after_preflight(self):
+        path = self.root / 'release-state.json'
+        record = json.loads(path.read_text())
+        record['phase'] = 'backup'
+        self.write(path, record)
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
+    def test_resolution_refuses_mount_drift(self):
+        self.mounts[0]['Source'] = '/different'
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
+    def test_resolution_refuses_high_water_drift(self):
+        self.write(self.root / 'high-water.json', {'sha': 'f' * 40})
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
+    def test_resolution_refuses_journal_previous_manifest_drift(self):
+        path = self.root / 'release-state.json'
+        record = json.loads(path.read_text())
+        record['previous']['api'] = 'unexpected-image'
+        self.write(path, record)
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        self.assertFalse(list(self.root.glob('release-state.before-*.json')))
+
+    def test_resolution_not_repeatable_or_replayable(self):
+        diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
+
     def test_stale_restore_evidence_blocks_reconciliation(self):
         self.write(self.settings / 'restore-verified.json', {
             'backupPolicy': 'local-verified-v1',
@@ -172,6 +249,18 @@ class DiagnosisTests(unittest.TestCase):
         self.assertIn('StrictHostKeyChecking=yes', workflow)
         self.assertIn('github.ref == \'refs/heads/development\'', workflow)
         self.assertNotIn('rm -f /opt/fair-staging', workflow)
+
+    def test_reconciliation_workflow_requires_explicit_owner_dispatch(self):
+        workflow = (ROOT / '.github/workflows/staging-reconcile-preflight.yml').read_text()
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertNotIn('pull_request:', workflow)
+        self.assertNotIn('push:', workflow)
+        self.assertIn('github.ref_protected', workflow)
+        self.assertIn("github.actor == 'h-zare-dev'", workflow)
+        self.assertIn('RECONCILE_91177CF_TO_06715BB', workflow)
+        self.assertIn('environment: staging-bootstrap', workflow)
+        self.assertIn('StrictHostKeyChecking=yes', workflow)
+        self.assertIn('python3 - --reconcile-preflight', workflow)
 
 
 if __name__ == '__main__':

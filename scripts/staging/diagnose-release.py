@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, redacted staging release reconciliation evidence.
+"""Redacted staging diagnostics and one tightly gated preflight resolution.
 
 Run only through the Owner-gated, host-key-pinned GitHub Actions workflow.
 The database check starts a disposable migration *inspection* container; it
@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = Path('/opt/fair-staging')
@@ -31,6 +32,8 @@ OPERATIONS = (
     'fair-staging-release-smoke',
     'fair-staging-backup',
 )
+RECOVERY_CANDIDATE = '91177cf00a8a2a141fc98068469a4ed15b0fee81'
+RECOVERY_ACCEPTED = '06715bb74698074e5b8d536c563d8a1a9e791602'
 
 
 class DiagnosticError(Exception):
@@ -97,6 +100,25 @@ def evidence_fresh(activation, evidence, now=None):
         return False
 
 
+def accepted_env_matches(root, accepted):
+    path = root / 'current.env'
+    if path.is_symlink():
+        return False
+    variables = {}
+    for line in path.read_text().splitlines():
+        if not line or line.startswith('#'):
+            continue
+        if '=' not in line:
+            return False
+        key, value = line.split('=', 1)
+        if key in variables:
+            return False
+        variables[key] = value
+    return all(variables.get(f'{label}_IMAGE') == accepted.get(key)
+               for label, key in (('API', 'api'), ('WEB', 'web'),
+                                  ('CADDY', 'caddy'), ('POSTGRES', 'postgres')))
+
+
 class Docker:
     def run(self, *args, timeout=30, cwd=None):
         result = subprocess.run(args, cwd=cwd, capture_output=True, text=True,
@@ -136,6 +158,7 @@ def diagnose(root, settings, docker, now=None):
     checks = {}
     checks['accepted_schema'] = accepted.get('schema') == 'fp003b-v1'
     checks['activation_schema'] = activation.get('schema') == 'fp003b-v1'
+    checks['accepted_env_images'] = accepted_env_matches(root, accepted)
     digest = hashlib.sha256()
     for name in ('compose.yml', 'Caddyfile'):
         digest.update(name.encode() + b'\0' + (root / name).read_bytes())
@@ -165,6 +188,7 @@ def diagnose(root, settings, docker, now=None):
         checks['database_migrations_match_approved'] = False
 
     previous = state.get('previous') or {}
+    checks['journal_previous_equals_accepted'] = previous == accepted
     journal = {
         'status': safe_state(state.get('status')),
         'phase': safe_state(state.get('phase')),
@@ -188,8 +212,83 @@ def diagnose(root, settings, docker, now=None):
     }
 
 
+def reconcile_preflight(root, settings, docker, now=None):
+    """Resolve only the witnessed, abandoned PR #72 *preflight* journal.
+
+    Caller MUST hold deployment.lock exclusively across this whole call.
+    This function does not touch accepted manifests, containers or the DB.
+    """
+    report = diagnose(root, settings, docker, now)
+    journal = report['journal']
+    if (not report['operator_reconciliation_candidate']
+            or journal['candidate_sha'] != RECOVERY_CANDIDATE
+            or journal['accepted_sha'] != RECOVERY_ACCEPTED
+            or journal['high_water_sha'] != RECOVERY_ACCEPTED):
+        raise DiagnosticError('PREFLIGHT_RECONCILIATION_REFUSED')
+
+    state_path = root / 'release-state.json'
+    if state_path.is_symlink():
+        raise DiagnosticError('SYMLINK_REFUSED')
+    original = state_path.read_bytes()
+    state = json.loads(original)
+    # Guard against an uncoordinated change even though the lock is held.
+    if (state.get('sha') != RECOVERY_CANDIDATE
+            or state.get('status') != 'in-progress'
+            or state.get('phase') != 'preflight'
+            or state.get('completed') != 'preflight'
+            or (state.get('candidate') or {}).get('sha') != RECOVERY_CANDIDATE
+            or state.get('previous') != read_json(root / 'current.json')
+            or read_json(root / 'current.json').get('sha') != RECOVERY_ACCEPTED
+            or read_json(root / 'high-water.json').get('sha') != RECOVERY_ACCEPTED):
+        raise DiagnosticError('RECORD_CHANGED_DURING_RECONCILIATION')
+
+    # Preserve the exact old journal as immutable evidence, mode 0600.
+    backup = root / ('release-state.before-' + RECOVERY_CANDIDATE[:8] + '.json')
+    fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'wb') as file:
+        file.write(original)
+        file.flush()
+        os.fsync(file.fileno())
+
+    updated = dict(state)
+    updated['status'] = 'resolved'
+    updated['outcome'] = 'owner-verified-aborted-after-preflight'
+    updated['resolution'] = {
+        'acceptedSha': RECOVERY_ACCEPTED,
+        'candidateSha': RECOVERY_CANDIDATE,
+        'verifiedAt': (now or dt.datetime.now(dt.timezone.utc)).isoformat(),
+        'checks': {key: 'PASS' for key in report['checks']},
+        'authorization': 'Owner-approved-protected-staging-reconciliation',
+    }
+    fd, temporary = tempfile.mkstemp(prefix='.preflight-reconcile-', dir=root)
+    try:
+        with os.fdopen(fd, 'w') as file:
+            json.dump(updated, file, sort_keys=True)
+            file.write('\n')
+            file.flush()
+            os.fsync(file.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, state_path)
+        dirfd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return {
+        'status': 'resolved',
+        'outcome': updated['outcome'],
+        'reconciled_candidate_sha': RECOVERY_CANDIDATE,
+        'retained_accepted_sha': RECOVERY_ACCEPTED,
+        'original_journal_preserved': True,
+        'database_or_service_changes': False,
+    }
+
+
 def main():
-    if len(sys.argv) != 1:
+    if sys.argv[1:] not in ([], ['--reconcile-preflight']):
         raise DiagnosticError('NO_ARGUMENTS_ALLOWED')
     os.umask(0o077)
     # The same lock is held from inspection through the migration SELECT.
@@ -200,7 +299,10 @@ def main():
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise DiagnosticError('DEPLOYMENT_BUSY') from None
-        result = diagnose(ROOT, SETTINGS, Docker())
+        if sys.argv[1:] == ['--reconcile-preflight']:
+            result = reconcile_preflight(ROOT, SETTINGS, Docker())
+        else:
+            result = diagnose(ROOT, SETTINGS, Docker())
     finally:
         os.close(fd)
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))

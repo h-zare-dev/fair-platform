@@ -1,0 +1,24 @@
+# ADR 0016 — Owner-directed same-VPS staging recovery and automatic post-merge delivery
+
+**Status:** Owner-approved exception, 2026-11-18; implementation proposed in a Draft PR. Live post-merge verification pending the human Owner's merge.
+
+## Scope and authority
+
+This explicitly amends ADR 0015 **only for the existing, isolated, synthetic-only FP-003B test VPS** (`panel.fairisfair.ir`). The human Owner confirmed HTTPS Owner login/logout and the synthetic dashboard, requested immediate automatic deployment after **their own merges to protected `development`**, rejected off-server backup transfers, and deferred extra SSH hardening. No production billing, real Pasarguard data, production releases, webhook enablement, or `main` deployments are authorized by this decision.
+
+## Decision
+
+- After a **human Owner merge** to protected `development`, existing CI quality/security/browser/container tests must pass and the verified merge's images are published as immutable GHCR digests. Only then can a serialized GitHub-hosted staging deployment run. Neither PR events, manual dispatch, `main` nor assistant/agent merges deploy.
+- Reuse the human-configured, `development`-restricted `staging-bootstrap` GitHub Environment (IPv4 host, root password, pinned ED25519 host fingerprint) to provision a narrowly restricted **ephemeral** `fair-deploy` key and root-owned release tooling. This avoids new GitHub secrets and stores no long-lived private deploy key. The temporary key is created on each hosted runner and never copied to the server. The existing root-password SSH access is used for first activation and rotation; this is an intentional **staging-only risk**, not the final key-only production SSH model. Never change system-wide SSH authentication settings as part of this change.
+- The already Owner-accepted baseline manifest, config and PostgreSQL digest remain authoritative. The first approved deployment checks baseline identity, sets initial exact migration-hash compatibility based on the accepted image, creates encrypted local backups and proves an isolated networkless PostgreSQL restore **before** changing the activation gate. Subsequent deployments re-provision the short-lived key and use the existing locked, fail-closed release procedure.
+- PostgreSQL retains its already accepted immutable image across normal application releases; a new PostgreSQL image requires a separate exact image-transition approval. Any newly introduced or changed migration, Compose/Caddy config drift, uncertain journal, missing restore evidence or failure blocks deployment and requires a human decision. Do not auto-approve unknown migrations or roll back a database.
+- The hosted runner provides its `packages: read` GitHub token only across the pinned bootstrap SSH channel. The root-owned VPS writes a temporary Docker registry credential under `/run/fair-staging-docker-auth` for the pull, then removes it, including in the normal failure-cleanup path. The token expires with the GitHub Actions run even if a runner abruptly dies before cleanup.
+- Root-only age identity `/etc/fair-staging/local-backup-identity`; encrypted backup files `/var/backups/fair-staging`, mode 0700; restore evidence `/etc/fair-staging/restore-verified.json`; daily timer; retention seven days. A fresh backup and isolated restoration precede each risk-bearing deployment. No rclone target, S3, other VPS, Telegram attachment or off-host file copy is configured by this policy. Existing off-host backup tooling remains available for other deployments but is not selected here.
+
+## Explicitly accepted limitations
+
+**Same-VPS backup is not disaster recovery.** Losing the VPS, disk, root access, or local encryption identity can permanently destroy the synthetic dataset and staging Owner credentials. The backup protects only against some local database/application mistakes. The Owner prefers rapid, disposable test continuity to off-host recovery for now. This exception **must not be reused for live/financial production**.
+
+The GitHub Environment still holds a privileged root-password bootstrap credential. Every post-merge job uses it to install/rotate the restricted temporary deploy key; the code running in a human-reviewed merge is therefore highly privileged on the dedicated staging host. Preserve protected `development`, Owner-only merge verification, GitHub Environment branch policy, pinned host identity and no private credentials on PR events. No attempt is made to disable root password SSH or perform unrelated host security changes.
+
+The first automated activation happens **only once the Owner merges the implementation PR into `development`**. Until a successful GitHub deploy run and externally verified dashboard, automation is `IMPLEMENTED, NOT YET VERIFIED LIVE`.

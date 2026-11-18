@@ -156,6 +156,27 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError,'RESTORE_EVIDENCE_REQUIRED'): self.deploy()
         self.assertEqual(self.commands.calls,[])
 
+    def test_local_only_policy_requires_local_restore_evidence(self):
+        activation = json.loads((self.settings/'activation.json').read_text())
+        activation['backupPolicy'] = 'local-verified-v1'
+        (self.settings/'activation.json').write_text(json.dumps(activation))
+        with self.assertRaisesRegex(release.ReleaseError, 'RESTORE_EVIDENCE_REQUIRED'):
+            self.deploy()
+        self.assertEqual(self.commands.calls, [])
+
+        record = json.loads((self.settings/'restore-verified.json').read_text())
+        record['backupPolicy'] = 'local-verified-v1'
+        (self.settings/'restore-verified.json').write_text(json.dumps(record))
+        self.assertIn('STAGING_RELEASE_OK', self.deploy())
+
+    def test_unknown_backup_policy_fails_closed(self):
+        activation = json.loads((self.settings/'activation.json').read_text())
+        activation['backupPolicy'] = 'unreviewed-offsite-bypass'
+        (self.settings/'activation.json').write_text(json.dumps(activation))
+        with self.assertRaisesRegex(release.ReleaseError, 'BACKUP_POLICY_UNAPPROVED'):
+            self.deploy()
+        self.assertEqual(self.commands.calls, [])
+
     def state(self):
         return json.loads((self.root/'release-state.json').read_text())
 

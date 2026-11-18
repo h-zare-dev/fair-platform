@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
-: "${RESTORE_POSTGRES_IMAGE:?}" "${BACKUP_OBJECT:?}" "${RCLONE_CONFIG:?}" "${BACKUP_IDENTITY_FILE:?}"
+: "${RESTORE_POSTGRES_IMAGE:?}" "${BACKUP_OBJECT:?}" "${BACKUP_IDENTITY_FILE:?}"
 [[ "$RESTORE_POSTGRES_IMAGE" =~ ^(ghcr\.io/h-zare-dev/fair-platform-postgres@)?sha256:[a-f0-9]{64}$ ]]
-[[ -f "$RCLONE_CONFIG" && $(stat -c %a "$RCLONE_CONFIG") == 600 ]]
 [[ -f "$BACKUP_IDENTITY_FILE" && $(stat -c %a "$BACKUP_IDENTITY_FILE") == 600 ]]
 work=$(mktemp -d)
 container="fair-restore-verify-$(date +%s)-$$"
@@ -11,7 +10,19 @@ cleanup() { status=$?; if ((status != 0)); then printf 'ISOLATED_RESTORE_FAILED\
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
-rclone --contimeout 15s --timeout 60s --retries 3 --low-level-retries 3 --config "$RCLONE_CONFIG" copyto "$BACKUP_OBJECT" "$work/backup.age" --quiet 2>"$work/diagnostics"
+if [[ "${BACKUP_LOCATION:-offsite}" == local ]]; then
+  # A local-only staging exception; never accept symlinks or unbounded paths.
+  : "${BACKUP_LOCAL_DIR:?}"
+  [[ "$BACKUP_LOCAL_DIR" == /* && -d "$BACKUP_LOCAL_DIR" && ! -L "$BACKUP_LOCAL_DIR" ]]
+  [[ "$BACKUP_LOCAL_DIR" == /var/backups/fair-staging ]]
+  [[ "$BACKUP_OBJECT" =~ ^/var/backups/fair-staging/fair-staging-[0-9]{8}T[0-9]{6}Z\.dump\.age$ ]]
+  [[ -f "$BACKUP_OBJECT" && ! -L "$BACKUP_OBJECT" ]]
+  cp -- "$BACKUP_OBJECT" "$work/backup.age"
+else
+  : "${RCLONE_CONFIG:?}"
+  [[ -f "$RCLONE_CONFIG" && $(stat -c %a "$RCLONE_CONFIG") == 600 ]]
+  rclone --contimeout 15s --timeout 60s --retries 3 --low-level-retries 3 --config "$RCLONE_CONFIG" copyto "$BACKUP_OBJECT" "$work/backup.age" --quiet 2>"$work/diagnostics"
+fi
 docker run -d --name "$container" --network none --tmpfs /var/lib/postgresql/data -e POSTGRES_HOST_AUTH_METHOD=trust "$RESTORE_POSTGRES_IMAGE" > /dev/null
 ready=false
 # The entrypoint's temporary initialization server listens only on a UNIX socket.
@@ -36,7 +47,10 @@ from pathlib import Path
 path=Path(os.environ['RESTORE_EVIDENCE_FILE'])
 fd,name=tempfile.mkstemp(dir=path.parent)
 with os.fdopen(fd,'w') as handle:
-    json.dump({'verifiedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()},handle)
+    result={'verifiedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    if os.environ.get('BACKUP_LOCATION') == 'local':
+        result['backupPolicy']='local-verified-v1'
+    json.dump(result,handle)
 os.replace(name,path)
 PYEVIDENCE
 fi

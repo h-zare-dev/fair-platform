@@ -159,6 +159,7 @@ jobs:
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           exit-code: '1'
+          trivyignores: .github/security/staging-api-picomatch-temporary-exception.yaml
       - name: Scan Web image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:

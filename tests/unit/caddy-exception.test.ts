@@ -44,7 +44,17 @@ describe('Caddy temporary security exception', () => {
     expect(sources.map((section) => section.split('\n')[0])).toEqual([
       'Dependency and secret scan',
     ]);
-    const rest = ['Scan API image', 'Scan Web image', 'Scan PostgreSQL'];
+    const apiException =
+      '.github/security/staging-api-picomatch-temporary-exception.yaml';
+    const apiPolicy = readFileSync(apiException, 'utf8');
+    expect(apiPolicy).toContain('id: CVE-2026-112366');
+    expect(apiPolicy).toContain('pkg:npm/picomatch@4.0.7');
+    expect(apiPolicy).toContain('expired_at: 2026-12-02');
+    expect(apiPolicy.match(/\bid: CVE-/g)).toHaveLength(1);
+    const apiSection = sections.find((part) => part.startsWith('Scan API image'));
+    expect(apiSection).toContain('trivyignores: ' + apiException);
+    expect(apiSection).toContain("exit-code: '1'");
+    const rest = ['Scan Web image', 'Scan PostgreSQL'];
     for (const name of rest) {
       const section = sections.find((part) => part.startsWith(name));
       expect(section).toBeDefined();

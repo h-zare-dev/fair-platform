@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { PricingManagement } from './pricing';
+import { ThemeToggle } from './theme-toggle';
+import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 interface Summary {
   pendingBatches: string;
   start: string;
@@ -35,8 +37,42 @@ interface Page<T> {
   rows: T[];
   nextCursor: string | null;
 }
-const utc = (value: string) =>
-  value.replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+const eventNames: Record<string, string> = {
+  user_created: 'ایجاد کاربر',
+  user_updated: 'ویرایش کاربر',
+  user_deleted: 'حذف کاربر',
+  user_limited: 'اتمام حجم کاربر',
+  user_expired: 'انقضای کاربر',
+  user_enabled: 'فعال‌سازی کاربر',
+  user_disabled: 'غیرفعال‌سازی کاربر',
+  data_usage_reset: 'بازنشانی مصرف',
+  subscription_revoked: 'لغو اشتراک',
+  data_reset_by_next: 'بازنشانی با طرح بعدی',
+};
+const statusNames: Record<string, string> = {
+  active: 'فعال',
+  on_hold: 'معلق',
+  disabled: 'غیرفعال',
+  expired: 'منقضی‌شده',
+  limited: 'اتمام حجم',
+  READY_FOR_ACCOUNTING: 'آمادهٔ بررسی حسابداری',
+  NEEDS_REVIEW: 'نیازمند بررسی',
+  IGNORED_NON_FINANCIAL: 'غیرمالی',
+  KNOWN: 'شناخته‌شده',
+  UNIDENTIFIED: 'شناسایی‌نشده',
+  ABSENT: 'بدون عامل ثبت‌شده',
+};
+const issueNames: Record<string, string> = {
+  INVALID_EVENT: 'ساختار رویداد نامعتبر',
+  INVALID_SOURCE_TIMESTAMP: 'زمان ثبت‌شده در منبع نامعتبر',
+  UNKNOWN_ACTION: 'عملیات پشتیبانی‌نشده',
+  MISSING_REQUIRED_FIELD: 'اطلاعات الزامی ناقص',
+  DUPLICATE_EVENT: 'رویداد تکراری',
+  NORMALIZATION_FAILED: 'خطا در پردازش رویداد',
+  INGESTION_ISSUE: 'رویداد نیازمند بررسی',
+};
+const translation = (value: string, names: Record<string, string>) =>
+  names[value] ?? `کد ${value}`;
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(`/api/v1/owner/${path}`, {
     cache: 'no-store',
@@ -44,9 +80,10 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   });
   if (r.status === 401) {
     window.location.assign('/login');
-    throw new Error('Session expired');
+    throw new Error('نشست شما منقضی شده است.');
   }
-  if (!r.ok) throw new Error('Operations unavailable. Please try again.');
+  if (!r.ok)
+    throw new Error('اطلاعات عملیاتی در دسترس نیست؛ دوباره تلاش کنید.');
   return (await r.json()) as T;
 }
 function DataTable({
@@ -62,10 +99,10 @@ function DataTable({
     <section className="table-card">
       <div className="section-heading">
         <h2>{title}</h2>
-        <span className="badge">SYNTHETIC</span>
+        <span className="badge">آزمایشی</span>
       </div>
       {empty ? (
-        <p className="empty">No records in this range.</p>
+        <p className="empty">در این بازه زمانی داده‌ای ثبت نشده است.</p>
       ) : (
         <div className="table-scroll">{children}</div>
       )}
@@ -120,7 +157,7 @@ export function Dashboard() {
         }
       } catch {
         if (!abort.signal.aborted)
-          setError('Operations unavailable. Counts could not be loaded.');
+          setError('اطلاعات عملیاتی دریافت نشد. تعدادها قابل نمایش نیستند.');
       } finally {
         clearTimeout(timeout);
         if (!abort.signal.aborted) setBusy(false);
@@ -129,7 +166,7 @@ export function Dashboard() {
     // Report a bounded timeout rather than leaving loading active indefinitely.
     const onAbort = () => {
       setBusy(false);
-      setError('Request timed out. Please try again.');
+      setError('زمان پاسخ‌گویی تمام شد. لطفاً دوباره تلاش کنید.');
     };
     abort.signal.addEventListener('abort', onAbort);
     return () => {
@@ -155,7 +192,7 @@ export function Dashboard() {
       else
         setIssues(await request<Page<IssueRow>>(`operations/issues?${params}`));
     } catch {
-      setError('Could not load the next page. Please try again.');
+      setError('صفحهٔ بعد بارگیری نشد؛ دوباره تلاش کنید.');
     } finally {
       setPageBusy(false);
     }
@@ -170,54 +207,59 @@ export function Dashboard() {
         signal: AbortSignal.timeout(10000),
       });
       if (r.ok || r.status === 401) window.location.assign('/login');
-      else setError('Could not sign out. Please try again.');
+      else setError('خروج از حساب انجام نشد؛ دوباره تلاش کنید.');
     } catch {
-      setError('Could not sign out. Please try again.');
+      setError('خروج از حساب انجام نشد؛ دوباره تلاش کنید.');
     }
   }
   const cards = [
-    ['Received batches', summary?.receivedBatches, 'Distinct stored batches'],
     [
-      'Normalized events',
+      'دسته‌های دریافتی',
+      summary?.receivedBatches,
+      'دسته‌های یکتای ثبت‌شده',
+      '↙',
+    ],
+    [
+      'رویدادهای پردازش‌شده',
       summary?.normalizedEvents,
-      'Distinct rows created in range',
+      'رویدادهای یکتای این بازه',
+      '◈',
     ],
-    [
-      'Open ingestion issues',
-      summary?.openIngestionIssues,
-      'Created in range, still open',
-    ],
-    [
-      'Failed batches',
-      summary?.failedBatches,
-      'Retryable + permanent, at query time',
-    ],
+    ['خطاهای باز', summary?.openIngestionIssues, 'خطاهای منتظر بررسی', '!'],
+    ['دسته‌های ناموفق', summary?.failedBatches, 'خطاهای موقت و دائمی', '×'],
   ];
   return (
     <>
       <header className="topbar">
         <div className="wordmark">
-          fair<span> / Owner</span>
+          <span className="brand-mark" aria-hidden="true">
+            ف
+          </span>
+          <span className="brand-text">
+            فِیر پلتفرم<small>پنل مدیریت</small>
+          </span>
         </div>
-        <button
-          className="secondary"
-          onClick={() => {
-            void logout();
-          }}
-        >
-          Sign out ↗
-        </button>
+        <div className="topbar-actions">
+          <ThemeToggle />
+          <button className="secondary" onClick={() => void logout()}>
+            خروج از حساب
+          </button>
+        </div>
       </header>
       <main className="dashboard">
         <div className="stage">
-          STAGING / SYNTHETIC / SHADOW / NO LIVE BILLING
+          <span className="stage-dot" aria-hidden="true" /> محیط آزمایشی · دادهٔ
+          ساختگی · حسابداری سایه · بدون دریافت وجه واقعی
         </div>
         <div className="intro">
           <div>
-            <p className="eyebrow">WORKSPACE OVERVIEW</p>
-            <h1>Operations</h1>
+            <p className="eyebrow">داشبورد مدیریت / نمای کلی</p>
+            <h1>
+              سلام، خوش آمدید <span aria-hidden="true">✦</span>
+            </h1>
             <p className="muted">
-              A clear view of ingestion. All times in UTC.
+              وضعیت رویدادها، خطاها و تنظیمات تعرفه را اینجا مدیریت کنید. همهٔ
+              زمان‌ها بر اساس UTC هستند.
             </p>
           </div>
           <button
@@ -225,41 +267,49 @@ export function Dashboard() {
             disabled={busy || pageBusy}
             onClick={() => setRefresh((v) => v + 1)}
           >
-            ↻ Refresh
+            <span aria-hidden="true">↻</span> به‌روزرسانی
           </button>
         </div>
+        <nav className="quick-nav" aria-label="بخش‌های پنل">
+          <a href="#overview">نمای کلی</a>
+          <a href="#events">تاریخچهٔ رویدادها</a>
+          <a href="#issues">خطاهای پردازش</a>
+          <a href="#pricing">مدیریت تعرفه‌ها</a>
+        </nav>
         <form
           className="filters"
+          id="overview"
           onSubmit={(e) => {
             e.preventDefault();
             setSource(sourceDraft);
           }}
         >
           <label>
-            Time range
+            بازهٔ زمانی
             <select
               value={windowRange}
               disabled={pageBusy}
               onChange={(e) => setWindowRange(e.target.value)}
             >
-              <option value="1h">Last hour</option>
-              <option value="24h">Last 24 hours</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
+              <option value="1h">یک ساعت گذشته</option>
+              <option value="24h">۲۴ ساعت گذشته</option>
+              <option value="7d">۷ روز گذشته</option>
+              <option value="30d">۳۰ روز گذشته</option>
             </select>
           </label>
           <label>
-            Source instance
+            شناسهٔ منبع
             <input
               value={sourceDraft}
               onChange={(e) => setSourceDraft(e.target.value)}
-              placeholder="All sources"
+              placeholder="همهٔ منابع"
+              dir="ltr"
               maxLength={100}
               pattern="[A-Za-z0-9_.\-]+"
             />
           </label>
           <button className="secondary" disabled={busy || pageBusy}>
-            Apply source
+            اعمال فیلتر
           </button>
         </form>
         {error && (
@@ -269,81 +319,104 @@ export function Dashboard() {
               className="secondary"
               onClick={() => setRefresh((v) => v + 1)}
             >
-              Retry
+              تلاش دوباره
             </button>
           </div>
         )}
         <div className="kpis" aria-busy={busy}>
-          {cards.map(([name, count, description]) => (
+          {cards.map(([name, count, description, symbol]) => (
             <section className="kpi" key={name}>
+              <span className="kpi-symbol" aria-hidden="true">
+                {symbol}
+              </span>
               <h2>{name}</h2>
-              <p className="number">{busy ? '…' : (count ?? '—')}</p>
+              <p className="number">
+                {busy ? '…' : count ? formatInteger(count) : '—'}
+              </p>
               <p className="muted">{description}</p>
             </section>
           ))}
         </div>
         {busy ? (
           <p role="status" className="empty">
-            Loading operations…
+            در حال دریافت اطلاعات…
           </p>
         ) : (
           summary && (
             <>
               <p className="range">
-                Pending batches in range: {summary.pendingBatches}. Failed
-                batches in range: {summary.failedBatches}.<br />
-                {utc(summary.start)} → {utc(summary.end)} · Half-open interval
-                [start, end)
+                <span>
+                  دسته‌های در انتظار:{' '}
+                  <strong>{formatInteger(summary.pendingBatches)}</strong>
+                </span>
+                <span>
+                  دسته‌های ناموفق:{' '}
+                  <strong>{formatInteger(summary.failedBatches)}</strong>
+                </span>
+                <span>
+                  از {formatUtc(summary.start)} تا {formatUtc(summary.end)}{' '}
+                  (بدون احتساب زمان پایان)
+                </span>
               </p>
-              <DataTable
-                title="Recent normalized events"
-                empty={!events.rows.length}
-              >
-                <table>
-                  <thead>
-                    <tr>
-                      {[
-                        'Action / user',
-                        'Source time / first seen',
-                        'Package / owner',
-                        'Status / actor',
-                        'Occurrences',
-                      ].map((h) => (
-                        <th key={h}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.rows.map((e) => (
-                      <tr key={e.id}>
-                        <td>
-                          <strong>{e.action}</strong>
-                          <small>
-                            User {e.externalUserId} · {e.userStatus}
-                          </small>
-                        </td>
-                        <td>
-                          {utc(e.sourceTimestamp)}
-                          <small>Seen {utc(e.firstSeenAt)}</small>
-                        </td>
-                        <td>
-                          {e.dataLimitBytes} bytes
-                          <small>Billing Admin {e.billingAdminId}</small>
-                        </td>
-                        <td>
-                          {e.eventStatus}
-                          <small>Actor {e.actorStatus}</small>
-                        </td>
-                        <td>{e.occurrenceCount}</td>
+              <div id="events" className="anchor-section">
+                <DataTable
+                  title="تاریخچهٔ رویدادهای اخیر"
+                  empty={!events.rows.length}
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        {[
+                          'عملیات و کاربر',
+                          'زمان رویداد و دریافت',
+                          'حجم بسته و مالک',
+                          'وضعیت و انجام‌دهنده',
+                          'تعداد تکرار',
+                        ].map((h) => (
+                          <th key={h}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </DataTable>
+                    </thead>
+                    <tbody>
+                      {events.rows.map((e) => (
+                        <tr key={e.id}>
+                          <td>
+                            <strong>{translation(e.action, eventNames)}</strong>
+                            <small>
+                              کاربر {formatInteger(e.externalUserId)} ·{' '}
+                              {translation(e.userStatus, statusNames)}
+                            </small>
+                          </td>
+                          <td>
+                            {formatUtc(e.sourceTimestamp)}
+                            <small>
+                              اولین دریافت: {formatUtc(e.firstSeenAt)}
+                            </small>
+                          </td>
+                          <td>
+                            {formatGiB(e.dataLimitBytes)}
+                            <small>
+                              مدیر حساب: {formatInteger(e.billingAdminId)}
+                            </small>
+                          </td>
+                          <td>
+                            {translation(e.eventStatus, statusNames)}
+                            <small>
+                              انجام‌دهنده:{' '}
+                              {translation(e.actorStatus, statusNames)}
+                            </small>
+                          </td>
+                          <td>{formatInteger(e.occurrenceCount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </DataTable>
+              </div>
               <div className="pagination">
                 <span>
-                  Ordered by source event time. Accounting-ready does not mean
-                  charged.
+                  مرتب‌سازی بر اساس زمان رویداد در منبع؛ «آمادهٔ حسابداری» به
+                  معنی ثبت هزینه نیست.
                 </span>
                 {events.nextCursor && (
                   <button
@@ -353,41 +426,50 @@ export function Dashboard() {
                       void next('events');
                     }}
                   >
-                    Next events →
+                    رویدادهای بعدی ←
                   </button>
                 )}
               </div>
-              <DataTable
-                title="Recent ingestion issues"
-                empty={!issues.rows.length}
-              >
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Issue</th>
-                      <th>Created (UTC)</th>
-                      <th>Batch index</th>
-                      <th>State</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {issues.rows.map((i) => (
-                      <tr key={i.id}>
-                        <td>
-                          <strong>{i.code}</strong>
-                          <small>{i.message}</small>
-                        </td>
-                        <td>{utc(i.createdAt)}</td>
-                        <td>{i.batchIndex ?? '—'}</td>
-                        <td>{i.resolved ? 'Resolved' : 'Open'}</td>
+              <div id="issues" className="anchor-section">
+                <DataTable
+                  title="خطاهای اخیر دریافت داده"
+                  empty={!issues.rows.length}
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>نوع خطا</th>
+                        <th>زمان ثبت (UTC)</th>
+                        <th>شمارهٔ دسته</th>
+                        <th>وضعیت</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </DataTable>
+                    </thead>
+                    <tbody>
+                      {issues.rows.map((i) => (
+                        <tr key={i.id}>
+                          <td>
+                            <strong>{translation(i.code, issueNames)}</strong>
+                            <small>
+                              کد فنی: <span dir="ltr">{i.code}</span>
+                            </small>
+                          </td>
+                          <td>{formatUtc(i.createdAt)}</td>
+                          <td>
+                            {i.batchIndex === null
+                              ? '—'
+                              : formatInteger(i.batchIndex)}
+                          </td>
+                          <td>{i.resolved ? 'برطرف‌شده' : 'باز'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </DataTable>
+              </div>
               <div className="pagination">
                 <span>
-                  Fixed safe messages. Source payloads are never shown.
+                  فقط پیام‌های امن نمایش داده می‌شوند؛ محتوای خام داده‌ها قابل
+                  مشاهده نیست.
                 </span>
                 {issues.nextCursor && (
                   <button
@@ -397,7 +479,7 @@ export function Dashboard() {
                       void next('issues');
                     }}
                   >
-                    Next issues →
+                    خطاهای بعدی ←
                   </button>
                 )}
               </div>
@@ -406,7 +488,7 @@ export function Dashboard() {
         )}
         <PricingManagement />
         <footer>
-          Fair Platform · Synthetic operations only · No live source connection
+          فِیر پلتفرم · فقط محیط آزمایشی · بدون اتصال زنده به منبع یا دریافت وجه
         </footer>
       </main>
     </>

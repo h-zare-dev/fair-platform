@@ -33,14 +33,14 @@ export function Login() {
       }
       setError(
         r.status === 429
-          ? 'Too many attempts. Please wait a minute.'
+          ? 'تعداد تلاش‌ها بیش از حد مجاز است. کمی صبر کنید.'
           : r.status === 401
-            ? 'Unable to sign in. Check your password.'
-            : 'Sign in is unavailable. Please try again.',
+            ? 'ورود انجام نشد. گذرواژه را بررسی کنید.'
+            : 'ورود در دسترس نیست. دوباره تلاش کنید.',
       );
     } catch {
       form.reset();
-      setError('Sign in is unavailable. Please try again.');
+      setError('ورود در دسترس نیست. دوباره تلاش کنید.');
     }
     setBusy(false);
   }
@@ -52,7 +52,7 @@ export function Login() {
         void submit(e);
       }}
     >
-      <label htmlFor="password">Owner password</label>
+      <label htmlFor="password">گذرواژهٔ مدیر اصلی</label>
       <input
         id="password"
         name="password"
@@ -63,9 +63,13 @@ export function Login() {
         disabled={!ready || busy}
       />
       <button type="submit" disabled={!ready || busy}>
-        {!ready ? 'Preparing sign in…' : busy ? 'Signing in…' : 'Sign in →'}
+        {!ready
+          ? 'آماده‌سازی ورود…'
+          : busy
+            ? 'در حال ورود…'
+            : 'ورود به داشبورد ←'}
       </button>
-      <p hidden={ready}>JavaScript is required for secure sign in.</p>
+      <p hidden={ready}>برای ورود امن باید جاوااسکریپت فعال باشد.</p>
       <p role="alert" className="error">
         {error}
       </p>

@@ -30,6 +30,7 @@ function certificate(): Promise<string> {
   });
 }
 test.beforeEach(async ({ context, page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
   const db = createOwnerDataSource(process.env.UI_DATABASE_URL!);
   await db.initialize();
   try {
@@ -62,18 +63,18 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
   await expect(
-    page.getByRole('heading', { name: 'Welcome back.' }),
+    page.getByRole('heading', { name: 'خوش برگشتید!' }),
   ).toBeVisible();
   await expect(
-    page.getByText('STAGING / SYNTHETIC / SHADOW / NO LIVE BILLING'),
+    page.getByText('محیط آزمایشی · بدون عملیات مالی زنده'),
   ).toBeVisible();
   await page
-    .getByLabel('Owner password')
+    .getByLabel('گذرواژهٔ مدیر اصلی')
     .fill('synthetic-browser-test-password');
   const submitted = page.waitForResponse((r) =>
     r.url().endsWith('/api/v1/owner/auth/login'),
   );
-  await page.getByRole('button', { name: 'Sign in →' }).click();
+  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
   const response = await submitted;
   expect(
     response.status(),
@@ -81,14 +82,39 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   ).toBe(201);
 
   await expect(
-    page.getByRole('heading', { name: 'Operations', exact: true }),
+    page.getByRole('heading', { name: /سلام، خوش آمدید/ }),
   ).toBeVisible();
-  await expect(page.getByText('Loading operations…')).not.toBeVisible();
+  await expect(page.getByText('در حال دریافت اطلاعات…')).not.toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Recent normalized events' }),
+    page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
   ).toBeVisible();
-  await expect(page.locator('.kpi .number').first()).toHaveText('12');
-  await expect(page.locator('.kpi .number').nth(1)).toHaveText('11');
+  await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
+  await expect(page.locator('.kpi .number').nth(1)).toHaveText('۱۱');
+  await expect(page.getByText('۱۰ گیگابایت').first()).toBeVisible();
+  let quoteBytes = '';
+  await page.route('**/api/v1/owner/pricing/quote', async (route) => {
+    const payload = route.request().postDataJSON() as {
+      billableBytes: string;
+    };
+    quoteBytes = payload.billableBytes;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        amountToman: '150000',
+        source: 'DEFAULT_PLAN',
+        ruleVersionId: '1',
+        billableBytes: payload.billableBytes,
+        mode: 'FIXED',
+      }),
+    });
+  });
+  await page.getByLabel('حجم بسته (گیگابایت)').fill('۵۰');
+  await page
+    .getByRole('button', { name: 'محاسبهٔ قیمت بدون ثبت هزینه' })
+    .click();
+  await expect(page.getByText('۱۵۰٬۰۰۰ تومان')).toBeVisible();
+  expect(quoteBytes).toBe('53687091200');
   const cookies = await context.cookies();
   const session = cookies.find((c) => c.name === '__Host-fair_owner');
   expect(session).toMatchObject({
@@ -98,6 +124,11 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     path: '/',
   });
   expect(await page.evaluate(() => localStorage.length)).toBe(0);
+  await page.getByRole('button', { name: 'فعال‌کردن تم تاریک' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(
+    await page.evaluate(() => localStorage.getItem('fair-owner-theme')),
+  ).toBe('dark');
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -145,16 +176,21 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await settleLocalNetwork();
   await page.reload();
   await expect(
-    page.getByRole('heading', { name: 'Operations', exact: true }),
+    page.getByRole('heading', { name: /سلام، خوش آمدید/ }),
   ).toBeVisible();
-  await expect(page.locator('.kpi .number').first()).toHaveText('12');
-  await page.getByLabel('Time range').selectOption('1h');
-  await expect(page.locator('.kpi .number').first()).toHaveText('12');
-  await page.getByLabel('Source instance').fill('missing-synthetic-source');
-  await page.getByRole('button', { name: 'Apply source' }).click();
-  await expect(page.getByText('No records in this range.')).toHaveCount(2);
-  await expect(page.locator('.kpi .number').first()).toHaveText('0');
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
+  await page.getByLabel('بازهٔ زمانی').selectOption('1h');
+  await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
+  await page
+    .getByLabel('شناسهٔ منبع', { exact: true })
+    .fill('missing-synthetic-source');
+  await page.getByRole('button', { name: 'اعمال فیلتر' }).click();
+  await expect(
+    page.getByText('در این بازه زمانی داده‌ای ثبت نشده است.'),
+  ).toHaveCount(2);
+  await expect(page.locator('.kpi .number').first()).toHaveText('۰');
+  await page.getByRole('button', { name: 'خروج از حساب' }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
@@ -163,18 +199,18 @@ test('wrong password and failed operations show safe errors, never zero substitu
   page,
 }) => {
   await page.goto('/login');
-  await page.getByLabel('Owner password').fill('synthetic-wrong');
-  await page.getByRole('button', { name: 'Sign in →' }).click();
+  await page.getByLabel('گذرواژهٔ مدیر اصلی').fill('synthetic-wrong');
+  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
   await expect(page.getByRole('main').getByRole('alert')).toContainText(
-    'Unable to sign in',
+    'ورود انجام نشد',
   );
   await page
-    .getByLabel('Owner password')
+    .getByLabel('گذرواژهٔ مدیر اصلی')
     .fill('synthetic-browser-test-password');
   const submitted = page.waitForResponse((r) =>
     r.url().endsWith('/api/v1/owner/auth/login'),
   );
-  await page.getByRole('button', { name: 'Sign in →' }).click();
+  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
   const response = await submitted;
   expect(
     response.status(),
@@ -182,7 +218,7 @@ test('wrong password and failed operations show safe errors, never zero substitu
   ).toBe(201);
 
   await expect(
-    page.getByRole('heading', { name: 'Operations', exact: true }),
+    page.getByRole('heading', { name: /سلام، خوش آمدید/ }),
   ).toBeVisible();
   await page.route('**/api/v1/owner/operations/summary?*', (route) =>
     route.fulfill({
@@ -191,10 +227,10 @@ test('wrong password and failed operations show safe errors, never zero substitu
       body: '{"message":"Request failed"}',
     }),
   );
-  await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('button', { name: 'به‌روزرسانی' })).toBeEnabled();
+  await page.getByRole('button', { name: 'به‌روزرسانی' }).click();
   await expect(page.getByRole('main').getByRole('alert')).toContainText(
-    'Counts could not be loaded',
+    'تعدادها قابل نمایش نیستند',
   );
   await expect(page.locator('.kpi .number').first()).toHaveText('—');
 });

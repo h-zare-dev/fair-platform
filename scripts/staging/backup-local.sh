@@ -21,7 +21,7 @@ exec 9>"$BACKUP_LOCAL_DIR/.backup.lock"
 flock -x 9
 
 # Keep a failure from consuming the disk while a dump is still being produced.
-free_bytes=$(df -PB1 --output=avail "$BACKUP_LOCAL_DIR" | tail -n 1 | tr -d ' ')
+free_bytes=$(df -B1 --output=avail "$BACKUP_LOCAL_DIR" | tail -n 1 | tr -d ' ')
 [[ "$free_bytes" =~ ^[0-9]+$ ]] && (( free_bytes >= 2147483648 )) || {
   printf 'LOCAL_BACKUP_SPACE_INSUFFICIENT\n' >&2
   exit 1

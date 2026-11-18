@@ -51,7 +51,9 @@ describe('Caddy temporary security exception', () => {
     expect(apiPolicy).toContain('pkg:npm/picomatch@4.0.7');
     expect(apiPolicy).toContain('expired_at: 2026-12-02');
     expect(apiPolicy.match(/\bid: CVE-/g)).toHaveLength(1);
-    const apiSection = sections.find((part) => part.startsWith('Scan API image'));
+    const apiSection = sections.find((part) =>
+      part.startsWith('Scan API image'),
+    );
     expect(apiSection).toContain('trivyignores: ' + apiException);
     expect(apiSection).toContain("exit-code: '1'");
     const rest = ['Scan Web image', 'Scan PostgreSQL'];

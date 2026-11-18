@@ -186,7 +186,7 @@ export function PricingManagement() {
         billing. Effective windows are UTC and half-open [from, until).
       </p>
       <label>
-        Source instance{' '}
+        Pricing source ID{' '}
         <input
           value={source}
           maxLength={100}

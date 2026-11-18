@@ -6,13 +6,14 @@ export function asciiDigits(input: string): string {
   return input
     .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
     .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/٬/g, '')
     .replace(/٫/g, '.')
     .trim();
 }
 
 export function gibToBytes(input: string): string {
   const normalized = asciiDigits(input);
-  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(normalized))
+  if (!/^\d+(?:\.\d+)?$/.test(normalized))
     throw new Error('حجم را به‌صورت عدد مثبت بر حسب گیگابایت وارد کنید.');
   const [whole = '0', decimal = ''] = normalized.split('.');
   if (decimal.length > 18) throw new Error('دقت اعشار حجم بیش از حد مجاز است.');
@@ -106,6 +107,7 @@ export function formatUtc(value: string): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hourCycle: 'h23',
   }).format(date)} (UTC)`;
 }

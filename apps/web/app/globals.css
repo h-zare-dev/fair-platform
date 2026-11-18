@@ -798,6 +798,17 @@ footer {
   }
 }
 @media (max-width: 480px) {
+  .package-row {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+  .package-row label {
+    grid-column: 1;
+  }
+  .package-remove {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: end;
+  }
   .brand-mark {
     width: 39px;
     height: 39px;

@@ -4,12 +4,14 @@ import {
   fixedCatalogGiB,
   fixedRowsToCatalog,
   formatGiB,
+  formatUtc,
   gibToBytes,
 } from '../../apps/web/lib/traffic.js';
 
 describe('Owner UI: GiB input/output is exact at the API boundary', () => {
   it('accepts Persian and Arabic numerals and converts 50 GiB exactly', () => {
     expect(gibToBytes('۵۰')).toBe('53687091200');
+    expect(gibToBytes('۰۵۰')).toBe('53687091200');
     expect(gibToBytes('٥٠')).toBe('53687091200');
     expect(asciiDigits('۱۲٫۵')).toBe('12.5');
     expect(gibToBytes('1.5')).toBe('1610612736');
@@ -40,7 +42,7 @@ describe('Owner UI: GiB input/output is exact at the API boundary', () => {
   it('converts separate GiB/Toman fields and rejects partial fixed-package rows', () => {
     expect(
       fixedRowsToCatalog([
-        { gib: '۵۰', toman: '۱۵۰۰۰۰' },
+        { gib: '۵۰', toman: '۱۵۰٬۰۰۰' },
         { gib: '100', toman: '270000' },
       ]),
     ).toEqual({
@@ -61,5 +63,11 @@ describe('Owner UI: GiB input/output is exact at the API boundary', () => {
     expect(formatGiB('500000000')).toMatch(/^حدود .* گیگابایت$/);
     expect(formatGiB('1')).toBe('کمتر از ۰٫۰۰۰۰۰۱ گیگابایت');
     expect(formatGiB('invalid')).toBe('—');
+  });
+
+  it('keeps UTC seconds visible for operational event ordering', () => {
+    const formatted = formatUtc('2026-11-18T12:34:05Z');
+    expect(formatted).toContain('UTC');
+    expect(formatted).toContain('۰۵');
   });
 });

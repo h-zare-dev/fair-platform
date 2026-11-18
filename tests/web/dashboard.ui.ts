@@ -115,6 +115,43 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .click();
   await expect(page.getByText('۱۵۰٬۰۰۰ تومان')).toBeVisible();
   expect(quoteBytes).toBe('53687091200');
+  await page.getByLabel('مدل محاسبهٔ قیمت').selectOption('FIXED');
+  const sizeInputWidth = await page
+    .getByLabel('حجم (گیگابایت)')
+    .first()
+    .evaluate((input) => input.getBoundingClientRect().width);
+  expect(sizeInputWidth).toBeGreaterThan(120);
+  await page.getByLabel('تعرفه برای').selectOption('override');
+  await page
+    .locator('.pricing-grid form')
+    .nth(1)
+    .getByLabel('شناسهٔ مدیر حساب')
+    .fill('۹۰۰۱');
+  await page.getByLabel('حجم (گیگابایت)').first().fill('۵۰');
+  await page.getByLabel('قیمت (تومان)').first().fill('۱۵۰٬۰۰۰');
+  await page.getByRole('button', { name: 'افزودن بستهٔ دیگر' }).click();
+  await page.getByLabel('حجم (گیگابایت)').nth(1).fill('100');
+  await page.getByLabel('قیمت (تومان)').nth(1).fill('270000');
+  let fixedPackages: Record<string, string> = {};
+  await page.route('**/api/v1/owner/pricing/versions', async (route) => {
+    const payload = route.request().postDataJSON() as {
+      fixedPackages: Record<string, string>;
+    };
+    fixedPackages = payload.fixedPackages;
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: '{"id":"1"}',
+    });
+  });
+  await page.getByRole('button', { name: 'ثبت نسخهٔ جدید تعرفه' }).click();
+  await expect(
+    page.getByText(/نسخهٔ جدید تعرفه با موفقیت ثبت شد/),
+  ).toBeVisible();
+  expect(fixedPackages).toEqual({
+    '53687091200': '150000',
+    '107374182400': '270000',
+  });
   const cookies = await context.cookies();
   const session = cookies.find((c) => c.name === '__Host-fair_owner');
   expect(session).toMatchObject({

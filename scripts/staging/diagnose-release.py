@@ -35,6 +35,7 @@ OPERATIONS = (
 RECOVERY_CANDIDATE = '91177cf00a8a2a141fc98068469a4ed15b0fee81'
 RECOVERY_ACCEPTED = '06715bb74698074e5b8d536c563d8a1a9e791602'
 RECOVERY_BACKUP_CANDIDATE = '5f02f07f4445a6fe5dc7365dc7a01dc514267b7a'
+RECOVERY_NOV19_PREFLIGHT_CANDIDATE = '74a1cf8882f45d0201ddadfc6474b276f62e0323'
 
 
 class DiagnosticError(Exception):
@@ -306,16 +307,21 @@ def reconcile_failed_backup(root, settings, docker, now=None):
     }
 
 
-def reconcile_preflight(root, settings, docker, now=None):
-    """Resolve only the witnessed, abandoned PR #72 *preflight* journal.
+def reconcile_preflight(root, settings, docker, now=None, *, candidate=RECOVERY_CANDIDATE):
+    """Resolve one exactly enumerated, witnessed abandoned *preflight* journal.
 
     Caller MUST hold deployment.lock exclusively across this whole call.
     This function does not touch accepted manifests, containers or the DB.
     """
+    if candidate not in (RECOVERY_CANDIDATE, RECOVERY_NOV19_PREFLIGHT_CANDIDATE):
+        raise DiagnosticError('PREFLIGHT_RECONCILIATION_NOT_APPROVED')
+    if (candidate == RECOVERY_NOV19_PREFLIGHT_CANDIDATE
+            and read_json(settings / 'activation.json').get('backupPolicy') != 'staging-no-backup-v1'):
+        raise DiagnosticError('NO_BACKUP_POLICY_REQUIRED')
     report = diagnose(root, settings, docker, now)
     journal = report['journal']
     if (not report['operator_reconciliation_candidate']
-            or journal['candidate_sha'] != RECOVERY_CANDIDATE
+            or journal['candidate_sha'] != candidate
             or journal['accepted_sha'] != RECOVERY_ACCEPTED
             or journal['high_water_sha'] != RECOVERY_ACCEPTED):
         raise DiagnosticError('PREFLIGHT_RECONCILIATION_REFUSED')
@@ -326,18 +332,18 @@ def reconcile_preflight(root, settings, docker, now=None):
     original = state_path.read_bytes()
     state = json.loads(original)
     # Guard against an uncoordinated change even though the lock is held.
-    if (state.get('sha') != RECOVERY_CANDIDATE
+    if (state.get('sha') != candidate
             or state.get('status') != 'in-progress'
             or state.get('phase') != 'preflight'
             or state.get('completed') != 'preflight'
-            or (state.get('candidate') or {}).get('sha') != RECOVERY_CANDIDATE
+            or (state.get('candidate') or {}).get('sha') != candidate
             or state.get('previous') != read_json(root / 'current.json')
             or read_json(root / 'current.json').get('sha') != RECOVERY_ACCEPTED
             or read_json(root / 'high-water.json').get('sha') != RECOVERY_ACCEPTED):
         raise DiagnosticError('RECORD_CHANGED_DURING_RECONCILIATION')
 
     # Preserve the exact old journal as immutable evidence, mode 0600.
-    backup = root / ('release-state.before-' + RECOVERY_CANDIDATE[:8] + '.json')
+    backup = root / ('release-state.before-' + candidate[:8] + '.json')
     fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'wb') as file:
         file.write(original)
@@ -349,7 +355,7 @@ def reconcile_preflight(root, settings, docker, now=None):
     updated['outcome'] = 'owner-verified-aborted-after-preflight'
     updated['resolution'] = {
         'acceptedSha': RECOVERY_ACCEPTED,
-        'candidateSha': RECOVERY_CANDIDATE,
+        'candidateSha': candidate,
         'verifiedAt': (now or dt.datetime.now(dt.timezone.utc)).isoformat(),
         'checks': {key: 'PASS' for key in report['checks']},
         'authorization': 'Owner-approved-protected-staging-reconciliation',
@@ -374,7 +380,7 @@ def reconcile_preflight(root, settings, docker, now=None):
     return {
         'status': 'resolved',
         'outcome': updated['outcome'],
-        'reconciled_candidate_sha': RECOVERY_CANDIDATE,
+        'reconciled_candidate_sha': candidate,
         'retained_accepted_sha': RECOVERY_ACCEPTED,
         'original_journal_preserved': True,
         'database_or_service_changes': False,
@@ -382,7 +388,8 @@ def reconcile_preflight(root, settings, docker, now=None):
 
 
 def main():
-    if sys.argv[1:] not in ([], ['--reconcile-preflight'], ['--reconcile-failed-backup']):
+    if sys.argv[1:] not in ([], ['--reconcile-preflight'], ['--reconcile-failed-backup'],
+                            ['--reconcile-nov19-preflight']):
         raise DiagnosticError('NO_ARGUMENTS_ALLOWED')
     os.umask(0o077)
     # The same lock is held from inspection through the migration SELECT.
@@ -395,6 +402,9 @@ def main():
             raise DiagnosticError('DEPLOYMENT_BUSY') from None
         if sys.argv[1:] == ['--reconcile-preflight']:
             result = reconcile_preflight(ROOT, SETTINGS, Docker())
+        elif sys.argv[1:] == ['--reconcile-nov19-preflight']:
+            result = reconcile_preflight(ROOT, SETTINGS, Docker(),
+                                         candidate=RECOVERY_NOV19_PREFLIGHT_CANDIDATE)
         elif sys.argv[1:] == ['--reconcile-failed-backup']:
             result = reconcile_failed_backup(ROOT, SETTINGS, Docker())
         else:

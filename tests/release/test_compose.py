@@ -86,6 +86,10 @@ volumes:
                 if args[0] == 'ps': return test.compose(*args)
                 if args[0] == 'pull': return ''  # already pulled; not a container operation
                 if args[0] == 'run':
+                    # The disposable Compose fixture contains PostgreSQL and migrate;
+                    # application smoke is exercised separately by browser CI.
+                    if 'smoke' in args:
+                        return ''
                     test.real_env.write_text('POSTGRES_IMAGE='+test.new_tag+'\n')
                     compatibility = {'schema':release.SCHEMA,'configuredMigrations':['approved'],
                                      'migrations':['approved'],'hashes':{'approved':'changed' if failure=='compatibility' else 'hash'}}
@@ -122,12 +126,20 @@ volumes:
             release.deploy(self.root,self.settings,self.candidate,self.adapter('compatibility'))
         self.assertEqual(before,self.identity())
 
-    def test_real_backup_failure_preserves_container_image_volume_and_data(self):
+    def test_real_no_backup_release_preserves_container_image_volume_and_data(self):
         before = self.identity()
-        with self.assertRaisesRegex(release.ReleaseError,'BACKUP_FAILED_OPERATOR_REQUIRED'):
-            release.deploy(self.root,self.settings,self.candidate,self.adapter('backup'))
+        # Exercise a real PostgreSQL-backed release under the explicit no-backup
+        # policy. An unchanged DB digest must never trigger a database restart,
+        # dump, restore or volume replacement.
+        self.candidate['postgres'] = self.previous['postgres']
+        commands = self.adapter()
+        self.assertIn('STAGING_RELEASE_OK',
+                      release.deploy(self.root,self.settings,self.candidate,commands))
         self.assertEqual(before,self.identity())
-        self.assertEqual(json.loads((self.root/'release-state.json').read_text())['phase'],'backup')
+        self.assertEqual(json.loads((self.root/'release-state.json').read_text())['outcome'],'accepted')
+        self.assertFalse(any(call[0] == 'run' and 'backup' in call
+                             or call[0] == 'pull' and 'backup' in call
+                             for call in commands.calls))
 
     def test_real_migration_timeout_stops_one_shot_and_blocks_reentry(self):
         self.candidate['postgres'] = self.previous['postgres']

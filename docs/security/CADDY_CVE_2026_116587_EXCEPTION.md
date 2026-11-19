@@ -1,5 +1,12 @@
 # Temporary risk acceptance: Caddy / go-jose v3 / CVE-2026-116587
 
+**2026-11-19 update:** The earlier PR #55/Lab-only scope below is historical.
+The Owner has delegated a fresh [current synthetic-Staging-only image and
+advisory disposition](STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md);
+the existing source+Caddy Trivy waiver expires **2026-12-15** and continues
+to represent an **unpatched** residual risk. No autonomous agent is running
+this review. The original exception record is preserved below for provenance.
+
 Status: **OPEN / ACCEPTED FOR SUPERVISED NON-PRODUCTION DEVELOPMENT ONLY**
 First recorded: 2026-11-15
 Automatic exception expiry: **2026-12-15**

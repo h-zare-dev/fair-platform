@@ -1,13 +1,21 @@
-# Fair Platform — Autonomous development lab
+# Fair Platform — historical autonomous development lab (cancelled)
 
-**Status (source-backed, 2026-11-19):** PR #55 merged; the supervised pilot and durable-queue/supervised-runner code and documentation now exist. **A repository snapshot cannot verify whether the Owner's laptop currently runs an unattended service, tmux session or queue.** Earlier "permanent service NOT activated" is historical, not a current runtime check. No separate disposable Lab VPS, production access or real PasarGuard/Telegram E2E is established by this repository. See [current status and agent security risks](../CURRENT_STATE_AND_POLICY_2026-11-19.md).
+**CURRENT OWNER DECISION (2026-11-19): CANCELLED / DO NOT RESTART.**
+The Owner stopped using autonomous Implementation/Review/QA agents and does
+not want the unattended queue/orchestrator activated. PR #55's pilot, queue
+code, worktrees and documents remain as historical reference, **not active
+release requirements**. A repository snapshot cannot remotely prove whether
+individual laptop-local tmux/systemd processes were already stopped; no
+process shutdown is performed by this documentation change. Current workflow:
+[manual/CI review](../AGENT_WORKFLOW.md). Reactivation would require a **new
+explicit Owner approval** plus proper OS isolation.
 
 Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 
-## Owner decisions
+## Historical Owner decisions (superseded by cancellation)
 
 - The **Owner + ChatGPT** define scope, architectural decisions and implementation-grade Markdown specifications. ChatGPT can create/read GitHub issues and inspect agent reports during a conversation; it is **not a permanently running orchestrator**.
-- A **local always-on service on the Owner's Omarchy laptop** is the execution orchestrator. No second agent-worker VPS is needed initially.
+- The former proposal called for a **local always-on service on the Owner's Omarchy laptop**. **Do not start it now**; the Owner has cancelled autonomous agent execution.
 - Only **one active feature** at a time. Implementation, independent Review, independent QA and Lab Deployment/E2E iterate on the *same* feature until all gates are green or the task is BLOCKED.
 - **One disposable, privately controlled VPS** hosts a synthetic PasarGuard instance and Fair Platform for realistic E2E testing; this is **not** a customer/production server and **not** the public HTTPS FP-003B staging installation.
 - Agents may be granted admin rights on this explicitly disposable Lab VPS **only**. Production access, secret reuse and real-data imports are prohibited.
@@ -27,7 +35,7 @@ Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 This README plus the eight linked guides are the nine files currently under
 `docs/automation/`; runtime activation is not established by their existence.
 
-## First activation sequence
+## Archived first activation proposal — NOT authorized
 
 1. Owner provisions a blank Ubuntu VPS with provider console/rescue access, **without** any production workloads or credentials.
 2. Owner performs the **one-time verified SSH-key bootstrap** in `LAB_VPS_BOOTSTRAP.md`; never puts a password, private key, bot token, session secret or database credential in GitHub or chat.
@@ -36,4 +44,8 @@ This README plus the eight linked guides are the nine files currently under
 5. Owner explicitly authorizes initial Lab activation after inspecting the host identity, access boundaries and workflow.
 6. Only an approved task starts the queue. Passing tests proposes a merge; **the human Owner performs it**.
 
-No automatic deployment, issue polling, SSH access or secret creation is enabled by this documentation PR.
+**None of the steps above is authorized for execution under the current
+cancelled-agent policy.** No automatic issue polling, agent deployment, SSH
+access or secret creation is enabled by this documentation PR. Existing
+**GitHub Actions staging deployment after human merge** is a different
+release mechanism and remains unchanged.

@@ -66,18 +66,23 @@ source uses **2.11.9** (`docker/Dockerfile.caddy`), not the **2.11.7** baseline
 scanned in `docs/implementation/FP-003B-image-decision.md`. The latter is a
 dated October comparison, not a claim about the current deployed image.
 
-The original **OD-01 explicit human approval record is not documented** in that
-image-decision file or ADR 0015. Do **not** retroactively assert it was approved
-because CI built/used the custom image. Treat the use/maintenance decision as
-**acceptance evidence still to be recorded by Owner**; continue all image
-scans, SBOMs, provenance, migration and PostgreSQL-transition gates. This
-documentation-only PR does not swap an image or waive a scan.
+The **2026-10-14 Owner decision was recorded later** in
+[PR #36's relayed Owner decision comment](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168437966)
+and [independent re-review](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168662738).
+It was **not** a comment personally posted by the Owner, but it is a traceable
+human-decision relay; the old claim of no approval evidence overlooked these
+links. The Owner's 2026-11-19 direction to close outstanding documentation
+issues reconfirms the [current disposition](security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md):
+retain the minimal custom builds for **disposable synthetic Staging only**,
+with unchanged scans, SBOMs, provenance and migration gates. This is not proof
+that older vulnerabilities were independently fixed or that the precise
+image running on the VPS has been verified.
 
 ## Temporary advisories: real exposure and expiry
 
 | Advisory | Scope currently excepted | Expiry | Required follow-up |
 | --- | --- | --- | --- |
-| `CVE-2026-112366` (`picomatch@4.0.7`) | Source scanner, specific **production API image**, and `pnpm audit` advisory ignore; **not** Web/PostgreSQL images | **2026-12-02** for Trivy YAML | Review upstream/fixed path promptly; update, retest and remove **all three** exceptions. The `pnpm-workspace.yaml` ignore does **not** expire automatically. |
+| `CVE-2026-112366` (`picomatch@4.0.7`) | Source scanner, specific **production API image**, and `pnpm audit` advisory ignore; **not** Web/PostgreSQL images | **2026-12-02** for Trivy YAML | GitHub's GHSA was **withdrawn 2026-11-18**, but NVD still lists the CVE and no compatible fix is proven. Recheck upstream and scanner output; remove exceptions only when justified. The `pnpm-workspace.yaml` ignore does **not** expire automatically. |
 | `CVE-2026-116587` (`go-jose/v3@3.0.5`) | Source and **Caddy** image only | **2026-12-15** for Trivy YAML | Find compatible fixed dependency, retest Caddy and remove temporary waivers. |
 
 `picomatch` is **also present in the production API image** through TypeORM
@@ -88,6 +93,12 @@ proven**. A passing security job with these narrowly scoped exceptions is
 implemented for the `pnpm audit.ignore` entry; this requires a tracked human
 review before December 2. The historical PR #55 source comment on the Caddy
 exception is not a current scope condition.
+
+The [November 19 Owner-directed review](security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md)
+records verified upstream facts and the narrow synthetic-Staging risk
+acceptance. **Neither dependency is declared technically fixed.** If no
+compatible fix is available at the deadline, affected deployment remains
+blocked unless the Owner explicitly reviews and renews that risk decision.
 
 ## Owner API writes, source isolation and agent safety
 
@@ -104,16 +115,16 @@ exception is not a current scope condition.
   including successes), so an attacker may temporarily exhaust it. No
   per-source-IP user attribution is claimed. Any redesign requires a separate
   test-backed security change; this docs-only PR does not silently weaken it.
-- The supervised and queue agents were permitted to use
-  `danger-full-access`. **Git worktrees do not provide OS sandboxing**; on the
-  Owner's everyday laptop, agents may read locally accessible credentials.
-  Before unattended use, isolate the runner in a dedicated unprivileged OS
-  account/VM without production keys, customer files or unrestricted network.
-  Prompts and role separation are not technical secrecy guarantees.
-- Agent model identifiers in old pilot logs are **historical evidence**, not a
-  mandated permanent model roster. Current model selection must be maintained
-  in private runtime configuration and checked for availability. The existing
-  supervised proof does not establish a continuously running unattended daemon.
+- **Owner decision 2026-11-19: autonomous development agents and their queue
+  are cancelled; no further unattended agent runs are authorized.** Historic
+  agent code, worktrees and guides remain for audit, not as release gates.
+  The repository cannot remotely attest that any laptop-local processes
+  have stopped. If agents are ever reactivated, `danger-full-access`
+  worktrees are **not** OS isolation; use a least-privileged account/VM with
+  no production credentials before starting.
+- Agent model identifiers in old pilot logs are **historical evidence**,
+  not a mandated model roster. No active autonomous model routing is required
+  while the Owner's agent program is cancelled.
 
 ## Owner-approved future accounting direction (NOT yet implemented)
 

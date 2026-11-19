@@ -1,5 +1,11 @@
 # Fair Platform Agents
 
+> **Archived roles — Owner cancelled autonomous development agents on
+> 2026-11-19.** The files in this directory preserve the former lifecycle
+> and review guidance but do not authorize starting agents, queues or
+> orchestration. Current review is manual/interactive plus CI. See
+> [current workflow](../docs/AGENT_WORKFLOW.md).
+
 This directory defines the execution roles and workflow controls used for agent-assisted development in Fair Platform.
 
 For feature work, read in this order:

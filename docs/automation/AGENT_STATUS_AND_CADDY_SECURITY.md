@@ -1,5 +1,12 @@
 # Agent visibility and upstream Caddy/JOSE blocker
 
+> **Historical November pilot/CI incident record, archived after Owner
+> cancellation of autonomous agents on 2026-11-19.** The old “CI red” and
+> activation checklist below describe past specific heads, **not** today's
+> CI result or an instruction to restart agents. The [current upstream
+> advisory disposition](../security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md)
+> governs the remaining Caddy risk and the December 15 expiry.
+
 **Tracking:** #53 (Orchestrator bootstrap), #56 (security), Draft PR #55.
 **State:** still blocked from unattended/Lab activation; a bounded security exception is documented, and all CI/Owner gates still apply.
 

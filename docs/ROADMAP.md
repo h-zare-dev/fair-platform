@@ -2,6 +2,14 @@
 
 **Updated:** 2026-11-19 (PRs #78/#79 merged; Owner-approved nightly design and PR #80). **Branch of record:** `development`. **Status:** Owner-directed feature order; NOT blanket implementation, deployment or merge authorization. For the exact Staging-policy exceptions and observational evidence, see [current status](CURRENT_STATE_AND_POLICY_2026-11-19.md).
 
+**2026-11-19 maintenance decision:** the Owner cancelled autonomous developer
+agents. New milestones use developer/interactive-assistant implementation,
+independent human review and test-backed CI; old agent pilot/queue docs remain
+historical. The Owner also delegated [final synthetic-Staging OD-01 retention
+and security-advisory disposition](security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md);
+unpatched dependencies still have strict deadlines and are not silently
+considered remediated.
+
 This is the **canonical feature sequencing and status index**. Financial semantics remain governed by [Domain Rules](DOMAIN_RULES.md); architecture, security, testing and ADRs govern their respective domains. Only an **explicitly Owner-approved detailed task specification** authorizes Implementation. Planned milestones and design drafts are not approved specifications. Historical task files retain their original wording; read this index for current status.
 
 ## Delivery sequence and status

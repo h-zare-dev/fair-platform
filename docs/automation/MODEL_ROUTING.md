@@ -1,5 +1,10 @@
 # Codex model routing and usage budget — Fair Platform agent lab
 
+> **ARCHIVED (Owner cancelled autonomous agents on 2026-11-19).** Configuration
+> and command examples below document the former pilot. They are **not**
+> instructions to reactivate agent services, and model routing is not a
+> prerequisite for new feature PRs. See [automation status](README.md).
+
 **Status:** The original pilot (task #57 / PR #55) used then-available Sol/Luna profiles. Those are **historical observations**, not a permanent model policy. Model availability and current private runtime configuration must be verified on the Owner's laptop; this repository does not prove unattended daemon activation or Lab E2E. Tracking #53 / PR #54.
 
 | Responsibility | Model selection source | Reasoning effort | Note |

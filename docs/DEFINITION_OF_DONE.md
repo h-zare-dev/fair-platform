@@ -15,8 +15,8 @@ A task is Done only when all applicable conditions are met:
 - Financial/idempotency/concurrency behavior reviewed when applicable.
 - No secrets or sensitive payload data leaked to source/logs/fixtures.
 - Documentation/ADR updated when an approved decision changed.
-- Review Agent findings resolved.
-- QA completed for meaningful behavior changes.
+- Independent **code/security review** findings resolved (human reviewer or explicitly requested interactive review; no autonomous agent required).
+- Relevant QA/acceptance completed for meaningful behavior changes, with evidence from tests and review.
 - Targeted re-review completed if QA fixes materially changed production code.
 - Full CI green.
 - Applicable Owner-controlled operational/private acceptance is complete; historical replay PASS is not financial or live-webhook acceptance.

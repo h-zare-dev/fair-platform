@@ -160,9 +160,9 @@ The host takes a nonblocking file lock, verifies authoritative ancestry/high-wat
 
 **Not yet evidenced:** actual VPS listener/firewall/SSH restrictions, public issuance/renewal, phone over the internet, off-host transfer/recovery drill, GHCR credentials and first complete SSH delivery. Local/CI simulations do not satisfy those operational gates.
 
-## Historical OD-01 custom-image exception — explicit acceptance reference still missing
+## OD-01 custom-image exception — approval reference found
 
-Earlier implementation text asserted Owner approval of Caddy and gosu rebuilds. Independent Review could not establish a distinct human authorization; those assertions were withdrawn. **The images were subsequently built/scanned for Staging, but that is not proof of the missing OD-01 Owner signoff.** Current Caddy source is 2.11.9, whereas the original OD-01 image baseline describes 2.11.7. Review the exact deployed digests and record a separate human risk/maintenance acceptance; do not claim approval from this document.
+Earlier Review could not establish a distinct human authorization, so early assertions were withdrawn. **Later evidence resolves the approval-documentation gap:** the Owner's October decision in conversation was [relayed into PR #36](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168437966) and [reviewed](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168662738). This is not a comment personally posted by the Owner. The [November 19 disposition](../security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md) reconfirms retaining the two minimal custom builds under unchanged security/transition gates. Current Caddy source is 2.11.9, while the original baseline describes 2.11.7. The running VPS digests still require separate live verification; a documented design approval cannot substitute for a deployed-image scan.
 
 See [decision evidence](../implementation/FP-003B-image-decision.md) for pinned official digests, exact baseline vulnerabilities, supported official alternatives, runtime relevance and maintenance tradeoffs. No scan waiver or infrastructure operation is authorized.
 

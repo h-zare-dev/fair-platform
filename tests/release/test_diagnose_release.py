@@ -214,6 +214,74 @@ class DiagnosisTests(unittest.TestCase):
         with self.assertRaises(diagnostics.DiagnosticError):
             diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now)
 
+    def set_nov19_preflight_journal(self):
+        record = diagnostics.read_json(self.root / 'release-state.json')
+        record['sha'] = diagnostics.RECOVERY_NOV19_PREFLIGHT_CANDIDATE
+        record['candidate']['sha'] = diagnostics.RECOVERY_NOV19_PREFLIGHT_CANDIDATE
+        self.write(self.root / 'release-state.json', record)
+        activation = diagnostics.read_json(self.settings / 'activation.json')
+        activation['backupPolicy'] = 'staging-no-backup-v1'
+        self.write(self.settings / 'activation.json', activation)
+        (self.settings / 'restore-verified.json').unlink(missing_ok=True)
+
+    def test_nov19_preflight_reconciliation_preserves_original_and_accepted_state(self):
+        self.set_nov19_preflight_journal()
+        self.assertTrue(self.run_diagnostic()['operator_reconciliation_candidate'])
+        journal = self.root / 'release-state.json'
+        before = journal.read_bytes()
+        accepted = (self.root / 'current.json').read_bytes()
+        high = (self.root / 'high-water.json').read_bytes()
+        result = diagnostics.reconcile_preflight(
+            self.root, self.settings, self.docker, self.now,
+            candidate=diagnostics.RECOVERY_NOV19_PREFLIGHT_CANDIDATE)
+        self.assertEqual(result['reconciled_candidate_sha'], diagnostics.RECOVERY_NOV19_PREFLIGHT_CANDIDATE)
+        self.assertFalse(result['database_or_service_changes'])
+        self.assertEqual((self.root / 'release-state.before-74a1cf88.json').read_bytes(), before)
+        self.assertEqual(journal.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(diagnostics.read_json(journal)['status'], 'resolved')
+        self.assertEqual((self.root / 'current.json').read_bytes(), accepted)
+        self.assertEqual((self.root / 'high-water.json').read_bytes(), high)
+        with self.assertRaises(diagnostics.DiagnosticError):
+            diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now,
+                                           candidate=diagnostics.RECOVERY_NOV19_PREFLIGHT_CANDIDATE)
+
+    def test_nov19_preflight_reconciliation_fails_closed_on_drift(self):
+        self.set_nov19_preflight_journal()
+        path = self.root / 'release-state.json'
+        original = path.read_bytes()
+        for mutation in ('old workflow', 'unknown candidate', 'active backup',
+                         'different volume', 'orphan', 'wrong high water', 'old policy'):
+            with self.subTest(mutation=mutation):
+                self.write(path, json.loads(original))
+                self.write(self.root / 'high-water.json', {'sha': diagnostics.RECOVERY_ACCEPTED})
+                self.mounts[0]['Source'] = '/restricted'
+                self.docker.orphan = self.docker.backup_active = False
+                self.write(self.settings / 'activation.json', {
+                    'approval': 'owner-approved-v1', 'schema': 'fp003b-v1',
+                    'backupPolicy': 'staging-no-backup-v1'})
+                candidate = diagnostics.RECOVERY_NOV19_PREFLIGHT_CANDIDATE
+                if mutation == 'old workflow':
+                    candidate = diagnostics.RECOVERY_CANDIDATE
+                elif mutation == 'unknown candidate':
+                    candidate = 'f' * 40
+                elif mutation == 'active backup':
+                    self.docker.backup_active = True
+                elif mutation == 'different volume':
+                    self.mounts[0]['Source'] = '/drift'
+                elif mutation == 'orphan':
+                    self.docker.orphan = True
+                elif mutation == 'wrong high water':
+                    self.write(self.root / 'high-water.json', {'sha': 'e' * 40})
+                elif mutation == 'old policy':
+                    self.write(self.settings / 'activation.json', {
+                        'approval': 'owner-approved-v1', 'schema': 'fp003b-v1',
+                        'backupPolicy': 'local-verified-v1'})
+                with self.assertRaises(diagnostics.DiagnosticError):
+                    diagnostics.reconcile_preflight(self.root, self.settings, self.docker, self.now,
+                                                    candidate=candidate)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertFalse((self.root / 'release-state.before-74a1cf88.json').exists())
+
     def test_stale_restore_evidence_blocks_reconciliation(self):
         self.write(self.settings / 'restore-verified.json', {
             'backupPolicy': 'local-verified-v1',
@@ -343,6 +411,17 @@ class DiagnosisTests(unittest.TestCase):
         self.assertIn('environment: staging-bootstrap', workflow)
         self.assertIn('StrictHostKeyChecking=yes', workflow)
         self.assertIn('python3 - --reconcile-failed-backup', workflow)
+
+        workflow = (ROOT / '.github/workflows/staging-reconcile-nov19-preflight.yml').read_text()
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertNotIn('pull_request:', workflow)
+        self.assertNotIn('push:', workflow)
+        self.assertIn('github.ref_protected', workflow)
+        self.assertIn("github.actor == 'h-zare-dev'", workflow)
+        self.assertIn('RECONCILE_74A1CF_PREFLIGHT_TO_06715BB', workflow)
+        self.assertIn('environment: staging-bootstrap', workflow)
+        self.assertIn('StrictHostKeyChecking=yes', workflow)
+        self.assertIn('python3 - --reconcile-nov19-preflight', workflow)
 
 
 if __name__ == '__main__':

@@ -181,6 +181,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn('restore-verify.sh', delivery)
         self.assertNotIn('backup.timer', delivery)
         self.assertNotIn('backup.service', delivery)
+        self.assertIn('DATABASE_CHANGED_DURING_PREFLIGHT', delivery)
+        self.assertIn('PREFLIGHT_FAILED_OPERATOR_REQUIRED', delivery)
+        self.assertIn('RELEASE_ORDER_UNVERIFIED', delivery)
 
     def state(self):
         return json.loads((self.root/'release-state.json').read_text())
@@ -200,6 +203,45 @@ class ReleaseTests(unittest.TestCase):
         preflight = next(i for i,c in enumerate(self.commands.calls) if 'dist/owner/release-check.js' in c)
         self.assertLess(preflight, db_up)
         self.assertEqual(self.state()['outcome'], 'accepted')
+
+    def test_mount_order_only_does_not_abort_a_real_release(self):
+        commands = Commands(self)
+        original = commands.run
+        checks = [0]
+        def inspect(args, capture=False):
+            output = original(args, capture)
+            if args[:2] == ['docker', 'inspect']:
+                checks[0] += 1
+                info = json.loads(output)
+                mounts = [{'Type': 'volume', 'Source': '/volume', 'Destination': '/var/lib/postgresql/data', 'RW': True},
+                          {'Type': 'bind', 'Source': '/secret', 'Destination': '/run/secrets', 'RW': False}]
+                info[0]['Mounts'] = mounts if checks[0] % 2 else list(reversed(mounts))
+                return json.dumps(info)
+            return output
+        commands.run = inspect
+        self.assertIn('STAGING_RELEASE_OK', release.deploy(self.root, self.settings, self.candidate, commands))
+        self.assertGreaterEqual(checks[0], 3)
+        self.assertEqual(self.state()['outcome'], 'accepted')
+
+    def test_mount_field_change_still_fails_closed_before_database_replacement(self):
+        commands = Commands(self)
+        original = commands.run
+        checks = [0]
+        def inspect(args, capture=False):
+            output = original(args, capture)
+            if args[:2] == ['docker', 'inspect']:
+                checks[0] += 1
+                info = json.loads(output)
+                info[0]['Mounts'] = [{'Type': 'volume',
+                                      'Source': '/original' if checks[0] == 1 else '/changed',
+                                      'Destination': '/var/lib/postgresql/data', 'RW': True}]
+                return json.dumps(info)
+            return output
+        commands.run = inspect
+        with self.assertRaisesRegex(release.ReleaseError, 'DATABASE_CHANGED_DURING_PREFLIGHT'):
+            release.deploy(self.root, self.settings, self.candidate, commands)
+        self.assertEqual(self.state()['phase'], 'preflight')
+        self.assertFalse(any(call[0] == 'up' for call in commands.calls))
 
     def test_rejected_compatibility_preserves_database(self):
         for failure in ['compatibility', 'pending-migration']:

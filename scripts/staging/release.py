@@ -142,6 +142,26 @@ def database_identity(commands, env, expected):
     return {'id': identity, 'image': info['Image'], 'mounts': info['Mounts']}
 
 
+def same_mounts(expected, actual):
+    # Docker inspect does not promise a stable ordering of Mounts. Compare the
+    # complete mount records, not just destination paths or volume names.
+    if not isinstance(expected, list) or not isinstance(actual, list):
+        return False
+    if not all(isinstance(mount, dict) for mount in expected + actual):
+        return False
+    return sorted(json.dumps(mount, sort_keys=True) for mount in expected) == sorted(
+        json.dumps(mount, sort_keys=True) for mount in actual
+    )
+
+
+def same_database_identity(expected, actual):
+    if not isinstance(expected, dict) or not isinstance(actual, dict):
+        return False
+    return (expected.get('id') == actual.get('id')
+            and expected.get('image') == actual.get('image')
+            and same_mounts(expected.get('mounts'), actual.get('mounts')))
+
+
 def deploy(root, settings_dir, release, commands):
     # Called only while the host deployment lock is held (including all GitHub checks).
     release = manifest(release)
@@ -243,7 +263,8 @@ def deploy(root, settings_dir, release, commands):
             or any(name not in configured for name in compatibility.get('migrations', []))):
         resolved('compatibility-rejected')
         raise ReleaseError('MIGRATION_COMPATIBILITY_UNPROVEN')
-    if database_identity(commands, accepted_env, previous['postgres']) != identity:
+    preflight_database = database_identity(commands, accepted_env, previous['postgres'])
+    if not same_database_identity(identity, preflight_database):
         raise ReleaseError('DATABASE_CHANGED_DURING_PREFLIGHT')
     # Recheck branch advancement immediately before risky work. No workflow-order assumption.
     try:
@@ -255,12 +276,13 @@ def deploy(root, settings_dir, release, commands):
     if previous['postgres'] != release['postgres']:
         phase('database-image', lambda: commands.compose(env, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '120', 'postgres'))
     database_after = phase('database-check', lambda: database_identity(commands, env, release['postgres']))
-    if database_after['mounts'] != identity['mounts']:
+    if not same_mounts(identity['mounts'], database_after['mounts']):
         raise ReleaseError('DATABASE_VOLUME_CHANGED_OPERATOR_REQUIRED')
     state['databaseAfter'] = database_after
     atomic(state_path, json.dumps(state))
     phase('migration', lambda: one_shot('migrate', names[1]))
-    if database_identity(commands, env, release['postgres']) != database_after:
+    after_migration = database_identity(commands, env, release['postgres'])
+    if not same_database_identity(database_after, after_migration):
         raise ReleaseError('DATABASE_CHANGED_DURING_MIGRATION_OPERATOR_REQUIRED')
     try:
         phase('startup', lambda: commands.compose(env, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '120', 'owner-api', 'web', 'caddy'))
@@ -268,7 +290,9 @@ def deploy(root, settings_dir, release, commands):
         phase('smoke', lambda: one_shot('smoke', names[2]))
     except ReleaseError:
         # Successful approved migration + healthy expected DB prove app-only fallback scope.
-        if phase('rollback-database-check', lambda: database_identity(commands, env, release['postgres'])) != database_after:
+        rollback_database = phase('rollback-database-check',
+                                  lambda: database_identity(commands, env, release['postgres']))
+        if not same_database_identity(database_after, rollback_database):
             raise ReleaseError('ROLLBACK_DATABASE_UNKNOWN_OPERATOR_REQUIRED')
         phase('rollback-stop', lambda: commands.compose(env, 'stop', '--timeout', '30', 'owner-api', 'web', 'caddy'))
         fallback = {**previous, 'postgres': release['postgres']}

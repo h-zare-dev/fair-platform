@@ -4,7 +4,7 @@
 
 > **Latest Owner override (2026-11-18):** For this *existing, synthetic-only* staging VPS, [ADR 0017](../adr/0017-no-automatic-backup-for-disposable-synthetic-staging.md) supersedes ADR 0016's local-backup/restore requirement. **Neither pre-deployment nor periodic backup/restore runs** after the Owner merges the reviewed no-backup change. The existing backup timer is disabled, but old backup archives are not deleted. Losing staging data may be irreversible. No production or live finances are authorized. Sections below describing mandatory backup/restore are historical design notes, **not current instructions for this VPS**.
 
-### Current staging post-merge procedure (pending merge verification)
+### Current staging post-merge procedure
 
 1. The Owner alone merges the reviewed Draft PR to protected `development`. No other manual trigger or server command is needed for an ordinary application-only release.
 2. Actions `CI` must pass `quality`, `security`, `containers`, `owner-merge`, `publish` and `deploy`. `deploy` uses the already configured `staging-bootstrap` environment and pinned SSH host fingerprint. It retains the accepted PostgreSQL image, not the freshly rebuilt PostgreSQL helper's digest.
@@ -15,6 +15,10 @@
 **Warning:** A future FP-004 migration change may intentionally stop automatic release until its exact additive migration and hash are reviewed. The pipeline is automatic, but it does not weaken the financial schema-safety gates for unconditional deployment.
 
 **Existing Nov 18 failed backup-phase journal:** A legacy deployment failed in phase `backup` with candidate `5f02f07`. Activation of the no-backup policy does not bypass this unresolved journal. Once the human Owner has merged the new change, only the separate manual GitHub Actions workflow **Staging failed backup journal reconciliation (Owner only)** may resolve this exact incident after rechecking the accepted database, migrations, images, inactive backup timer/service and unchanged high-water. It requires confirmation `RECONCILE_5F02F07_BACKUP_TO_06715BB`; it is not a deployment. A new/retried release is a separate Owner-controlled action.
+
+**Nov 19 follow-up (observed, not yet recovered):** Owner merged PR #76 as `74a1cf8882f45d0201ddadfc6474b276f62e0323`. The no-backup host activation was confirmed by `LOCAL_STAGING_DEPLOY_KEY_ROTATED_NO_BACKUP`; the abandoned backup journal was separately resolved by Owner workflow run `44433266524`. The next CI deployment attempt (`44430504241`, attempt 2) failed with a redacted generic error. Read-only diagnostic run `44434821448` found the *new* `74a1cf8` journal `in-progress` at `preflight` with `completed=preflight`, unchanged accepted/high-water `06715bb...`, healthy services, matching migration hashes, matching PostgreSQL mounts **regardless of order**, and no orphans. It reported `operator_reconciliation_candidate=true`. This is evidence of a safe **candidate for operator review**, not a completed release or license to clear the journal. The exact exception at deploy time is not exposed by the redacted release log; mount-array ordering in `release.py` is a plausible cause, not proven.
+
+After the human Owner reviews and merges the separate narrowly scoped mount-order correction, **only** the manual Owner-only workflow **Staging Nov 19 preflight reconciliation** on protected `development`, with exact confirmation `RECONCILE_74A1CF_PREFLIGHT_TO_06715BB`, may reconcile this one witnessed journal. The workflow must recheck all host, database, migrations, policy, image and orphan gates under `deployment.lock`, preserve an immutable original journal and change only its resolution status. A mismatch fails closed. It does not touch the database or deploy. The Owner must then separately rerun the reviewed new-merge deployment; never rerun the failed earlier attempt or clear journal files by hand.
 
 ## Environment identity
 

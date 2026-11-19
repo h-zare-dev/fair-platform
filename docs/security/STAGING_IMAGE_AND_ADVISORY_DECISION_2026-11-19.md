@@ -48,6 +48,24 @@ scanner output describes today's rebuilt binaries.
 
 ## Advisory reassessment (official upstream sources, 2026-11-19)
 
+### New Go toolchain finding identified by PR #80 CI
+
+The exact-head [CI #335](https://github.com/h-zare-dev/fair-platform/actions/runs/44631844102)
+passed browser acceptance, API/Web scans, quality and source security but
+**failed the Caddy image scan**: built Go standard library **1.27.3** triggered
+`CVE-2026-97054` (HIGH). This is **not** the existing Caddy `go-jose`
+exception, and creating a new waiver would weaken the gate unnecessarily.
+The [official Go release history](https://go.dev/doc/devel/release) lists
+**1.27.4** as the security-fixed minor release, and
+[Docker Official Golang](https://hub.docker.com/layers/library/golang/1.27.4-alpine3.24/images/sha256-ea30e25680a5470bac02b08bb0e0a735fb75bd0ab7d431b9b95ee0abef362586)
+publishes the immutable multi-platform index
+`sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf`.
+PR #80 therefore updates **both** Caddy and PostgreSQL/gosu Go builders
+to that exact pinned image and adds a regression test. The PostgreSQL runtime
+engine, Caddy version, GHCR publishing and Trivy thresholds remain unchanged.
+**Do not claim this finding resolved until the new exact-head container scans
+pass.** No exception was added for `CVE-2026-97054`.
+
 | Finding | Verified upstream status | Actual exposure | Current disposition |
 | --- | --- | --- | --- |
 | `CVE-2026-112366` — `picomatch@4.0.7` | [GitHub GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf) was **withdrawn on 2026-11-18**, but [NVD CVE-2026-112366](https://nvd.nist.gov/vuln/detail/CVE-2026-112366) remains published; no supported fixed release is established. A withdrawn package advisory is **not a patch**. | Dev tooling **and production API image** through TypeORM→tinyglobby. No public untrusted-glob input has been demonstrated; full exploit-path unreachability is not proved. | Keep exactly scoped, time-bounded source/API Trivy exceptions **through 2026-12-02**, with risk limited to synthetic Staging. Review scanner behavior and upstream resolution before then. |
@@ -81,10 +99,13 @@ must be checked manually, even if GitHub's withdrawn GHSA no longer affects
   explicitly engaged assistant/developer handle them during normal PR review.
   This document does not create a background reminder or change CI schedules.
 
-## Non-goals of this documentation PR
+## Non-goals of the PR #80 documentation and pin-only security fix
 
-- No change to runtime images, lockfiles, pnpm audit ignore, Trivy exception
-  matching/expiry, CI job definitions, protected branches or deployments.
-- No claim that the advisories are fixed, that security scanners have
-  passed on this PR, or that new live host diagnostics were performed.
+- The **Go builder base pin** is the only image-build change; no runtime
+  image base/entrypoint switch, Go module lockfile modification, pnpm audit
+  ignore change, Trivy exception/expiry change, CI job change, branch
+  protection change or deployment command is authorized by this PR.
+- A new CI run must prove the Go stdlib finding is fixed. This is **not**
+  a claim that the unrelated Picomatch or go-jose/v3 advisories are fixed,
+  or that any new live host diagnostic was performed.
 - No reactivation of autonomous agents, queue polling or lab bootstrap.

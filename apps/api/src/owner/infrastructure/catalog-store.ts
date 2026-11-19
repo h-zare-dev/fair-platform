@@ -212,8 +212,10 @@ export class PostgresCatalogStore {
 
   async editPackage(input: CatalogPackageInput & { packageId: string }) {
     const [row] = await this.db.query<{ id: string }[]>(
-      `UPDATE fair_atomic_packages SET name=$3,package_bytes=$4,duration_days=$5,amount_toman=$6
-       WHERE id=$1 AND source_instance_id=$2 AND NOT ever_assigned RETURNING id::text`,
+      `WITH changed AS (
+         UPDATE fair_atomic_packages SET name=$3,package_bytes=$4,duration_days=$5,amount_toman=$6
+         WHERE id=$1 AND source_instance_id=$2 AND NOT ever_assigned RETURNING id::text
+       ) SELECT id FROM changed`,
       [
         id(input.packageId),
         source(input.sourceInstanceId),

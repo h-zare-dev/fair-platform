@@ -1,6 +1,6 @@
 # ADR 0017 — Owner removal of automated backup and restore from synthetic Staging
 
-**Decision:** Owner-directed, 2026-11-18. Supersedes the backup/restore parts of ADR 0016 **only** for the existing `panel.fairisfair.ir` synthetic-only FP-003B staging VPS. Other security and release controls remain unchanged.
+**Decision:** Owner-directed, 2026-11-18; implemented after Owner merge PR #76 (`74a1cf8`). Supersedes the backup/restore parts of ADR 0016 **only** for the existing `panel.fairisfair.ir` synthetic-only FP-003B staging VPS. Other security and release controls remain unchanged. **Synthetic `pnpm test:backup` in full PR/CI verification is not a VPS backup** and remains a separate test requirement. See [current status](../CURRENT_STATE_AND_POLICY_2026-11-19.md).
 
 ## Decision and accepted risk
 

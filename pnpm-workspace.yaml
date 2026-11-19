@@ -14,10 +14,11 @@ overrides:
   source-map-js: ^1.2.2
   sharp: ^0.35.5
 
-# Temporary dev-tool advisory exception (Vitest/Vite -> picomatch 4.0.7).
-# As of 2026-11-18 the upstream GHSA has NO patched version. The staged
-# API and Web runtime images exclude devDependencies and test tooling.
-# Review weekly and remove when the fixed version is available.
+# Temporary picomatch 4.0.7 advisory exception (Vitest/Vite toolchain AND
+# TypeORM -> tinyglobby dependency present in the production API image).
+# The dedicated API Trivy exception expires 2026-12-02; this pnpm audit.ignore
+# has NO auto-expiry. Review weekly and remove BOTH after a tested upstream fix.
+# This is synthetic-Staging risk acceptance, not proof of unreachability.
 audit:
   ignore:
     - GHSA-fc5q-39xc-vjpf

@@ -1,6 +1,6 @@
 # ADR 0016 — Owner-directed same-VPS staging recovery and automatic post-merge delivery
 
-**Status:** Owner-approved exception, 2026-11-18; implementation proposed in a Draft PR. Live post-merge verification pending the human Owner's merge.
+**Status:** Owner-approved **Staging-only SSH/bootstrap exception** on 2026-11-18; subsequently implemented. **Its same-VPS backup/restore sections were superseded by later ADR 0017, which the Owner merged in PR #76.** Those local-backup details below are historical, **not a current runbook**. The masked root-password bootstrap/high privilege and pinned SSH identity remain part of the accepted Staging risk. See [current status](../CURRENT_STATE_AND_POLICY_2026-11-19.md).
 
 ## Scope and authority
 

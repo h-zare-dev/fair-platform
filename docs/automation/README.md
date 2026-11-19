@@ -1,6 +1,6 @@
 # Fair Platform — Autonomous development lab
 
-**Status (2026-11-15): Supervised Orchestrator pilot demonstrated; permanent service and disposable Lab NOT activated.** PR #55 was merged to `development`, and the pilot in PR #58 produced successful Implementation/Review/QA evidence. These documents do **not** establish an installed unattended laptop service, provisioned Lab VPS, production access, or live PasarGuard/Telegram E2E.
+**Status (source-backed, 2026-11-19):** PR #55 merged; the supervised pilot and durable-queue/supervised-runner code and documentation now exist. **A repository snapshot cannot verify whether the Owner's laptop currently runs an unattended service, tmux session or queue.** Earlier "permanent service NOT activated" is historical, not a current runtime check. No separate disposable Lab VPS, production access or real PasarGuard/Telegram E2E is established by this repository. See [current status and agent security risks](../CURRENT_STATE_AND_POLICY_2026-11-19.md).
 
 Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 
@@ -16,15 +16,22 @@ Tracking: [Issue #53](https://github.com/h-zare-dev/fair-platform/issues/53).
 ## Documents
 
 1. [Orchestration state machine and recursive fix loop](AGENT_ORCHESTRATION.md)
-2. [Blank VPS SSH/host bootstrap and isolation](LAB_VPS_BOOTSTRAP.md)
-3. [GitHub Issue/PR/evidence contract](GITHUB_TASK_AND_EVIDENCE.md)
-4. [Codex model routing and Plus usage budget](MODEL_ROUTING.md)
+2. [Agent status and Caddy security](AGENT_STATUS_AND_CADDY_SECURITY.md)
+3. [Durable GitHub task queue](DURABLE_QUEUE.md)
+4. [GitHub Issue/PR/evidence contract](GITHUB_TASK_AND_EVIDENCE.md)
+5. [Blank VPS SSH/host bootstrap and isolation](LAB_VPS_BOOTSTRAP.md)
+6. [Codex model routing and usage budget](MODEL_ROUTING.md)
+7. [Orchestrator implementation evidence](ORCHESTRATOR_IMPLEMENTATION.md)
+8. [Supervised issue runner](SUPERVISED_ISSUE_RUNNER.md)
+
+This README plus the eight linked guides are the nine files currently under
+`docs/automation/`; runtime activation is not established by their existence.
 
 ## First activation sequence
 
 1. Owner provisions a blank Ubuntu VPS with provider console/rescue access, **without** any production workloads or credentials.
 2. Owner performs the **one-time verified SSH-key bootstrap** in `LAB_VPS_BOOTSTRAP.md`; never puts a password, private key, bot token, session secret or database credential in GitHub or chat.
-3. The merged Orchestrator from PR #55 provides a supervised local pilot runner and durable state; PR #58 demonstrated autonomous Implementation → Review → QA for one approved task. **Continuous GitHub polling, `systemd --user` activation and real Lab-E2E failure/recovery remain future, separately tested milestones.**
+3. The merged Orchestrator from PR #55 provides supervised local runner and durable state; PR #58 demonstrated Implementation → Review → QA for one approved task. Additional queue code now exists, but **continuous GitHub polling, `systemd --user` activation and real Lab-E2E cannot be inferred without inspecting the actual laptop runtime**. Run only in a separate unprivileged OS account/VM with no production credentials when unattended.
 4. Separately provision synthetic PasarGuard, Fair Platform and test-only Telegram integration in the Lab; configure hard resource and token budgets.
 5. Owner explicitly authorizes initial Lab activation after inspecting the host identity, access boundaries and workflow.
 6. Only an approved task starts the queue. Passing tests proposes a merge; **the human Owner performs it**.

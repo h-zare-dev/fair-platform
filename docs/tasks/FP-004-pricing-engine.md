@@ -1,5 +1,17 @@
 # FP-004 — Pricing Engine (Owner-approved implementation specification)
 
+> **Historical FP-004 implementation baseline (2026-11-18):** the synthetic
+> pricing quote engine and Owner editor described here **exist** in
+> `development`. Their system-default plan, source-event-time selection,
+> byte-only fixed catalogs and user-visible rule-version editing are **not the
+> Owner-approved target design for future billing as of 2026-11-19**.
+> The approved replacement direction is in
+> [Nightly/group accounting](FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md) and
+> [Jalali/admin directory addendum](FP-004-owner-ui-admin-directory-and-timezone.md).
+> The old code does not change merely because documentation was approved;
+> revised milestone implementation, migrations, QA and Owner merge remain
+> separate. Do not reinterpret this archived spec to authorize live charges.
+
 > **STATUS: APPROVED FOR IMPLEMENTATION BY OWNER (2026-11-18, conversation decision).** The Owner selected **CEIL for final fractional Toman** and **Owner dashboard pricing management in FP-004**, and explicitly approved this spec with those choices. This permits development on a dedicated feature branch, **not** PR merge, production deployment, live billing, or unreviewed database migration activation.
 
 ## Source contracts and goal

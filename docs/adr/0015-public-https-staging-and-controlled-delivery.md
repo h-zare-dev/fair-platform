@@ -1,6 +1,6 @@
 # ADR 0015 — Public HTTPS Staging and Owner-Controlled Automatic Delivery
 
-**Status:** Accepted for implementation by explicit Owner instruction (2026-10-14). First staging setup/deployment/activation remains separately pending; not deployed or active.
+**Status:** Accepted **original design** 2026-10-14, **historical where superseded**. The Owner reports real synthetic Staging activation by 2026-11-19. **ADR 0016 supersedes the key-only Staging SSH/bootstrap method** with protected-Environment root-password bootstrap, and **ADR 0017 supersedes ADR 0016 backup/restore with NO automated Staging backups**. Other HTTPS/auth/isolation/provenance safeguards remain. See [current-state authority](../CURRENT_STATE_AND_POLICY_2026-11-19.md). The October "not deployed" and "OD-01 pending" passages are historical evidence, **not an up-to-date description of the running images**.
 
 ## Context
 
@@ -23,8 +23,8 @@ The UI can be exercised over ordinary public HTTPS and ordinary `development` me
 
 Supersedes earlier private-access staging proposals and Caddy/Cloudflare-proxied alternatives **for FP-003B only**. Retains ADR 0002 (PostgreSQL truth), 0004 (no Pasarguard database coupling), 0011 (TypeORM/migrations), 0013 (later human-controlled financial cutover), 0014 (NestJS/Fastify).
 
-## Custom-image exception — Owner decision PENDING (OD-01)
+## Custom-image exception — original OD-01 approval record missing
 
-Earlier implementation text asserted Owner approval of the Caddy and gosu rebuilds. Independent Review could not establish a distinct human authorization; those assertions are withdrawn. The approved official-image requirement remains authoritative until the Owner explicitly accepts both exceptions and their maintenance burden. Current custom Dockerfiles are proposed/testable candidates only; neither successful scans nor this document authorizes using them on staging.
+Earlier implementation text asserted Owner approval of Caddy and gosu rebuilds. Independent Review could not establish a distinct authorization. **Later CI now builds/scans the custom Caddy/PostgreSQL-helper images, and they have appeared in Staging release proposals; this is not retroactive proof of the missing OD-01 Owner approval.** Obtain and record the Owner's exact custom-image and maintenance-risk acceptance before claiming the decision closed. No scan waiver or infrastructure operation is authorized merely by this historical ADR.
 
 See [decision evidence](../implementation/FP-003B-image-decision.md) for pinned official digests, exact baseline vulnerabilities, supported official alternatives, runtime relevance and maintenance tradeoffs. No scan waiver or infrastructure operation is authorized.

@@ -1,6 +1,6 @@
 # OD-01 — custom Caddy and PostgreSQL helper decision
 
-**PENDING human Owner decision.** Prior implementation assertions of approval are withdrawn. No independently documented approval reference was supplied. This is a proposal, not authorization. No scan thresholds or waivers changed.
+**Historical OD-01 decision evidence, captured 2026-10-14.** No independently documented human Owner image-exception approval reference was supplied. **Current code uses Caddy 2.11.9**, not the Caddy 2.11.7 scanned here; current CI builds/scans custom Caddy and PostgreSQL gosu-helper images and uses reviewed immutable digests in release proposals. That observed implementation is **not evidence of the missing explicit Owner approval** or of the current host's exact running digest. The tables below remain a dated baseline, not up-to-date Trivy results. See [current state](../CURRENT_STATE_AND_POLICY_2026-11-19.md).
 
 Evidence was freshly obtained on 2026-10-14 using Trivy 0.75.0, linux/amd64, HIGH/CRITICAL filtering. [Sanitized scanner findings](evidence/FP-003B-official-image-scans.json) list exact binary/package/CVE/installed/fixed versions. Only public image metadata and vulnerability fields are retained. These are scanner matches, not exploitability proofs.
 

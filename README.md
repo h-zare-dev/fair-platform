@@ -2,7 +2,7 @@
 
 Fair Platform is a production-focused modular platform for Pasarguard accounting, pricing, reporting, automation, and future sales services.
 
-> Status: development. FP-001/FP-001B ingestion, FP-002 SHADOW accounting foundations and FP-003A offline historical replay are merged into `development`. **NEXT: FP-003B public HTTPS staging Owner dashboard and automatic CI/CD — implementation approved on 2026-10-14; implementation and verification in Draft PR #36. First staging deployment/activation remains pending.** Pricing and financial classification are not yet implemented; live webhook authentication/activation remains separately gated.
+> **Status (2026-11-19):** FP-001/FP-001B ingestion, FP-002 SHADOW foundations, FP-003A replay, FP-003B public synthetic Owner dashboard and FP-003C fast-release phase one have been implemented/merged into `development`. **The Owner reports the Persian Staging dashboard live**; exact currently running release is an independent operational verification. FP-004 has a synthetic pricing quote engine and Owner editor, **not live accounting**. PR #80 documents the revised Owner-approved admin-directory, Jalali/local-group and **nightly settlement** direction; code/migrations, FP-005–007 classification, real reports and production webhook billing remain pending. See [current status and staging exceptions](docs/CURRENT_STATE_AND_POLICY_2026-11-19.md).
 
 ## Technology
 - Node.js 24 LTS
@@ -24,10 +24,10 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 - `apps/web` — Next.js Owner UI.
 - `packages/accounting` — accounting domain boundary.
 - `packages/pricing` — pricing domain boundary.
-- `packages/calendar` — Jalali reporting/calendar boundary.
+- `packages/calendar` — planned shared Jalali reporting/calendar boundary (not yet a complete reporting service).
 - `packages/pasarguard` — Pasarguard integration boundary.
-- `packages/contracts` — validated shared contracts.
-- `packages/shared` — genuinely cross-cutting primitives only.
+- `packages/contracts` — reserved shared contract boundary (partial/placeholder).
+- `packages/shared` — reserved cross-cutting primitives boundary (partial/placeholder).
 - `tests` — contract, E2E, fixture, and golden-test assets.
 - `docs` — authoritative architecture, domain, security, testing, and workflow documentation.
 
@@ -72,9 +72,11 @@ pnpm build
 ## Documentation
 Start with `AGENTS.md`, then read:
 - **[`docs/ROADMAP.md`](docs/ROADMAP.md) — canonical roadmap, current statuses and Owner-only merge gates.**
-- [`docs/tasks/FP-003B-operational-dashboard.md`](docs/tasks/FP-003B-operational-dashboard.md) — **Owner-approved implementation** contract; first staging deployment/activation approval remains separate.
-- [`docs/deployment/FP-003B-staging-runbook.md`](docs/deployment/FP-003B-staging-runbook.md) — Docker/Caddy/DNS/SSH/UFW/GHCR delivery and operator recovery plan (**not deployed**).
-- [`docs/adr/0015-public-https-staging-and-controlled-delivery.md`](docs/adr/0015-public-https-staging-and-controlled-delivery.md) — accepted implementation architecture and explicit image-hardening approvals; not deployed.
+- [`docs/CURRENT_STATE_AND_POLICY_2026-11-19.md`](docs/CURRENT_STATE_AND_POLICY_2026-11-19.md) — **current** implemented/Owner-observed status and Staging risk exceptions; read before historical planning docs.
+- [`docs/tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md`](docs/tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md) — Owner-approved **future design**, not yet implemented or authorized for live billing.
+- [`docs/tasks/FP-003B-operational-dashboard.md`](docs/tasks/FP-003B-operational-dashboard.md) — historical approved implementation contract.
+- [`docs/deployment/FP-003B-staging-runbook.md`](docs/deployment/FP-003B-staging-runbook.md) — current release notes plus explicitly marked historical operator procedures.
+- [`docs/adr/0015-public-https-staging-and-controlled-delivery.md`](docs/adr/0015-public-https-staging-and-controlled-delivery.md), [0016](docs/adr/0016-disposable-staging-local-backup-and-owner-merge-cd.md), [0017](docs/adr/0017-no-automatic-backup-for-disposable-synthetic-staging.md) — Staging decision sequence; later scope-limited exceptions override earlier plans.
 - `docs/PROJECT_BLUEPRINT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DOMAIN_RULES.md`

@@ -14,8 +14,9 @@ vulnerabilities:
       - pkg:npm/picomatch@4.0.7
     expired_at: 2026-12-02
     statement: >-
-      GitHub Advisory GHSA-fc5q-39xc-vjpf lists no patched release on
-      2026-11-18. Picomatch 4.0.7 enters this source tree via the
-      Vitest/Vite/tinyglobby development and test toolchain. It is not
-      included in the production API/Web runtime images. The precise
-      advisory remains tracked and must be revisited by 2026-12-02.
+      GitHub Advisory GHSA-fc5q-39xc-vjpf was withdrawn on 2026-11-18,
+      but NVD CVE-2026-112366 remains published and no patched release
+      has been established. Picomatch 4.0.7 enters the Vitest/Vite development
+      toolchain AND the production API image through TypeORM/tinyglobby.
+      The precise status and scanning behavior must be revisited by
+      2026-12-02; no untrusted glob-input unreachability was proven.

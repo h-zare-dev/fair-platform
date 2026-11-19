@@ -5,6 +5,7 @@ unreviewed package installer just to verify its own workflow invariants.
 """
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -48,6 +49,23 @@ class FastDeliveryTests(unittest.TestCase):
             self.assertIn(f'cache-from: type=gha,scope={scope}', self.containers)
             self.assertIn(f'cache-to: type=gha,scope={scope},mode=max', self.containers)
         self.assertEqual(self.containers.count('          load: true'), 4)
+
+    def test_both_custom_go_builders_are_pinned_to_a_patched_toolchain(self):
+        # A stale Caddy Go stdlib image failed PR #80's unchanged Trivy
+        # HIGH/CRITICAL gate with CVE-2026-97054 (patched in Go 1.27.4).
+        builders = []
+        for dockerfile in ('Dockerfile.caddy', 'Dockerfile.postgres'):
+            content = (ROOT / 'docker' / dockerfile).read_text()
+            from_line = content.splitlines()[0]
+            match = re.fullmatch(
+                r'FROM golang:(\d+)\.(\d+)\.(\d+)-alpine3\.24@sha256:([0-9a-f]{64}) AS build',
+                from_line,
+            )
+            self.assertIsNotNone(match, f'{dockerfile}: Go builder must pin an immutable official digest')
+            version = tuple(map(int, match.group(1, 2, 3)))
+            self.assertGreaterEqual(version, (1, 27, 4), f'{dockerfile}: unsupported vulnerable Go toolchain')
+            builders.append((version, match.group(4)))
+        self.assertEqual(builders[0], builders[1], 'Caddy/gosu must use one reviewed Go builder')
 
     def test_release_failures_retain_diagnostics_and_rollback(self):
         release = (ROOT / 'scripts/staging/release.py').read_text()

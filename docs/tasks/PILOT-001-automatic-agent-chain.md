@@ -1,5 +1,11 @@
 # PILOT-001 — First automatic agent chain (isolated, non-production)
 
+> **Historical 2026 pilot specification.** Sol/Luna names below record the
+> approved test configuration **at the time**; they are not required model IDs
+> for the current runtime. Active model selection belongs to private Owner
+> orchestration config. Worktree separation also does **not** imply OS sandbox
+> isolation when `danger-full-access` is enabled.
+
 ## Purpose
 
 Prove that a single supervised Fair Platform Orchestrator invocation can autonomously

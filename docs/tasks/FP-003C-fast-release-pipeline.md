@@ -1,8 +1,11 @@
 # FP-003C — Fast Release Pipeline (synthetic Staging)
 
-**Status:** Owner-approved Fast Release direction (2026-11-19); implementation
-in a reviewed Draft PR. Applies to all ordinary Fair Platform feature releases
-on protected `development`, not only UI changes.
+**Status:** Owner **merged phase-one implementation PR #78 (`768254b`)** on
+2026-11-19. The remaining proposal language below describes its reviewed
+implementation contract, not the current Draft PR state. The phase-one
+fast path applies to ordinary protected-`development` Staging releases; the
+warm-cache 3–5-minute target needs real measurement. **Synthetic backup/restore
+tests remain in full PR/main/manual CI, not on the Staging VPS** (ADR 0017).
 
 ## Problem and evidence
 

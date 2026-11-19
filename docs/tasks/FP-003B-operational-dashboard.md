@@ -1,5 +1,16 @@
 # FP-003B — Public HTTPS Staging Owner Dashboard and Automatic Delivery
 
+> **HISTORICAL OCTOBER IMPLEMENTATION SPEC — not the current staging status.**
+> The Owner reports the Persian synthetic dashboard subsequently activated.
+> The original key-only SSH and backup/restore requirements were superseded
+> **for disposable synthetic Staging only** by ADR 0016 and ADR 0017.
+> The historical `OD-01 PENDING` paragraph below was resolved when the
+> [Owner's image decision was relayed in PR #36](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168437966).
+> The [November 19 review](../security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md)
+> retains the two image builds and tracks unpatched advisory deadlines.
+> The Owner also cancelled unattended development agents; they are no longer
+> a release prerequisite. See [current status](../CURRENT_STATE_AND_POLICY_2026-11-19.md).
+
 **Status:** IMPLEMENTATION APPROVED by explicit human Owner instruction on 2026-10-14. First staging deployment/setup/activation approval remains PENDING; no server changes are authorized. This proposal supersedes the original *private-access design brief*, not the canonical financial/domain rules. See [ROADMAP](../ROADMAP.md), [ADR 0015](../adr/0015-public-https-staging-and-controlled-delivery.md), and [staging operations](../deployment/FP-003B-staging-runbook.md).
 
 **Target:** one public-facing, production-like **STAGING** website at **https://panel.fairisfair.ir**, serving a single authenticated Owner from desktop and mobile. The UI/API operate on safe persistent synthetic Fair data; the service is **not** connected to production Pasarguard or Pasarjew and **does not post financial charges**. Staging delivery becomes automatic *after the Owner's one-time staging enablement* and after the Owner merges approved code to `development`.

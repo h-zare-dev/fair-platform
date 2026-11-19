@@ -1,18 +1,23 @@
 # Codex model routing and usage budget — Fair Platform agent lab
 
-**Status (2026-11-15):** Sol Low (Implementation/Review) and Luna Low (QA) were verified in the supervised task #57 pilot, and Orchestrator PR #55 is merged. This file remains the desired routing/budget contract; an unattended daemon and Lab E2E have **not** been activated. Tracking #53 / PR #54.
+> **ARCHIVED (Owner cancelled autonomous agents on 2026-11-19).** Configuration
+> and command examples below document the former pilot. They are **not**
+> instructions to reactivate agent services, and model routing is not a
+> prerequisite for new feature PRs. See [automation status](README.md).
 
-| Responsibility | Preferred Codex model ID | Reasoning effort | Note |
+**Status:** The original pilot (task #57 / PR #55) used then-available Sol/Luna profiles. Those are **historical observations**, not a permanent model policy. Model availability and current private runtime configuration must be verified on the Owner's laptop; this repository does not prove unattended daemon activation or Lab E2E. Tracking #53 / PR #54.
+
+| Responsibility | Model selection source | Reasoning effort | Note |
 | --- | --- | --- | --- |
-| Orchestrator AI fallback | `gpt-6-luna` | `low` | **Do not invoke a model for routine scheduling, polling, GitHub mutations, parsing, or command execution.** Deterministic TypeScript first. |
-| Implementation | `gpt-6-sol` | `low` | Core coding, migrations, feature changes. |
-| Independent Review | `gpt-6-sol` | `low` | Transaction/security/accounting correctness. Escalate only exceptional complexity with owner-approved budget. |
-| QA / Tester | `gpt-6-luna` | `low` | Use deterministic Vitest/PostgreSQL/Playwright suites; escalate complex financial debugging to Sol after bounded failure. |
-| Deployment / Lab E2E | `gpt-6-luna` | `low` | Shell/SSH/Compose actions must be scripted, allowlisted and audited; use AI for diagnoses, not routine repeated execution. |
-| Telegram / Historical Replay QA | `gpt-6-luna` | `low` | Test-only synthetic Telegram and offline replay verification; no private dataset in GitHub. |
-| GitHub Reporting (AI only when needed) | `gpt-6-luna` | `none` | Prefer deterministic report templates; never call an AI just to post status. |
+| Orchestrator AI fallback | private Owner routing config | Owner-selected | **Do not invoke a model for routine scheduling, polling, GitHub mutations, parsing, or command execution.** Deterministic TypeScript first. |
+| Implementation | private Owner routing config | Owner-selected | Core coding, migrations and feature changes. |
+| Independent Review | private Owner routing config | Owner-selected | Transaction/security/accounting correctness; independent verdict on exact commit. |
+| QA / Tester | private Owner routing config | Owner-selected | Prefer deterministic Vitest/PostgreSQL/Playwright suites; use models for bounded diagnosis. |
+| Deployment / Lab E2E | private Owner routing config | Owner-selected | Shell/SSH/Compose actions must be scripted, allowlisted and audited; use AI for diagnosis only. |
+| Telegram / Historical Replay QA | private Owner routing config | Owner-selected | Test-only synthetic Telegram and offline replay; no private dataset in GitHub. |
+| GitHub Reporting (AI only when needed) | private Owner routing config | Owner-selected | Prefer deterministic templates; never call an AI just to post status. |
 
-A high-precision financial reasoning issue may request `gpt-6-sol` at `medium` effort **only by an explicit bounded escalation**; the default stays low. No automatic switches to Astra/Pro/High or uncontrolled retry loops.
+A high-precision financial reasoning issue may request a different available model/effort **only by an explicit bounded Owner-approved escalation**. No automatic model upgrade or uncontrolled retry loops.
 
 ## Current supervised runtime security boundary
 
@@ -22,17 +27,16 @@ Do not treat prompt instructions such as "no production" as a technical access r
 
 ## CLI/TUI launcher requirements
 
-The Owner already uses `~/.local/bin/fair-agents`, a `fair-platform` tmux session and the existing implementation/review/QA worktrees; a separate `fair-replay-qa` launcher may also exist. **Preserve all** active sessions, window names, worktrees, uncommitted changes and agent histories. Do NOT replace scripts with guessed templates or kill existing tmux sessions. Back up local scripts first; inspect actual content and Codex CLI `--help`/version.
+The Owner previously used `~/.local/bin/fair-agents`, a `fair-platform` tmux session and separate implementation/review/QA worktrees; a separate `fair-replay-qa` launcher may also exist. **Preserve all** active sessions, window names, worktrees, uncommitted changes and histories. Do NOT replace scripts with guessed templates or kill existing tmux sessions. Back up local scripts first; inspect actual content and Codex CLI `--help`/version.
 
 Suggested shape, if supported by installed Codex:
 
-```bash
-mise exec -- codex -m gpt-6-sol -c 'model_reasoning_effort="low"' --sandbox workspace-write
-mise exec -- codex -m gpt-6-sol -c 'model_reasoning_effort="low"' --sandbox read-only
-mise exec -- codex -m gpt-6-luna -c 'model_reasoning_effort="low"' --sandbox workspace-write
-```
+Configure the current model ID and effort per role in the Owner's **private**
+`fair-agent-models.conf` (or equivalent validated runtime config), not in this
+repository. If using a manual Codex TUI, read the configured values and run
+`codex --help` first; never assume a historical model ID is still available.
 
-A Luna reporting-only call can use `-c 'model_reasoning_effort="none"'`; by default reporting should not invoke Codex at all. Validate model availability and effective reasoning with Codex `/model` and `/status`, without launching expensive jobs. A launcher update affects **new sessions**, not already running interactive TUI sessions. Do not silently override a live session.
+For reporting, prefer **no model call**; if a model is actually needed, use the Owner-configured bounded effort. Validate model availability/effective reasoning using Codex `/model` and `/status`; launcher changes affect **new sessions**, not already running TUI sessions. Do not silently override a live session.
 
 Prefer a single locally owned per-role config file consumed by both the manual `fair-agents` launcher and the future Orchestrator, rather than duplicate hardcoded model strings. The config should be editable without a source-code change and should expose model and reasoning effort separately.
 
@@ -44,6 +48,6 @@ Prefer a single locally owned per-role config file consumed by both the manual `
 - Cache task spec, test inventory and stable context; track model turn-count/usage metrics when available and **never invent** exact remaining 5h/weekly quota.
 - Pause on account limits/authorization errors, save durable checkpoint; no auto-purchase, API billing fallback, credential substitution or repeated futile retries.
 - Cap bug-fix cycles by the state-machine contract (default 3), with owner escalation when exhausted.
-- Verify subscription access to these Codex model IDs before activation; if unsupported, STOP/ask the Owner to select a supported fallback instead of silently changing model or thinking effort.
+- Verify subscription access to the **configured** model IDs before activation; if unsupported, STOP/ask the Owner to select a supported fallback instead of silently changing model or thinking effort.
 
 This file is a declarative contract: no actual launcher, session or systemd service has been changed by publishing it.

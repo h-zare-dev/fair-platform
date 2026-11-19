@@ -1,5 +1,14 @@
 # Owner-only staging release diagnostics
 
+> **Historical incident and diagnostic design (Nov 18–19), not current release
+> instructions.** Some fields below mention old restore evidence/backups and
+> now-reconciled journals. Current disposable Staging uses ADR 0017 **no
+> backup/restore**, with a root-password bootstrap exception under ADR 0016.
+> See [current status and incident chronology](../CURRENT_STATE_AND_POLICY_2026-11-19.md)
+> and the updated [runbook](FP-003B-staging-runbook.md). Do not rerun old
+> exact-SHA reconciliation actions or treat previous candidate diagnostics as
+> current authorization.
+
 **Owner request:** 2026-11-18. **Scope:** inspect the existing FP-003B synthetic-only
 staging VPS through already configured protected GitHub Environment credentials,
 without requiring the Owner to run repeated SSH commands.

@@ -1,6 +1,6 @@
-# FP-003B — Public Staging Operations and Delivery Runbook (Design Contract)
+# FP-003B — Public synthetic Staging release runbook and historical design notes
 
-**Status:** DRAFT operator runbook; commands are **plans**, not evidence of a configured server. See [FP-003B task specification](../tasks/FP-003B-operational-dashboard.md) and [ADR 0015](../adr/0015-public-https-staging-and-controlled-delivery.md).
+**Status (2026-11-19):** Owner reports Persian Staging dashboard activated after reviewed merges. **The first "Current staging post-merge procedure" section is operative; older bootstrap/backup/SSH instructions below are historical and must NOT be applied to the current VPS.** Live current SHA/health still requires host evidence. See [current-state policy](../CURRENT_STATE_AND_POLICY_2026-11-19.md), [FP-003B historical spec](../tasks/FP-003B-operational-dashboard.md), and ADRs [0015](../adr/0015-public-https-staging-and-controlled-delivery.md), [0016](../adr/0016-disposable-staging-local-backup-and-owner-merge-cd.md), [0017](../adr/0017-no-automatic-backup-for-disposable-synthetic-staging.md).
 
 > **Latest Owner override (2026-11-18):** For this *existing, synthetic-only* staging VPS, [ADR 0017](../adr/0017-no-automatic-backup-for-disposable-synthetic-staging.md) supersedes ADR 0016's local-backup/restore requirement. **Neither pre-deployment nor periodic backup/restore runs** after the Owner merges the reviewed no-backup change. The existing backup timer is disabled, but old backup archives are not deleted. Losing staging data may be irreversible. No production or live finances are authorized. Sections below describing mandatory backup/restore are historical design notes, **not current instructions for this VPS**.
 
@@ -36,24 +36,30 @@ Persian dashboard is not yet accepted.** Do not blindly retry the high-water
 SHA or disable database gates. The original failed application subphase was
 not exposed by the old redacted error code.
 
-**FP-003C staged delivery improvement (Owner-reviewed Draft only):** See
+**FP-003C staged delivery improvement (Owner-merged PR #78):** See
 [`FP-003C Fast Release`](../tasks/FP-003C-fast-release-pipeline.md).
-Once separately approved and merged, full browser/backup/restore synthetic
-tests remain a PR gate; the protected `development` push keeps quality,
+Full browser/backup/restore **synthetic CI tests** remain a PR/full-CI gate;
+the protected `development` push keeps quality,
 security, provenance, scanned immutable images, migrations, health, smoke and
 safe rollback without repeating the long PR integration suite. The next
 rollback should identify a fixed safe `startup`, `health` or `smoke` code.
-This is not evidence that the current public site has updated.
+The Owner reports a later Persian dashboard release, but the current public
+runtime SHA cannot be inferred from this historical incident paragraph.
 
 ## Environment identity
 
 - Domain: `panel.fairisfair.ir`, Cloudflare **DNS-only** (grey cloud).
 - Machine: dedicated STAGING VPS, not Pasarguard/Pasarjew and not eventual production.
-- Public inbound: **TCP/22 for OpenSSH key-only**, **TCP/443 for Caddy HTTPS**. Closed TCP/80; no published UDP/443. Host firewall: **simple UFW**, no custom Docker-specific rules in this phase.
+- Public inbound: **TCP/22 for OpenSSH** (**ADR 0016 permits privileged password-based Staging bootstrap, not key-only**), **TCP/443 for Caddy HTTPS**. Closed TCP/80; no published UDP/443. Host firewall: simple UFW; no custom Docker-specific rules in this phase.
 - App containers: Caddy, Next.js Web, NestJS Owner API, PostgreSQL 17 and optional one-shot migration/backup tasks. FP-001 webhook worker/receiver and live billing remain **OFF**.
 - Host has minimal Docker Engine + Compose plugin, SSH, UFW and OS/security prerequisites; "all Docker" means app services are containers, not that the Linux host has literally no packages.
 
-## Before first deployment — human Owner/operator checklist
+## Historical first-deployment checklist — NOT current Staging instructions
+
+**Do not execute this October-era checklist against the activated VPS.** Its
+key-only SSH, off-host backup and restore-drill requirements were superseded
+**for this disposable synthetic Staging only** by ADRs 0016/0017. Preserve it
+as evidence of the original security baseline, not as current authority.
 
 1. Provision isolated VPS and record its provider rescue/console entry. Decide IPv4/IPv6 support and confirm both DNS record families are accurate; do not publish unused AAAA.
 2. Install/configure Docker Engine + Compose, OpenSSH, UFW; preserve OS automatic security updates. Authenticate to SSH with a public key from a **new independent terminal session** before disabling password and keyboard-interactive authentication. Keep Provider console verified as break-glass. SSH port stays 22.
@@ -66,24 +72,24 @@ This is not evidence that the current public site has updated.
 9. Set up encrypted off-host backup and **prove restore** to an isolated target before declaring deployment complete. Configure alerting for backup, deploy and TLS problems.
 10. Owner authorizes **initial staging go-live** only after external HTTPS/phone login, auth denial, DB retention, listener/port scans and tests are PASS. Routine future `development` merges then deploy automatically.
 
-## Automatic release workflow (post-initial setup)
+## Historical release-workflow design — see current procedure at top
 
 - Trigger: **push to `development` after human Owner merge**. PR workflows run quality but **never** use staging secrets or deploy.
 - Gate: frozen pnpm install, format/lint/typecheck, real Postgres17 integration/E2E, build, relevant security checks, reviewed dependency/secret and container scans.
 - Publish: Docker multi-stage images into GHCR; capture exact immutable digests/merge SHA, attest allowed image metadata, do not push confidential environment values.
 - Deploy: CI job restricted to the protected `development` staging environment, serialized by deployment lock; SSH 22 with pinned host key and a dedicated credential. No self-hosted runner. Existing host compose/app data belong to **staging only**.
-- On host: fail preflight if DB/backup/permissions invalid; run only compatible migration; pull/apply pinned digests; wait for health/readiness; HTTPS smoke and authenticated non-sensitive check; mark release complete or safe app-only revert (when schema backward compatible).
+- Historical original design mentioned DB/backup preflight. **Current ADR 0017 release never runs or requires a Staging backup/restore**; it still checks database identity, reviewed migration hashes, permissions, digests, health and smoke and permits safe app-only fallback only when compatible.
 - Failure: stop, alert, preserve logs/evidence and last known good manifests. **Never automatically restore or destroy the DB** to cover a migration problem. If no safe automatic rollback, require Owner intervention.
 - Success: published site updates on its own without the Owner manually invoking SSH/Compose. This automation **does not** approve or execute the GitHub Merge itself.
 
 ## Operator recovery paths
 
 - Bad app image: redeploy previous known-good **digest** after confirming DB schema compatibility.
-- Failed migration: stop; preserve DB; inspect operation and backup; do **not** blindly run DOWN migration on populated DB or delete PostgreSQL volume.
+- Failed migration: stop; preserve DB and current incident evidence; **there may be no usable backup**. Do **not** blindly run DOWN migration on populated DB or delete PostgreSQL volume.
 - Invalid session/locked Owner: CLI `owner:reset-password` and `owner:revoke-sessions` through trusted admin channel; no public password reset page.
 - Caddy cert issue: verify DNS-only A/AAAA, CAA, ingress TCP/443, Caddy persistent data, issuer rate-limit/errors and configured TLS-ALPN; do not open TCP/80 behind the Owner's back.
 - Lost SSH: provider console/rescue. Do not rely on GitHub Actions for sole server recovery path.
-- DB loss: use last verified encrypted off-host backup and isolated restore test, decide recovery with Owner; never replay private Pasarjew data to staging.
+- DB loss: **no automatic Staging backup/restore exists** under ADR 0017; data may be permanently lost. Escalate to the human Owner for explicit synthetic-instance rebuild decisions; never replay private Pasarjew data to staging.
 - Rollout drift: compare current VPS and GitHub Environment against this runbook and ADR before expanding to live production.
 
 ## Local/CI verification and documentation outputs
@@ -92,9 +98,9 @@ Implementation must supply redacted examples for Compose/Caddy, an environment-v
 
 Official references: [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https), [Caddy Caddyfile options](https://caddyserver.com/docs/caddyfile/options), [Docker published ports](https://docs.docker.com/engine/network/port-publishing/), [Docker & UFW](https://docs.docker.com/engine/network/packet-filtering-firewalls/), [GitHub deployment environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments).
 
-## Implementation procedures (PLANNED until Owner activation)
+## Historical original implementation procedures — DO NOT execute on current VPS
 
-The Owner explicitly approved implementation on 2026-10-14. This does not approve any host operation below. PR #36 remains Draft. Local evidence is recorded in `docs/implementation/FP-003B.md`; no real DNS, TLS issuance, VPS, SSH, backup destination or GitHub environment has been configured by the agent.
+The Owner approved this original implementation plan on 2026-10-14. The later VPS activation, root-password bootstrap, no-backup policy and PR #78 fast path **supersede** these historical host procedures. Do not interpret old references to Draft PR #36 or to never-configured infrastructure as a statement about November 19. Local historical evidence is in `docs/implementation/FP-003B.md`.
 
 ### Operator installation and secret inventory
 
@@ -154,13 +160,13 @@ The host takes a nonblocking file lock, verifies authoritative ancestry/high-wat
 
 **Not yet evidenced:** actual VPS listener/firewall/SSH restrictions, public issuance/renewal, phone over the internet, off-host transfer/recovery drill, GHCR credentials and first complete SSH delivery. Local/CI simulations do not satisfy those operational gates.
 
-## Custom-image exception — Owner decision PENDING (OD-01)
+## OD-01 custom-image exception — approval reference found
 
-Earlier implementation text asserted Owner approval of the Caddy and gosu rebuilds. Independent Review could not establish a distinct human authorization; those assertions are withdrawn. The approved official-image requirement remains authoritative until the Owner explicitly accepts both exceptions and their maintenance burden. Current custom Dockerfiles are proposed/testable candidates only; neither successful scans nor this document authorizes using them on staging.
+Earlier Review could not establish a distinct human authorization, so early assertions were withdrawn. **Later evidence resolves the approval-documentation gap:** the Owner's October decision in conversation was [relayed into PR #36](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168437966) and [reviewed](https://github.com/h-zare-dev/fair-platform/pull/36#issuecomment-6168662738). This is not a comment personally posted by the Owner. The [November 19 disposition](../security/STAGING_IMAGE_AND_ADVISORY_DECISION_2026-11-19.md) reconfirms retaining the two minimal custom builds under unchanged security/transition gates. Current Caddy source is 2.11.9, while the original baseline describes 2.11.7. The running VPS digests still require separate live verification; a documented design approval cannot substitute for a deployed-image scan.
 
 See [decision evidence](../implementation/FP-003B-image-decision.md) for pinned official digests, exact baseline vulnerabilities, supported official alternatives, runtime relevance and maintenance tradeoffs. No scan waiver or infrastructure operation is authorized.
 
-## Corrected release ordering and recovery (not deployed)
+## Historical corrected release implementation notes (later changed by ADR 0017)
 
 All checks run under the host `deployment.lock`, including GitHub evidence checks. `high-water.json` is a root-owned, fsynced server record independent of `current.json`; app rollback never lowers it. On initial use it derives from the human-accepted current SHA. A candidate must equal the GitHub `development` tip and be strictly descended from high-water (GitHub compare status `ahead`, merge base exactly high-water). GitHub data comes directly from HTTPS on the host for this public repository, never from caller-provided JSON. No GitHub credential is required; TLS authenticates the server. HTTP/rate-limit/timeout/malformed/unavailable evidence fails closed. An identical accepted manifest is a no-op only after verification; changed digests with the same SHA, an earlier SHA or a rerun of a rolled-back candidate cannot deploy normally.
 

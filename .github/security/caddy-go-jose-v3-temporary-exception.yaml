@@ -1,6 +1,7 @@
 # Temporary, narrowly scoped owner-requested risk acceptance.
 # NOT a remediation and NOT a declaration that this package is safe.
-# Loaded ONLY by the source and Caddy-image Trivy jobs on PR #55.
+# Loaded ONLY by the source and Caddy-image Trivy jobs (the historical
+# PR #55 origin does not limit this current 2026-12-15 expiry).
 # It MUST NOT be used by API/Web/PostgreSQL image scans.
 vulnerabilities:
   - id: CVE-2026-116587

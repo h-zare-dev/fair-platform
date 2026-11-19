@@ -288,7 +288,19 @@ def deploy(root, settings_dir, release, commands):
         phase('startup', lambda: commands.compose(env, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '120', 'owner-api', 'web', 'caddy'))
         phase('health', lambda: commands.run([str(root / 'tooling' / 'health-monitor.sh')]))
         phase('smoke', lambda: one_shot('smoke', names[2]))
-    except ReleaseError:
+    except ReleaseError as failure:
+        # Preserve a bounded, secret-free reason before rollback phases replace
+        # state['phase']. Never forward Docker/HTTP stderr to public CI logs.
+        failed_phase = state.get('phase')
+        if failed_phase not in ('startup', 'health', 'smoke'):
+            failed_phase = 'unknown'
+        failed_code = str(failure)
+        if failed_code not in ('STARTUP_FAILED_OPERATOR_REQUIRED',
+                               'HEALTH_FAILED_OPERATOR_REQUIRED',
+                               'SMOKE_FAILED_OPERATOR_REQUIRED'):
+            failed_code = 'APP_PHASE_FAILED_OPERATOR_REQUIRED'
+        state['appFailure'] = {'phase': failed_phase, 'code': failed_code}
+        atomic(state_path, json.dumps(state))
         # Successful approved migration + healthy expected DB prove app-only fallback scope.
         rollback_database = phase('rollback-database-check',
                                   lambda: database_identity(commands, env, release['postgres']))
@@ -303,7 +315,7 @@ def deploy(root, settings_dir, release, commands):
         atomic(root / 'current.env', old_env.read_text())
         atomic(previous_path, json.dumps(fallback))
         resolved('app-rollback')
-        raise ReleaseError('APP_FAILED_PREVIOUS_RELEASE_RESTORED') from None
+        raise ReleaseError('APP_' + failed_phase.upper() + '_FAILED_PREVIOUS_RELEASE_RESTORED') from None
     phase('commit', lambda: None)
     (root / 'releases').mkdir(exist_ok=True)
     atomic(root / 'releases' / (release['sha'] + '.json'), json.dumps(release))

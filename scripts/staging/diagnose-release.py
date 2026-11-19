@@ -218,6 +218,11 @@ def diagnose(root, settings, docker, now=None):
         'candidate_sha': safe_sha(state.get('sha')),
         'accepted_sha': safe_sha(accepted.get('sha')),
         'high_water_sha': safe_sha(high.get('sha')),
+        # Safe, phase-only metadata survives a successful app rollback; the
+        # original underlying container/SQL errors remain host-private.
+        'failed_app_phase': safe_state((state.get('appFailure') or {}).get('phase'))
+        if state.get('outcome') == 'app-rollback' and isinstance(state.get('appFailure'), dict)
+        else 'none',
     }
     # Only the operator can reconcile; this is a *candidate* status, not approval.
     early = (journal['status'] == 'in-progress' and journal['phase'] == 'preflight'

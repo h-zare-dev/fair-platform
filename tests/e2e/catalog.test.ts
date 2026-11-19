@@ -137,11 +137,13 @@ describe('FP-004 atomic catalog: forward migration, immutable history and confli
     expect(
       (await catalog.list(s)).packages.find((p) => p.id === duplicate.id),
     ).toMatchObject({ amountToman: '200000', everAssigned: false });
+    // The Owner catalog database does not create the accounting ledger.
+    // No catalog operation may introduce or write that separate financial table.
     expect(
       await db.query(
-        'SELECT count(*)::int AS count FROM accounting_transactions',
+        "SELECT to_regclass('accounting_transactions')::text AS ledger",
       ),
-    ).toEqual([{ count: 0 }]);
+    ).toEqual([{ ledger: null }]);
   });
 
   it('permits different duration shapes, rejects same-shape and PER_GIB overlaps, and protects starts', async () => {

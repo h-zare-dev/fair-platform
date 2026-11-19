@@ -247,7 +247,7 @@ export function Dashboard() {
         </div>
       </header>
       <main className="dashboard">
-        <div className="stage">
+        <div className="stage" data-staging-billing-mode="no-live-billing">
           <span className="stage-dot" aria-hidden="true" /> محیط آزمایشی · دادهٔ
           ساختگی · حسابداری سایه · بدون دریافت وجه واقعی
         </div>

@@ -60,6 +60,15 @@ it('staging publishes only Caddy TCP443, persists data and retains webhook guard
   );
   expect(read('apps/api/src/owner/app.ts')).not.toContain('WebhookController');
 });
+it('staging smoke checks a stable no-live-billing marker, not translated dashboard text', () => {
+  const dashboard = read('apps/web/components/dashboard.tsx');
+  const smoke = read('apps/api/src/owner/smoke.ts');
+  const marker = 'data-staging-billing-mode="no-live-billing"';
+  expect(dashboard).toContain(marker);
+  expect(dashboard).toContain('بدون دریافت وجه واقعی');
+  expect(smoke).toContain(`.includes(\n          '${marker}',`);
+  expect(smoke).not.toContain("includes('NO LIVE BILLING')");
+});
 it('cursor validation rejects overflow, reuse, out-of-window values and submicrosecond input', () => {
   const query = {
     start: '2026-10-01T00:00:00Z',

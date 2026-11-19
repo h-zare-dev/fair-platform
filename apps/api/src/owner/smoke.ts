@@ -34,7 +34,9 @@ async function main() {
         throw new Error('SMOKE_FAILED');
       if (
         path === '/dashboard' &&
-        !(await response.text()).includes('NO LIVE BILLING')
+        !(await response.text()).includes(
+          'data-staging-billing-mode="no-live-billing"',
+        )
       )
         throw new Error('SMOKE_FAILED');
     }

@@ -65,8 +65,7 @@ sshpass -e ssh "${ssh_opts[@]}" "$root_host" \
   'install -d -m 0755 -o root -g root /opt/fair-staging/tooling && chmod 0711 /opt/fair-staging && chmod 0755 /opt/fair-staging/tooling' \
   2>"$work/ssh-error" || { echo 'PINNED_STAGING_PREPARE_FAILED'; exit 1; }
 files=(activate-local-test-vps.sh release.py ssh-release.sh fair-staging.sudoers
-       backup.sh backup-local.sh backup-with-settings.sh restore-verify.sh
-       backup.service backup.timer health-monitor.sh health-monitor.service
+       health-monitor.sh health-monitor.service
        health-monitor.timer fair-staging-alert@.service alert.py registry-temporary.sh)
 for name in "${files[@]}"; do
   [[ -f "scripts/staging/$name" ]]
@@ -78,11 +77,11 @@ sshpass -e scp -q "${ssh_opts[@]}" "${sources[@]}" \
     echo 'PINNED_STAGING_TOOLING_INSTALL_FAILED'; exit 1;
   }
 sshpass -e ssh "${ssh_opts[@]}" "$root_host" \
-  'chown root:root /opt/fair-staging/tooling/* && chmod 700 /opt/fair-staging/tooling/activate-local-test-vps.sh /opt/fair-staging/tooling/backup-local.sh /opt/fair-staging/tooling/backup-with-settings.sh /opt/fair-staging/tooling/backup.sh /opt/fair-staging/tooling/restore-verify.sh /opt/fair-staging/tooling/registry-temporary.sh && chmod 755 /opt/fair-staging/tooling/ssh-release.sh /opt/fair-staging/tooling/release.py /opt/fair-staging/tooling/health-monitor.sh /opt/fair-staging/tooling/alert.py' \
+  'chown root:root /opt/fair-staging/tooling/* && chmod 700 /opt/fair-staging/tooling/activate-local-test-vps.sh /opt/fair-staging/tooling/registry-temporary.sh && chmod 755 /opt/fair-staging/tooling/ssh-release.sh /opt/fair-staging/tooling/release.py /opt/fair-staging/tooling/health-monitor.sh /opt/fair-staging/tooling/alert.py' \
   2>"$work/ssh-error" || { echo 'STAGING_TOOLING_PERMISSIONS_FAILED'; exit 1; }
 
-# First Owner-approved merge activates local encrypted backup + actual isolated
-# restore. Subsequent merges only rotate the temporary restricted SSH key.
+# On each Owner-approved merge, safely disable the old daily Staging backup
+# timer and transition the synthetic-only host to the explicit no-backup gate.
 # The root password is used ONLY for installation and the transient key rotation.
 sshpass -e ssh "${ssh_opts[@]}" "$root_host" \
   'bash /opt/fair-staging/tooling/activate-local-test-vps.sh' \
@@ -102,8 +101,8 @@ ssh -T -p 22 -i "$work/deploy-key" -o IdentitiesOnly=yes -o BatchMode=yes \
   -o ConnectTimeout=15 -o LogLevel=ERROR \
   "fair-deploy@$STAGING_BOOTSTRAP_HOST" fair-staging-release \
   <"$work/release.json" 2>"$work/release-error" || {
-    for code in STAGING_NOT_ACTIVATED CONFIG_REQUIRES_OPERATOR_UPGRADE \
-      RESTORE_EVIDENCE_REQUIRED MIGRATION_COMPATIBILITY_UNPROVEN \
+    for code in STAGING_NOT_ACTIVATED STAGING_NO_BACKUP_POLICY_REQUIRED \
+      CONFIG_REQUIRES_OPERATOR_UPGRADE MIGRATION_COMPATIBILITY_UNPROVEN \
       MIGRATION_FAILED_OPERATOR_REQUIRED APP_FAILED_PREVIOUS_RELEASE_RESTORED \
       DEPLOYMENT_BUSY UNRESOLVED_RELEASE_OPERATOR_REQUIRED RELEASE_SUPERSEDED; do
       if grep -qx "$code" "$work/release-error"; then echo "$code"; fi

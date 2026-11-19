@@ -15,12 +15,16 @@ approval=$(python3 - "$settings/activation.json" <<'PY'
 import json,sys
 record=json.load(open(sys.argv[1]))
 approval=record.get('approval','')
-if approval == 'owner-approved-v1' and (record.get('schema')!='fp003b-v1' or record.get('backupPolicy')!='local-verified-v1'):
+if approval == 'owner-approved-v1' and (record.get('schema')!='fp003b-v1' or record.get('backupPolicy') not in ('local-verified-v1','staging-no-backup-v1')):
     sys.exit('STAGING_BACKUP_POLICY_MISMATCH')
 print(approval)
 PY
 )
 [[ "$approval" == DISABLED || "$approval" == owner-approved-v1 ]] || { echo 'STAGING_ACTIVATION_INVALID'; exit 1; }
+
+# Installation and policy transition must not race with a staging release.
+exec 8>>"$root/deployment.lock"
+flock -x -n 8 || { echo 'STAGING_DEPLOYMENT_BUSY'; exit 1; }
 
 # The private key stays solely in the GitHub staging Environment. The public
 # half is carried over the pinned one-time bootstrap SSH connection on stdin.
@@ -51,9 +55,53 @@ configure_deployer() {
   chmod 0755 "$root/tooling/release.py" "$root/tooling/ssh-release.sh"
 }
 
+disable_local_backup() {
+  # Owner explicitly no longer requests even the same-host backup timer.
+  # Do not interrupt an in-flight backup service or remove any saved archives.
+  if systemctl list-unit-files --no-legend --no-pager fair-staging-backup.timer 2>/dev/null \
+      | grep -q '^fair-staging-backup\.timer[[:space:]]'; then
+    systemctl disable --now fair-staging-backup.timer >/dev/null
+  fi
+  if systemctl is-active --quiet fair-staging-backup.timer || \
+      systemctl is-active --quiet fair-staging-backup.service; then
+    echo 'STAGING_BACKUP_STILL_ACTIVE' >&2
+    exit 1
+  fi
+}
+
+approve_no_backup_policy() {
+  python3 - "$settings/activation.json" <<'PY'
+import json, os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+assert not path.is_symlink()
+data = json.loads(path.read_text())
+assert data['approval'] == 'owner-approved-v1' and data['schema'] == 'fp003b-v1'
+assert data['backupPolicy'] in ('local-verified-v1', 'staging-no-backup-v1')
+data['backupPolicy'] = 'staging-no-backup-v1'
+fd, tmp = tempfile.mkstemp(prefix='.activation-no-backup-', dir=path.parent)
+try:
+    with os.fdopen(fd, 'w') as file:
+        json.dump(data, file, sort_keys=True)
+        file.flush()
+        os.fsync(file.fileno())
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+PY
+}
+
 if [[ "$approval" == owner-approved-v1 ]]; then
   configure_deployer
-  printf 'LOCAL_STAGING_DEPLOY_KEY_ROTATED\n'
+  disable_local_backup
+  approve_no_backup_policy
+  printf 'LOCAL_STAGING_DEPLOY_KEY_ROTATED_NO_BACKUP\n'
   exit 0
 fi
 
@@ -76,21 +124,7 @@ PY
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends age sudo
-install -d -m 0700 -o root -g root "$settings" /var/backups/fair-staging
-key="$settings/local-backup-identity"
-if [[ ! -e "$key" ]]; then
-  age-keygen -o "$key" >/dev/null 2>&1
-fi
-[[ -f "$key" && ! -L "$key" ]]
-chmod 600 "$key"
-recipient=$(age-keygen -y "$key")
-[[ "$recipient" =~ ^age1[a-z0-9]{20,}$ ]]
-
-backup_tmp=$(mktemp -p "$settings" .backup-env-XXXXXX)
-printf 'STAGING_ROOT=/opt/fair-staging\nBACKUP_POLICY=local-verified-v1\nBACKUP_LOCAL_DIR=/var/backups/fair-staging\nBACKUP_RECIPIENT=%s\nBACKUP_IDENTITY_FILE=%s\nRESTORE_EVIDENCE_FILE=/etc/fair-staging/restore-verified.json\nBACKUP_RETENTION_DAYS=7\n' "$recipient" "$key" >"$backup_tmp"
-chmod 600 "$backup_tmp"
-mv -f -- "$backup_tmp" "$settings/backup.env"
+apt-get install -y -qq --no-install-recommends sudo
 
 # Explicit approval of the currently running accepted baseline only. Future
 # new/changed migration hashes still fail closed in release.py.
@@ -102,35 +136,23 @@ docker compose --env-file current.env -f compose.yml run --rm --no-deps -T \
 chmod 600 "$compat_tmp"
 mv -f -- "$compat_tmp" "$settings/compatible-migrations.json"
 
-# Backup/restore both happen on this SAME VPS. Losing its disk loses backups.
-"$root/tooling/backup-with-settings.sh"
-python3 - "$settings/restore-verified.json" <<'PY'
-import datetime,json,sys
-record=json.load(open(sys.argv[1]))
-assert record['backupPolicy']=='local-verified-v1'
-at=datetime.datetime.fromisoformat(record['verifiedAt'])
-assert at.tzinfo and (datetime.datetime.now(datetime.timezone.utc)-at).total_seconds()<600
-PY
-
 configure_deployer
-install -m 0644 -o root -g root "$root/tooling/backup.timer" /etc/systemd/system/fair-staging-backup.timer
-install -m 0644 -o root -g root "$root/tooling/backup.service" /etc/systemd/system/fair-staging-backup.service
+disable_local_backup
 install -m 0644 -o root -g root "$root/tooling/health-monitor.timer" /etc/systemd/system/fair-staging-health-monitor.timer
 install -m 0644 -o root -g root "$root/tooling/health-monitor.service" /etc/systemd/system/fair-staging-health-monitor.service
 install -m 0644 -o root -g root "$root/tooling/fair-staging-alert@.service" /etc/systemd/system/fair-staging-alert@.service
 chmod 0755 "$root/tooling/health-monitor.sh" "$root/tooling/alert.py"
 systemctl daemon-reload
-systemctl enable --now fair-staging-backup.timer >/dev/null
 systemctl enable --now fair-staging-health-monitor.timer >/dev/null
 
-# Flip host gate only after all prerequisites and isolated recovery succeeded.
+# Flip host gate only after all non-backup prerequisites have succeeded.
 python3 - "$root" "$settings" <<'PY'
 import json,os,sys,tempfile
 from pathlib import Path
 root=Path(sys.argv[1]); settings=Path(sys.argv[2])
 env=dict(line.split('=',1) for line in (root/'current.env').read_text().splitlines())
 data={'approval':'owner-approved-v1','schema':'fp003b-v1','acmeEmail':env['ACME_EMAIL'],
-      'secretsDir':env['SECRETS_DIR'],'backupPolicy':'local-verified-v1'}
+      'secretsDir':env['SECRETS_DIR'],'backupPolicy':'staging-no-backup-v1'}
 fd,tmp=tempfile.mkstemp(dir=settings)
 with os.fdopen(fd,'w') as file:
     json.dump(data,file)
@@ -139,4 +161,4 @@ with os.fdopen(fd,'w') as file:
 os.replace(tmp,settings/'activation.json')
 os.chmod(settings/'activation.json',0o600)
 PY
-printf 'LOCAL_STAGING_HOST_ACTIVATED\n'
+printf 'LOCAL_STAGING_HOST_ACTIVATED_NO_BACKUP\n'

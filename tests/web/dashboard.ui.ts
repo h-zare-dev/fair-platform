@@ -84,6 +84,9 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(
     page.getByRole('heading', { name: /سلام، خوش آمدید/ }),
   ).toBeVisible();
+  await expect(
+    page.locator('.stage[data-staging-billing-mode="no-live-billing"]'),
+  ).toBeVisible();
   await expect(page.getByText('در حال دریافت اطلاعات…')).not.toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),

@@ -1,6 +1,6 @@
 # Fair Platform — Canonical Feature Roadmap
 
-**Updated:** 2026-10-13. **Branch of record:** `development`. **Status:** Owner-directed feature order; NOT blanket implementation, deployment or merge authorization.
+**Updated:** 2026-11-19 (FP-003C delivery improvement added). **Branch of record:** `development`. **Status:** Owner-directed feature order; NOT blanket implementation, deployment or merge authorization.
 
 This is the **canonical feature sequencing and status index**. Financial semantics remain governed by [Domain Rules](DOMAIN_RULES.md); architecture, security, testing and ADRs govern their respective domains. Only an **explicitly Owner-approved detailed task specification** authorizes Implementation. Planned milestones and design drafts are not approved specifications. Historical task files retain their original wording; read this index for current status.
 
@@ -14,6 +14,7 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 | Correction | **FP-001B — Nullable Actor** | Merged (PR #32); Owner-held 30-day regression accepted | `by.id=null` no longer loses otherwise valid events; no accounting posting |
 | Infrastructure | **CI after development merges** | Merged (PR #33) | GitHub `quality` on PR, pushes to `development`/`main`, manual dispatch |
 | **NEXT** | **FP-003B — Public HTTPS Owner Dashboard + Staging CI/CD** | **Implementation approved 2026-10-14; Draft PR #36 implementation/verification; first staging activation pending** | Production-like dedicated public staging at `panel.fairisfair.ir`, Owner-only login/CLI, safe synthetic operations, Docker/Caddy/PostgreSQL, automatic post-merge staging deploy. No live billing/webhook |
+| Infrastructure (parallel to FP-003B) | **FP-003C — Fast Release Pipeline** | **Owner-approved direction 2026-11-19; Draft implementation pending verification** | Keep full PR gates, speed up ordinary protected `development` post-merge staging delivery, improve safe rollback diagnostics. No production or financial safety bypass; [task spec](tasks/FP-003C-fast-release-pipeline.md) |
 | Next | **FP-004 — Pricing Engine** | Owner-approved specification; feature implementation in progress | Per-GiB, Fixed, Mixed, precedence/overrides, effective-dated rules, integer-Toman output and Owner UI |
 | Next | **FP-005 — First Shadow Accounting: User Create** | Planned; detailed spec pending | User-create financial classification and **SHADOW** charges using FP-002 |
 | Next | **FP-006 — Existing-User Baselines and Update Accounting** | Planned; detailed spec pending | Reliable initial state, update increases/decreases, state and ownership/transfer handling |

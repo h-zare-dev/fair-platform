@@ -20,6 +20,31 @@
 
 After the human Owner reviews and merges the separate narrowly scoped mount-order correction, **only** the manual Owner-only workflow **Staging Nov 19 preflight reconciliation** on protected `development`, with exact confirmation `RECONCILE_74A1CF_PREFLIGHT_TO_06715BB`, may reconcile this one witnessed journal. The workflow must recheck all host, database, migrations, policy, image and orphan gates under `deployment.lock`, preserve an immutable original journal and change only its resolution status. A mismatch fails closed. It does not touch the database or deploy. The Owner must then separately rerun the reviewed new-merge deployment; never rerun the failed earlier attempt or clear journal files by hand.
 
+**Later observed Nov 19 result (supersedes the preceding incident instructions):**
+Owner merged PR #77 as `1d862f9fc7b661eef621275413aa124a98580a79`.
+The Owner-only Nov 19 preflight reconciliation run `44441926052` passed,
+preserved the original journal and confirmed no database or service changes.
+The fresh CI #327 (`44439098908`) passed Quality, Security, Containers and
+Publish. After the Owner-approved reconciliation, only its failed `deploy` job
+was retried; this reached the application rollout and reported
+`APP_FAILED_PREVIOUS_RELEASE_RESTORED`. The existing app-only rollback completed.
+Read-only Owner diagnostics `44443406584` then found every accepted image,
+service health, migration, backup-inactive, PostgreSQL identity/volume and
+orphan check passing; accepted SHA remained `06715bb7...`, high-water became
+`1d862f9...`, and the resolved journal completed `rollback-smoke`. **The new
+Persian dashboard is not yet accepted.** Do not blindly retry the high-water
+SHA or disable database gates. The original failed application subphase was
+not exposed by the old redacted error code.
+
+**FP-003C staged delivery improvement (Owner-reviewed Draft only):** See
+[`FP-003C Fast Release`](../tasks/FP-003C-fast-release-pipeline.md).
+Once separately approved and merged, full browser/backup/restore synthetic
+tests remain a PR gate; the protected `development` push keeps quality,
+security, provenance, scanned immutable images, migrations, health, smoke and
+safe rollback without repeating the long PR integration suite. The next
+rollback should identify a fixed safe `startup`, `health` or `smoke` code.
+This is not evidence that the current public site has updated.
+
 ## Environment identity
 
 - Domain: `panel.fairisfair.ir`, Cloudflare **DNS-only** (grey cloud).

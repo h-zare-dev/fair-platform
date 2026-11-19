@@ -55,6 +55,11 @@ jobs:
       - name: Staging diagnostics regression tests
         run: python3 -m unittest discover -s tests/release -p test_diagnose_release.py
 
+      - name: Staging release and fast delivery regression tests
+        run: |
+          python3 -m unittest discover -s tests/release -p test_release.py
+          python3 -m unittest discover -s tests/release -p test_fast_delivery.py
+
       - name: Build
         run: pnpm build
 
@@ -101,6 +106,8 @@ jobs:
           file: docker/Dockerfile.api
           platforms: linux/amd64
           load: true
+          cache-from: type=gha,scope=fp-api
+          cache-to: type=gha,scope=fp-api,mode=max
           labels: |
             org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
             org.opencontainers.image.revision=${{ github.sha }}
@@ -111,6 +118,8 @@ jobs:
           file: docker/Dockerfile.web
           platforms: linux/amd64
           load: true
+          cache-from: type=gha,scope=fp-web
+          cache-to: type=gha,scope=fp-web,mode=max
           labels: |
             org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
             org.opencontainers.image.revision=${{ github.sha }}
@@ -121,6 +130,8 @@ jobs:
           file: docker/Dockerfile.caddy
           platforms: linux/amd64
           load: true
+          cache-from: type=gha,scope=fp-caddy
+          cache-to: type=gha,scope=fp-caddy,mode=max
           labels: |
             org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
             org.opencontainers.image.revision=${{ github.sha }}
@@ -131,6 +142,8 @@ jobs:
           file: docker/Dockerfile.postgres
           platforms: linux/amd64
           load: true
+          cache-from: type=gha,scope=fp-postgres
+          cache-to: type=gha,scope=fp-postgres,mode=max
           labels: |
             org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
             org.opencontainers.image.revision=${{ github.sha }}
@@ -143,6 +156,10 @@ jobs:
         with:
           node-version: 24
       - name: Browser acceptance on local synthetic containers
+        # Complete browser/backup/restore exercises remain mandatory on PRs
+        # and main. A reviewed development merge must not repeat the costly
+        # integration suite before publishing those scanned immutable images.
+        if: github.event_name != 'push' || github.ref != 'refs/heads/development'
         env:
           UI_API_IMAGE: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
           UI_POSTGRES_IMAGE: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
@@ -157,6 +174,11 @@ jobs:
           sudo apt-get install -y age rclone
           pnpm test:backup
           RELEASE_TEST_POSTGRES_IMAGE=ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} FAIR_RELEASE_DOCKER_TEST=1 python3 -m unittest discover -s tests/release -p test_compose.py
+      - name: Fast staging release safety regressions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        run: |
+          python3 -m unittest discover -s tests/release -p test_release.py
+          python3 -m unittest discover -s tests/release -p test_fast_delivery.py
       - name: Scan API image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:

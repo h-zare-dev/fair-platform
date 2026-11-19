@@ -61,6 +61,9 @@ class Commands:
             return json.dumps({'schema': release.SCHEMA, 'configuredMigrations': ['approved', 'new-unreviewed'] if self.failure == 'pending-migration' else ['approved'], 'migrations':['approved'], 'hashes': {'approved': 'hash' if self.failure != 'compatibility' else 'changed'}})
         if self.failure == 'migration' and args[-1] == 'migrate' and args[0] == 'run':
             raise release.ReleaseError('COMMAND_FAILED')
+        if self.failure == 'smoke' and args[0] == 'run' and 'smoke' in args and not self.failed:
+            self.failed = True
+            raise release.ReleaseError('COMMAND_FAILED')
         if self.failure in ['health', 'rollback'] and args[0] == 'up' and 'postgres' not in args:
             if not self.failed or self.failure == 'rollback':
                 self.failed = True
@@ -132,7 +135,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(json.loads((self.root/'current.json').read_text()),self.previous)
 
     def test_failed_app_health_restores_prior_images_only(self):
-        with self.assertRaisesRegex(release.ReleaseError,'APP_FAILED_PREVIOUS_RELEASE_RESTORED'): self.deploy('health')
+        with self.assertRaisesRegex(release.ReleaseError,'APP_STARTUP_FAILED_PREVIOUS_RELEASE_RESTORED'): self.deploy('health')
         self.assertEqual(sum(c[0]=='up' and 'postgres' not in c for c in self.commands.calls),2)
         self.assertIn(self.previous['api'],(self.root/'candidate.env').read_text())
         self.assertIn(self.candidate['postgres'],(self.root/'current.env').read_text())
@@ -140,9 +143,20 @@ class ReleaseTests(unittest.TestCase):
         rollback=[c for c in self.commands.calls if c[0]=='up'][-1]
         self.assertIn('--no-deps',rollback)
         self.assertNotIn('postgres',rollback)
+        self.assertEqual(self.state()['appFailure'], {
+            'phase': 'startup', 'code': 'STARTUP_FAILED_OPERATOR_REQUIRED'})
 
     def test_failed_rollback_reports_operator_required(self):
         with self.assertRaisesRegex(release.ReleaseError,'ROLLBACK_STARTUP_FAILED_OPERATOR_REQUIRED'): self.deploy('rollback')
+
+    def test_smoke_failure_reports_its_phase_and_preserves_accepted_release(self):
+        with self.assertRaisesRegex(release.ReleaseError,
+                                    'APP_SMOKE_FAILED_PREVIOUS_RELEASE_RESTORED'):
+            self.deploy('smoke')
+        self.assertEqual(self.state()['appFailure']['phase'], 'smoke')
+        self.assertEqual(self.state()['outcome'], 'app-rollback')
+        self.assertEqual(json.loads((self.root / 'current.json').read_text())['sha'],
+                         self.previous['sha'])
 
     def test_config_change_requires_operator_upgrade(self):
         (self.root/'Caddyfile').write_text('different')
@@ -267,12 +281,15 @@ class ReleaseTests(unittest.TestCase):
     def test_startup_and_health_timeouts_restore_app_with_durable_outcome(self):
         for failure in ['startup-timeout','health-timeout']:
             with self.subTest(failure=failure):
-                with self.assertRaisesRegex(release.ReleaseError, 'APP_FAILED_PREVIOUS_RELEASE_RESTORED'):
+                phase = 'startup' if failure == 'startup-timeout' else 'health'
+                with self.assertRaisesRegex(release.ReleaseError, f'APP_{phase.upper()}_FAILED_PREVIOUS_RELEASE_RESTORED'):
                     self.deploy(failure)
                 self.assertEqual(self.state()['outcome'], 'app-rollback')
                 self.assertEqual(self.state()['status'], 'resolved')
                 self.assertEqual(json.loads((self.root/'current.json').read_text())['sha'], self.previous['sha'])
                 self.assertEqual(json.loads((self.root/'high-water.json').read_text())['sha'], self.candidate['sha'])
+                self.assertEqual(self.state()['appFailure'], {
+                    'phase': phase, 'code': f'{phase.upper()}_FAILED_OPERATOR_REQUIRED'})
                 (self.root/'release-state.json').unlink()
                 (self.root/'high-water.json').unlink()
                 (self.root/'current.json').write_text(json.dumps(self.previous))

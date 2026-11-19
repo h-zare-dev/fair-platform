@@ -114,6 +114,25 @@ class DiagnosisTests(unittest.TestCase):
         self.assertTrue(result['operator_reconciliation_candidate'])
         self.assertFalse(result['persistent_changes_made'])
 
+    def test_rollback_phase_diagnostics_expose_no_container_error_or_secret(self):
+        state = diagnostics.read_json(self.root / 'release-state.json')
+        state.update(status='resolved', phase='rollback-smoke', completed='rollback-smoke',
+                     outcome='app-rollback',
+                     appFailure={'phase': 'health', 'code': 'HEALTH_FAILED_OPERATOR_REQUIRED',
+                                 'private': 'do-not-expose-sensitive-container-stderr'})
+        self.write(self.root / 'release-state.json', state)
+        report = self.run_diagnostic()
+        self.assertEqual(report['journal']['failed_app_phase'], 'health')
+        self.assertNotIn('do-not-expose', json.dumps(report))
+        self.assertFalse(report['operator_reconciliation_candidate'])
+
+    def test_unknown_rollback_phase_is_sanitized(self):
+        state = diagnostics.read_json(self.root / 'release-state.json')
+        state.update(status='resolved', outcome='app-rollback',
+                     appFailure={'phase': 'health; echo unsafe'})
+        self.write(self.root / 'release-state.json', state)
+        self.assertEqual(self.run_diagnostic()['journal']['failed_app_phase'], 'INVALID')
+
     def test_different_mount_source_blocks_reconciliation(self):
         self.mounts[0]['Source'] = '/changed'
         result = self.run_diagnostic()

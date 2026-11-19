@@ -53,6 +53,7 @@ services:
     cap_drop: [ALL]
     environment:
       OWNER_ORIGIN: https://panel.fairisfair.ir
+      FAIR_TIME_ZONE: ${FAIR_TIME_ZONE:-Asia/Tehran}
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
     secrets: [runtime_database_url]
     networks: [edge, backend]

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { PricingManagement } from './pricing';
+import { CatalogManagement } from './catalog';
 import { ThemeToggle } from './theme-toggle';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 interface Summary {
@@ -486,7 +487,11 @@ export function Dashboard() {
             </>
           )
         )}
-        <PricingManagement />
+        <CatalogManagement />
+        <details className="legacy-pricing">
+          <summary>نمایش پیش‌نمایش قدیمی قیمت‌گذاری (فقط آزمایشی)</summary>
+          <PricingManagement />
+        </details>
         <footer>
           فِیر پلتفرم · فقط محیط آزمایشی · بدون اتصال زنده به منبع یا دریافت وجه
         </footer>

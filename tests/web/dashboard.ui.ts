@@ -94,6 +94,13 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
   await expect(page.locator('.kpi .number').nth(1)).toHaveText('۱۱');
   await expect(page.getByText('۱۰ گیگابایت').first()).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'گروه‌ها و پکیج‌های قیمت‌گذاری' }),
+  ).toBeVisible();
+  await page
+    .getByText('نمایش پیش‌نمایش قدیمی قیمت‌گذاری (فقط آزمایشی)')
+    .click();
+  const legacy = page.locator('#legacy-pricing');
   let quoteBytes = '';
   await page.route('**/api/v1/owner/pricing/quote', async (route) => {
     const payload = route.request().postDataJSON() as {
@@ -112,29 +119,29 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
       }),
     });
   });
-  await page.getByLabel('حجم بسته (گیگابایت)').fill('۵۰');
-  await page
+  await legacy.getByLabel('حجم بسته (گیگابایت)').fill('۵۰');
+  await legacy
     .getByRole('button', { name: 'محاسبهٔ قیمت بدون ثبت هزینه' })
     .click();
   await expect(page.getByText('۱۵۰٬۰۰۰ تومان')).toBeVisible();
   expect(quoteBytes).toBe('53687091200');
-  await page.getByLabel('مدل محاسبهٔ قیمت').selectOption('FIXED');
-  const sizeInputWidth = await page
+  await legacy.getByLabel('مدل محاسبهٔ قیمت').selectOption('FIXED');
+  const sizeInputWidth = await legacy
     .getByLabel('حجم (گیگابایت)')
     .first()
     .evaluate((input) => input.getBoundingClientRect().width);
   expect(sizeInputWidth).toBeGreaterThan(120);
-  await page.getByLabel('تعرفه برای').selectOption('override');
-  await page
+  await legacy.getByLabel('تعرفه برای').selectOption('override');
+  await legacy
     .locator('.pricing-grid form')
     .nth(1)
     .getByLabel('شناسهٔ مدیر حساب')
     .fill('۹۰۰۱');
-  await page.getByLabel('حجم (گیگابایت)').first().fill('۵۰');
-  await page.getByLabel('قیمت (تومان)').first().fill('۱۵۰٬۰۰۰');
-  await page.getByRole('button', { name: 'افزودن بستهٔ دیگر' }).click();
-  await page.getByLabel('حجم (گیگابایت)').nth(1).fill('100');
-  await page.getByLabel('قیمت (تومان)').nth(1).fill('270000');
+  await legacy.getByLabel('حجم (گیگابایت)').first().fill('۵۰');
+  await legacy.getByLabel('قیمت (تومان)').first().fill('۱۵۰٬۰۰۰');
+  await legacy.getByRole('button', { name: 'افزودن بستهٔ دیگر' }).click();
+  await legacy.getByLabel('حجم (گیگابایت)').nth(1).fill('100');
+  await legacy.getByLabel('قیمت (تومان)').nth(1).fill('270000');
   let fixedPackages: Record<string, string> = {};
   await page.route('**/api/v1/owner/pricing/versions', async (route) => {
     const payload = route.request().postDataJSON() as {
@@ -147,7 +154,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
       body: '{"id":"1"}',
     });
   });
-  await page.getByRole('button', { name: 'ثبت نسخهٔ جدید تعرفه' }).click();
+  await legacy.getByRole('button', { name: 'ثبت نسخهٔ جدید تعرفه' }).click();
   await expect(
     page.getByText(/نسخهٔ جدید تعرفه با موفقیت ثبت شد/),
   ).toBeVisible();

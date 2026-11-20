@@ -117,6 +117,7 @@ export class PostgresCatalogStore {
             durationDays: number | null;
             startDate: string;
             endDate: string | null;
+            effectiveUntil: Date | null;
             timeZone: string;
           }[]
         >(
@@ -124,7 +125,7 @@ export class PostgresCatalogStore {
                 billing_admin_id::text AS "billingAdminId",package_id::text AS "packageId",
                 rate_toman_per_gib::text AS "rateTomanPerGiB",package_bytes::text AS "packageBytes",
                 duration_days AS "durationDays",local_start_date AS "startDate",local_end_date AS "endDate",
-                time_zone AS "timeZone"
+                time_zone AS "timeZone",effective_until AS "effectiveUntil"
          FROM fair_tariff_assignments WHERE source_instance_id=$1 ORDER BY id DESC LIMIT 500`,
           [s],
         ),

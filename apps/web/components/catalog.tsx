@@ -14,6 +14,10 @@ import {
   formatInteger,
   gibToBytes,
 } from '../lib/traffic';
+import {
+  assignmentExpired,
+  partitionAssignments,
+} from '../lib/assignment-visibility';
 
 type Group = { id: string; name: string };
 type Member = { billingAdminId: string; groupId: string };
@@ -34,6 +38,7 @@ type Assignment = {
   rateTomanPerGiB: string | null;
   startDate: string;
   endDate: string | null;
+  effectiveUntil: string | null;
   timeZone: string;
 };
 type History = {
@@ -103,6 +108,10 @@ async function api<T>(path: string, payload?: unknown): Promise<T> {
       );
     if (JSON.stringify(result).includes('PACKAGE_ALREADY_ASSIGNED'))
       throw Error('این پکیج قبلاً اختصاص داده شده و دیگر قابل ویرایش نیست.');
+    if (JSON.stringify(result).includes('ASSIGNMENT_CLOSED_PERIOD'))
+      throw Error(
+        'این تاریخ به دوره‌ای تعلق دارد که بسته شده است؛ پایان این اختصاص دیگر قابل تغییر نیست.',
+      );
     throw Error('با اطلاعات قبلی تداخل دارد؛ تاریخ یا پکیج دیگری انتخاب کنید.');
   }
   if (!r.ok)
@@ -154,7 +163,11 @@ export function CatalogManagement({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<{ id: number; text: string } | null>(
+    null,
+  );
+  const noticeCounter = useRef(0);
+  const [clock, setClock] = useState(() => Date.now());
   const [popup, setPopup] = useState<Popup | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const dialog = useRef<HTMLElement | null>(null);
@@ -172,6 +185,15 @@ export function CatalogManagement({
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+  useEffect(() => {
+    const interval = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const refresh = useCallback(async () => {
     setConfig(await api<Config>(`config?source=${encodeURIComponent(source)}`));
@@ -245,6 +267,8 @@ export function CatalogManagement({
     ) ?? [];
   const packageAssignments = (id: string) =>
     config?.assignments.filter((a) => a.packageId === id) ?? [];
+  const currentAssignments = (assignments: Assignment[]) =>
+    partitionAssignments(assignments, clock).visible;
   const groupUsed = (id: string) =>
     groupMembers(id).length > 0 ||
     groupAssignments(id).length > 0 ||
@@ -260,7 +284,6 @@ export function CatalogManagement({
         ? document.activeElement
         : null;
     setError('');
-    setNotice('');
     setName('');
     setVolume('50');
     setDuration('30');
@@ -301,11 +324,13 @@ export function CatalogManagement({
     if (busy) return;
     setBusy(true);
     setError('');
-    setNotice('');
     try {
       await api(path, payload());
       await refresh();
-      setNotice(`${label} با موفقیت انجام شد.`);
+      setNotice({
+        id: ++noticeCounter.current,
+        text: `${label} با موفقیت انجام شد.`,
+      });
       if (!keepOpen) setPopup(null);
       else setAdminId('');
     } catch (reason) {
@@ -315,6 +340,7 @@ export function CatalogManagement({
     }
   }
   function renderAssignment(a: Assignment) {
+    const expired = assignmentExpired(a.effectiveUntil, clock);
     return (
       <article className="catalog-mini-card" key={a.id}>
         <div className="catalog-mini-heading">
@@ -323,10 +349,12 @@ export function CatalogManagement({
               ? pkgName(a.packageId)
               : `هر گیگابایت ${formatInteger(a.rateTomanPerGiB ?? '0')} تومان`}
           </strong>
-          <span className="catalog-tag">
-            {a.targetKind === 'GROUP'
-              ? groupName(a.groupId)
-              : `مدیر ${formatInteger(a.billingAdminId ?? '0')}`}
+          <span className={expired ? 'catalog-tag locked' : 'catalog-tag'}>
+            {expired
+              ? 'پایان‌یافته'
+              : a.targetKind === 'GROUP'
+                ? groupName(a.groupId)
+                : `مدیر ${formatInteger(a.billingAdminId ?? '0')}`}
           </span>
         </div>
         <p className="catalog-dates">
@@ -337,14 +365,47 @@ export function CatalogManagement({
             تا <b dir="ltr">{a.endDate ?? 'نامحدود'}</b>
           </span>
         </p>
-        <button
-          className="secondary catalog-small-button"
-          type="button"
-          onClick={() => open({ kind: 'end', assignmentId: a.id })}
-        >
-          تغییر تاریخ پایان
-        </button>
+        {!expired && (
+          <button
+            className="secondary catalog-small-button"
+            type="button"
+            onClick={() => open({ kind: 'end', assignmentId: a.id })}
+          >
+            تغییر تاریخ پایان
+          </button>
+        )}
       </article>
+    );
+  }
+  function renderAssignmentList(
+    assignments: Assignment[],
+    emptyMessage: string,
+  ) {
+    const { visible, expired } = partitionAssignments(assignments, clock);
+    return (
+      <>
+        <div className="catalog-mini-grid">
+          {visible.length ? (
+            visible.map(renderAssignment)
+          ) : (
+            <p className="catalog-empty">{emptyMessage}</p>
+          )}
+        </div>
+        {expired.length > 0 && (
+          <details className="catalog-history catalog-expired-history">
+            <summary>
+              سوابق پایان‌یافته ({formatInteger(expired.length)})
+            </summary>
+            <p className="field-hint">
+              این اختصاص‌ها از فهرست جاری کنار رفته‌اند، اما برای حفظ سابقه حذف
+              نشده‌اند.
+            </p>
+            <div className="catalog-mini-grid">
+              {expired.map(renderAssignment)}
+            </div>
+          </details>
+        )}
+      </>
     );
   }
   const selectedGroup =
@@ -389,42 +450,33 @@ export function CatalogManagement({
           <small>اعضا و اختصاص پکیج</small>
         </a>
       </nav>
-      <details className="catalog-source-panel">
-        <summary>
-          منبع داده: <b dir="ltr">{source}</b>
-        </summary>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const nextSource = sourceDraft.trim();
-            if (nextSource === source) void refresh();
-            else {
-              setConfig(null);
-              setSource(nextSource);
-            }
-          }}
-        >
-          <label>
-            شناسهٔ منبع{' '}
-            <input
-              dir="ltr"
-              required
-              maxLength={100}
-              pattern="[A-Za-z0-9][A-Za-z0-9_.:-]*"
-              value={sourceDraft}
-              onChange={(e) => setSourceDraft(e.target.value)}
-            />
-          </label>
-          <button className="secondary">نمایش این منبع</button>
-        </form>
-        <p className="field-hint">
-          تا زمان مجوز اتصال به پاسارگاد، شناسهٔ منبع آزمایشی استفاده می‌شود.
-        </p>
-      </details>
       {notice && (
-        <p role="status" className="pricing-success">
-          {notice}
-        </p>
+        <div
+          key={notice.id}
+          className="catalog-toast"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <div className="catalog-toast-body">
+            <span className="catalog-toast-icon" aria-hidden="true">
+              ✓
+            </span>
+            <div>
+              <strong>عملیات موفق</strong>
+              <p>{notice.text}</p>
+            </div>
+            <button
+              type="button"
+              className="catalog-toast-close"
+              aria-label="بستن اعلان موفقیت"
+              onClick={() => setNotice(null)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="catalog-toast-progress" aria-hidden="true" />
+        </div>
       )}
       {error && !popup && (
         <p role="alert" className="error-banner">
@@ -551,8 +603,10 @@ export function CatalogManagement({
                   <h3>{g.name}</h3>
                   <div className="catalog-tile-meta">
                     <span>
-                      {formatInteger(groupAssignments(g.id).length)} اختصاص پکیج
-                      / قیمت
+                      {formatInteger(
+                        currentAssignments(groupAssignments(g.id)).length,
+                      )}{' '}
+                      اختصاص پکیج / قیمت
                     </span>
                   </div>
                   <div className="catalog-tile-actions">
@@ -623,15 +677,53 @@ export function CatalogManagement({
           {config.assignments.some((a) => a.targetKind === 'ADMIN') && (
             <details className="catalog-history">
               <summary>اختصاص‌های ویژهٔ مدیران</summary>
-              <div className="catalog-mini-grid">
-                {config.assignments
-                  .filter((a) => a.targetKind === 'ADMIN')
-                  .map(renderAssignment)}
-              </div>
+              {renderAssignmentList(
+                config.assignments.filter((a) => a.targetKind === 'ADMIN'),
+                'اختصاص ویژهٔ فعال یا آینده‌ای وجود ندارد.',
+              )}
             </details>
           )}
         </>
       )}
+      <details className="catalog-source-panel catalog-source-advanced">
+        <summary>دربارهٔ محیط آزمایشی و تنظیمات پیشرفته</summary>
+        <p className="field-hint">
+          <b>منبع داده</b> یعنی فضای جداگانهٔ اطلاعات هر سامانه. شناسهٔ{' '}
+          <b dir="ltr">synthetic</b> فقط اطلاعات آزمایشی فِیر پلتفرم است؛ اطلاعات
+          واقعی مدیران پاسارگاد از آن خوانده نمی‌شود. تغییر شناسه، مجموعهٔ دیگری
+          را نمایش می‌دهد و اطلاعات قبلی را پاک نمی‌کند.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const nextSource = sourceDraft.trim();
+            if (nextSource === source) void refresh();
+            else {
+              setConfig(null);
+              setSource(nextSource);
+            }
+          }}
+        >
+          <label>
+            شناسهٔ منبع (پیشرفته)
+            <input
+              dir="ltr"
+              required
+              maxLength={100}
+              pattern="[A-Za-z0-9][A-Za-z0-9_.:-]*"
+              value={sourceDraft}
+              onChange={(e) => setSourceDraft(e.target.value)}
+            />
+          </label>
+          <button className="secondary">نمایش این منبع</button>
+        </form>
+        <p className="field-hint">
+          منبع فعلی: <b dir="ltr">{source}</b> · منطقهٔ زمانی از تنظیم سرور{' '}
+          <b dir="ltr">FAIR_TIME_ZONE</b> دریافت می‌شود؛ بعد از تغییر ENV و
+          راه‌اندازی دوبارهٔ سرویس، این برچسب هم به‌روز می‌شود. تاریخ اختصاص‌های
+          قبلی با منطقهٔ زمانی ذخیره‌شدهٔ همان اختصاص باقی می‌ماند.
+        </p>
+      </details>
       {popup && (
         <div
           className="catalog-overlay"
@@ -945,16 +1037,12 @@ export function CatalogManagement({
                 <p className="muted">
                   پکیج‌ها و قیمت‌های اختصاص‌یافته به «{selectedGroup?.name}».
                   تاریخ پایان روی هر اختصاص قابل تنظیم است، نه روی خود پکیج.
+                  اختصاص منقضی از فهرست جاری کنار می‌رود و در سوابق می‌ماند.
                 </p>
-                <div className="catalog-mini-grid">
-                  {groupAssignments(popup.groupId).length ? (
-                    groupAssignments(popup.groupId).map(renderAssignment)
-                  ) : (
-                    <p className="catalog-empty">
-                      هنوز پکیجی اختصاص داده نشده است.
-                    </p>
-                  )}
-                </div>
+                {renderAssignmentList(
+                  groupAssignments(popup.groupId),
+                  'پکیج فعال یا آینده‌ای به این گروه اختصاص داده نشده است.',
+                )}
                 <button
                   onClick={() =>
                     open({
@@ -974,15 +1062,10 @@ export function CatalogManagement({
                   تاریخ پایان مربوط به هر اختصاص پکیج «
                   {pkgName(popup.packageId)}» است؛ قیمت خود پکیج تغییر نمی‌کند.
                 </p>
-                <div className="catalog-mini-grid">
-                  {packageAssignments(popup.packageId).length ? (
-                    packageAssignments(popup.packageId).map(renderAssignment)
-                  ) : (
-                    <p className="catalog-empty">
-                      این پکیج هنوز به گروه یا مدیری اختصاص داده نشده است.
-                    </p>
-                  )}
-                </div>
+                {renderAssignmentList(
+                  packageAssignments(popup.packageId),
+                  'این پکیج اختصاص فعال یا آینده‌ای ندارد.',
+                )}
               </div>
             )}
             {popup.kind === 'special' && (
@@ -1141,8 +1224,10 @@ export function CatalogManagement({
                 }
               >
                 <p className="catalog-note">
-                  تاریخ شروع این اختصاص ثابت است. تنها پایان آینده، بدون تداخل و
-                  بدون تغییر روزهای بسته‌شده قابل اصلاح است.
+                  تاریخ شروع این اختصاص ثابت است. تغییر پایان فقط تا زمانی مجاز
+                  است که بازهٔ قبلی و جدید وارد روزهای بسته‌شده نشده باشند و با
+                  اختصاص دیگری تداخل نکنند. به‌جای حذف، پایان دسترسی را ثبت کنید
+                  تا تاریخچه حفظ شود.
                 </p>
                 <label>
                   تاریخ پایان شمسی (خالی = نامحدود)

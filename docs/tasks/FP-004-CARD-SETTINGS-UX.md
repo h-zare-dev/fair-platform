@@ -27,3 +27,12 @@ This migration **cannot** be auto-approved by an ordinary merge; the Staging dep
 4. A failed approval is a stop condition: inspect the specific guard code, use Owner-only diagnostics; never edit migration hashes or disable security gates manually.
 
 Following this one-time additive migration acceptance, **UI-only merges require no new operator approval** under the existing fast-release policy. The migration's `down()` exists for disposable CI databases only, not for Staging rollback.
+
+## Follow-up: assignment expiration and Owner feedback (2026-11-20)
+
+- **Do not delete an assignment.** “Removing access” and setting a final validity date must not erase price history. The existing **Change end date** dialog is the only current action. Its PostgreSQL trigger continues to reject overlapping ranges and edits to closed periods; starts and package prices stay immutable.
+- Group/package cards and direct-Admin exception lists show **current and future** assignments. Assignments whose exclusive UTC end instant has arrived disappear from the current list automatically and remain accessible under the collapsed **Expired history** panel. An inclusive local Jalali end remains visible through the full final date. Server-returned `effectiveUntil` is used for this comparison, never the browser's local timezone; history and data are preserved.
+- Synthetic data isolation remains unchanged. The previously prominent `source_instance_id` selector moves to a disclosed **Advanced / about synthetic environment** section at the bottom of Settings. `synthetic` is a test source ID, not a real Pasarguard connection. Advanced switching is retained for isolated historical test data.
+- Successful writes use a dismissible, accessible animated toast that disappears after **20 seconds**, with a countdown strip. Errors remain visible until fixed; no timer hides critical errors.
+- The displayed IANA timezone comes from the Owner API's validated `FAIR_TIME_ZONE` configuration (default `Asia/Tehran`), not a hardcoded UI timezone. Changing the server ENV requires a service restart; old assignments keep their originally saved `time_zone` and UTC boundaries.
+- This follow-up is **UI plus read-only API projection and friendly error mapping**. No database migration, financial calculation, source credential activation, backup policy change or new Owner migration approval is required.

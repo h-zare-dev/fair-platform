@@ -15,8 +15,10 @@ CSRF-protected browser importer validates the complete compressed SHA-256 and
 child counts, chunks JSONL records below Caddy's existing webhook request size,
 and inserts encrypted durable inbox batches under source `replay-30d`. Repeats
 are idempotent. The normalization worker drains the queue in bounded batches.
-Use the dashboard's **۳۰ روز گذشته** range and source filter `replay-30d` to
-verify intake and processing. Re-run the same file after an interruption; it
+Use the dashboard's **آرشیو واقعی ۳۰روزه** range (fixed at the approved export
+cutoff, source automatically set to `replay-30d`) to verify the full 30-day
+intake and processing without losing the earliest replay date as time passes.
+Re-run the same file after an interruption; it
 must not double-insert previously accepted batches.
 
 `replay-30d` is **not** source `primary`: the NightlyShadow closer only reads

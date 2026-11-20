@@ -135,8 +135,14 @@ export function Dashboard() {
     setEvents({ rows: [], nextCursor: null });
     setIssues({ rows: [], nextCursor: null });
     const params = new URLSearchParams({
-      window: windowRange,
+      window: windowRange === 'replay-fixed' ? '30d' : windowRange,
       ...(source ? { source } : {}),
+      ...(windowRange === 'replay-fixed'
+        ? {
+            start: '2026-10-21T20:21:41.000Z',
+            end: '2026-11-20T20:21:41.000Z',
+          }
+        : {}),
     });
     void (async () => {
       try {
@@ -260,12 +266,19 @@ export function Dashboard() {
             <select
               value={windowRange}
               disabled={pageBusy}
-              onChange={(e) => setWindowRange(e.target.value)}
+              onChange={(e) => {
+                setWindowRange(e.target.value);
+                if (e.target.value === 'replay-fixed') {
+                  setSourceDraft('replay-30d');
+                  setSource('replay-30d');
+                }
+              }}
             >
               <option value="1h">یک ساعت گذشته</option>
               <option value="24h">۲۴ ساعت گذشته</option>
               <option value="7d">۷ روز گذشته</option>
               <option value="30d">۳۰ روز گذشته</option>
+              <option value="replay-fixed">آرشیو واقعی ۳۰روزه</option>
             </select>
           </label>
           <label>

@@ -55,7 +55,9 @@ services:
       OWNER_ORIGIN: https://panel.fairisfair.ir
       FAIR_TIME_ZONE: ${FAIR_TIME_ZONE:-Asia/Tehran}
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
-    secrets: [runtime_database_url]
+      PASARGUARD_BASE_URL: https://pasar.fairinternet98.com
+      PASARGUARD_API_KEY_FILE: /run/secrets/pasarguard_api_key
+    secrets: [runtime_database_url, pasarguard_api_key]
     networks: [edge, backend]
     depends_on:
       postgres: { condition: service_healthy }
@@ -129,6 +131,8 @@ volumes:
 secrets:
   runtime_database_url:
     file: ${SECRETS_DIR:?}/runtime_database_url
+  pasarguard_api_key:
+    file: ${SECRETS_DIR:?}/pasarguard_api_key
   admin_database_url:
     file: ${SECRETS_DIR:?}/admin_database_url
   seed_encryption_key:

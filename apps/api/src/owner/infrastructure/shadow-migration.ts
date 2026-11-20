@@ -81,7 +81,13 @@ export class FairShadowCreate1791600000000 implements MigrationInterface {
     await r.query(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='fair_owner_runtime') THEN
       GRANT SELECT,INSERT ON fair_shadow_days,fair_shadow_items,fair_shadow_late_events TO fair_owner_runtime;
       GRANT USAGE ON SEQUENCE fair_shadow_days_id_seq TO fair_owner_runtime;
-      GRANT SELECT,INSERT,UPDATE ON pasarguard_webhook_batches,pasarguard_events,pasarguard_ingestion_issues TO fair_owner_runtime;
+      GRANT SELECT,INSERT ON pasarguard_webhook_batches,pasarguard_events,pasarguard_ingestion_issues TO fair_owner_runtime;
+      GRANT UPDATE (processing_status,processing_attempts,last_processing_at,last_error_code,
+        last_error_message,updated_at,raw_payload_ciphertext,raw_payload_iv,
+        raw_payload_auth_tag,raw_payload_key_version,raw_payload_purged_at)
+        ON pasarguard_webhook_batches TO fair_owner_runtime;
+      GRANT UPDATE (occurrence_count,event_status,first_seen_at,last_seen_at,updated_at)
+        ON pasarguard_events TO fair_owner_runtime;
       GRANT USAGE ON SEQUENCE pasarguard_webhook_batches_id_seq,pasarguard_events_id_seq,pasarguard_ingestion_issues_id_seq TO fair_owner_runtime;
     END IF; END $$`);
   }

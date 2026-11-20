@@ -435,6 +435,11 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // FP-005 adds immutable Shadow tables after the earlier group-delete guard.
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query("SELECT to_regclass('fair_shadow_days')::text AS name"),
+  ).toEqual([{ name: null }]);
   await db.undoLastMigration({ transaction: 'all' });
   expect(
     await db.query(
@@ -466,7 +471,7 @@ it('additive migrations upgrade prior schema and reverse only in disposable DB',
   await reader.ready();
 });
 
-it('runtime database role can authenticate and read operations but cannot mutate business tables or Owner credentials', async () => {
+it('runtime role can ingest while core event fields and Owner credentials remain write-protected', async () => {
   await seedSynthetic(db, '11'.repeat(32));
   await store.bootstrap(hash);
   const databaseName = new URL(container.getConnectionUri()).pathname.slice(1);
@@ -500,11 +505,10 @@ it('runtime database role can authenticate and read operations but cannot mutate
     await runtimeReader.issues(operationFilter({}, 'issues'));
     await runtimeStore.cleanup();
     for (const sql of [
-      'UPDATE pasarguard_events SET occurrence_count=2',
+      'UPDATE pasarguard_events SET data_limit_bytes=2',
+      "UPDATE pasarguard_events SET username='not-allowed'",
       'DELETE FROM pasarguard_webhook_batches',
       "UPDATE fair_owner SET password_hash='x'",
-      'SELECT raw_payload_ciphertext FROM pasarguard_webhook_batches',
-      'SELECT username FROM pasarguard_events',
     ])
       await expect(runtime.query(sql)).rejects.toThrow();
   } finally {

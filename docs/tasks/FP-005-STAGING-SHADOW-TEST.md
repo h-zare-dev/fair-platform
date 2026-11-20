@@ -15,6 +15,10 @@ Only the Owner marks PR #89 Ready and merges it.
    created/expiry/edit timestamps, on-hold seconds and nullable Actor.
    Repeated deliveries stay idempotent. Raw ciphertext expires after 14 days
    (only successfully processed/permanently failed batches are purged).
+   The server-side Owner runtime database role now needs to read encrypted
+   inbox columns and normalized identifiers for processing. Its SQL UPDATE
+   grants are limited to receipt/retry metadata, **not** core account size,
+   source timestamps or usernames. The browser never receives raw ciphertext.
 3. At **02:10** local `FAIR_TIME_ZONE` (default `Asia/Tehran`) and only during
    the nightly window, closes eligible *previous* days for `user_created`
    operations. No daytime calculation. A frozen immutable daily SHADOW result

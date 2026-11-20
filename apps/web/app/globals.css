@@ -1201,6 +1201,20 @@ button.catalog-toast-close {
 .admin-directory-pagination button {
   padding: 7px 12px;
 }
+.admin-directory-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--input-line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+.admin-directory-choice button {
+  padding: 6px 11px;
+}
 .catalog-history-item small {
   color: var(--muted);
 }

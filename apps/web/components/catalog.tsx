@@ -18,7 +18,10 @@ import {
   assignmentExpired,
   partitionAssignments,
 } from '../lib/assignment-visibility';
-import { AdminDirectoryPicker } from './admin-directory-picker';
+import {
+  AdminDirectoryPicker,
+  type DirectoryStatus,
+} from './admin-directory-picker';
 
 type Group = { id: string; name: string };
 type Member = { billingAdminId: string; groupId: string };
@@ -179,6 +182,8 @@ export function CatalogManagement({
   const [cost, setCost] = useState('');
   const [adminId, setAdminId] = useState('');
   const [adminLabels, setAdminLabels] = useState<Record<string, string>>({});
+  const [directoryStatus, setDirectoryStatus] =
+    useState<DirectoryStatus>('loading');
   const [mode, setMode] = useState<'FIXED' | 'PER_GIB'>('FIXED');
   const [selectedPackage, setSelectedPackage] = useState('');
   const [rate, setRate] = useState('');
@@ -291,6 +296,7 @@ export function CatalogManagement({
     setDuration('30');
     setCost('');
     setAdminId('');
+    setDirectoryStatus('loading');
     setMode('FIXED');
     setSelectedPackage('');
     setRate('');
@@ -962,8 +968,14 @@ export function CatalogManagement({
                     value={adminId}
                     onChange={setAdminId}
                     setLabels={setAdminLabels}
+                    labels={adminLabels}
+                    onStatusChange={setDirectoryStatus}
                   />
-                  <button disabled={busy}>+ افزودن مدیر به گروه</button>
+                  <button
+                    disabled={busy || directoryStatus !== 'ready' || !adminId}
+                  >
+                    + افزودن مدیر به گروه
+                  </button>
                 </form>
               </div>
             )}
@@ -1063,8 +1075,8 @@ export function CatalogManagement({
             {popup.kind === 'special' && (
               <div className="catalog-dialog-content">
                 <p className="muted">
-                  شناسهٔ مدیر را وارد کنید تا برای او پکیج یا قیمت اختصاصی ثبت
-                  کنید.
+                  مدیر موردنظر را از فهرست پاسارگاد انتخاب کنید تا پکیج یا قیمت
+                  اختصاصی برای او ثبت شود.
                 </p>
                 <form
                   className="catalog-form"
@@ -1089,8 +1101,12 @@ export function CatalogManagement({
                     value={adminId}
                     onChange={setAdminId}
                     setLabels={setAdminLabels}
+                    labels={adminLabels}
+                    onStatusChange={setDirectoryStatus}
                   />
-                  <button>ادامه</button>
+                  <button disabled={directoryStatus !== 'ready' || !adminId}>
+                    ادامه
+                  </button>
                 </form>
               </div>
             )}

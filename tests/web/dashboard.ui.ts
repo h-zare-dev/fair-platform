@@ -161,7 +161,10 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .filter({ has: page.getByRole('heading', { name: groupName }) })
     .getByRole('button', { name: 'مدیران گروه' })
     .click();
-  await expect(page.getByRole('dialog')).toContainText('شناسهٔ مدیر');
+  await expect(page.getByRole('dialog')).toContainText(
+    'جست‌وجو در فهرست مدیران پاسارگاد',
+  );
+  await expect(page.getByRole('dialog').getByLabel(/ورود دستی/)).toHaveCount(0);
   await expect(
     page.getByRole('dialog').getByRole('button', { name: /synthetic_manager/ }),
   ).toBeVisible();
@@ -169,9 +172,36 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .getByRole('dialog')
     .getByRole('button', { name: /synthetic_manager/ })
     .click();
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText(
+    'synthetic_manager',
+  );
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText(
+    '9001',
+  );
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'بستن پنجره' })
+    .click();
+  await page.unroute('**/api/v1/owner/directory/admins?*');
+  await page.route('**/api/v1/owner/directory/admins?*', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: '{"message":"DIRECTORY_UNAVAILABLE"}',
+    }),
+  );
+  await page
+    .locator('.catalog-tile')
+    .filter({ has: page.getByRole('heading', { name: groupName }) })
+    .getByRole('button', { name: 'مدیران گروه' })
+    .click();
+  await expect(page.getByRole('dialog')).toContainText('DIRECTORY_UNAVAILABLE');
   await expect(
-    page.getByRole('dialog').getByLabel(/شناسهٔ مدیر انتخاب‌شده/),
-  ).toHaveValue('9001');
+    page
+      .getByRole('dialog')
+      .getByRole('button', { name: '+ افزودن مدیر به گروه' }),
+  ).toBeDisabled();
+  await expect(page.getByRole('dialog').getByLabel(/ورود دستی/)).toHaveCount(0);
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'بستن پنجره' })

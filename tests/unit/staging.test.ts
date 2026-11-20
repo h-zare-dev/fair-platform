@@ -58,7 +58,12 @@ it('staging publishes only Caddy TCP443, persists data and retains webhook guard
   expect(read('apps/api/src/main.ts')).toContain(
     'VERIFIED_WEBHOOK_AUTHENTICATOR_REQUIRED',
   );
-  expect(read('apps/api/src/owner/app.ts')).not.toContain('WebhookController');
+  expect(read('apps/api/src/owner/app.ts')).toContain(
+    'ShadowWebhookController',
+  );
+  expect(read('apps/api/src/owner/app.ts')).toContain('if (!webhook)');
+  expect(compose).toContain('PASARGUARD_WEBHOOK_SECRET_FILE');
+  expect(caddy).toContain('max_size 256KB');
 });
 it('staging smoke checks a stable no-live-billing marker, not translated dashboard text', () => {
   const dashboard = read('apps/web/components/dashboard.tsx');

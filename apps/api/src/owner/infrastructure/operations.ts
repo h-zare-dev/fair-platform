@@ -88,7 +88,7 @@ export class PostgresOwnerOperations implements OperationsReader {
         ).toString(),
         failedRetryable,
         failedPermanent,
-        mode: 'STAGING / SYNTHETIC / SHADOW / NO LIVE BILLING',
+        mode: 'STAGING / AUTHENTICATED SHADOW TEST / NO LIVE BILLING',
       };
     });
   }

@@ -54,10 +54,20 @@ services:
     environment:
       OWNER_ORIGIN: https://panel.fairisfair.ir
       FAIR_TIME_ZONE: ${FAIR_TIME_ZONE:-Asia/Tehran}
+      FAIR_SHADOW_ENABLED: 'true'
+      FAIR_SHADOW_CLOSE_TIME: '02:10'
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
+      APP_ENCRYPTION_KEY_FILE: /run/secrets/seed_encryption_key
+      PASARGUARD_WEBHOOK_SECRET_FILE: /run/secrets/shadow_webhook_secret
       PASARGUARD_BASE_URL: https://pasar.fairinternet98.com
       PASARGUARD_API_KEY_FILE: /run/secrets/pasarguard_api_key
-    secrets: [runtime_database_url, pasarguard_api_key]
+    secrets:
+      [
+        runtime_database_url,
+        pasarguard_api_key,
+        seed_encryption_key,
+        shadow_webhook_secret,
+      ]
     networks: [edge, backend]
     depends_on:
       postgres: { condition: service_healthy }
@@ -133,6 +143,8 @@ secrets:
     file: ${SECRETS_DIR:?}/runtime_database_url
   pasarguard_api_key:
     file: ${SECRETS_DIR:?}/pasarguard_api_key
+  shadow_webhook_secret:
+    file: ${SECRETS_DIR:?}/shadow_webhook_secret
   admin_database_url:
     file: ${SECRETS_DIR:?}/admin_database_url
   seed_encryption_key:

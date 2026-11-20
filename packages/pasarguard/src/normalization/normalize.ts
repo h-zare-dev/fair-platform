@@ -30,6 +30,42 @@ const sourceTime = z
   .number()
   .finite()
   .refine((value) => value >= -62135596800 && value < 253402300800);
+// Only the source's UTC/offset timestamp is accepted; do not substitute the
+// webhook receipt time or infer an original duration from an expiry date.
+const sourceDate = z
+  .string()
+  .max(40)
+  .regex(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/,
+  )
+  .refine((value) => {
+    const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(
+      value,
+    );
+    if (!parts) return false;
+    const [
+      year = NaN,
+      month = NaN,
+      day = NaN,
+      hour = NaN,
+      minute = NaN,
+      second = NaN,
+    ] = parts.slice(1).map(Number);
+    const utcDate = new Date(0);
+    // setUTCFullYear handles 0001..0099 literally; Date.UTC maps those into
+    // 1900..1999 and would reject an otherwise well-formed historical date.
+    utcDate.setUTCFullYear(year, month - 1, day);
+    return (
+      year >= 1 &&
+      utcDate.getUTCFullYear() === year &&
+      utcDate.getUTCMonth() + 1 === month &&
+      utcDate.getUTCDate() === day &&
+      hour <= 23 &&
+      minute <= 59 &&
+      second <= 59 &&
+      Number.isFinite(Date.parse(value))
+    );
+  });
 const schema = z.object({
   action: text(64),
   enqueued_at: sourceTime,
@@ -43,6 +79,10 @@ const schema = z.object({
     used_traffic: integer,
     lifetime_used_traffic: integer,
     data_limit_reset_strategy: text(64).nullish(),
+    created_at: sourceDate.nullish(),
+    expire: sourceDate.nullish(),
+    edit_at: sourceDate.nullish(),
+    on_hold_expire_duration: integer.nullish(),
     next_plan: z.unknown().optional(),
   }),
   by: actor.nullish(),
@@ -74,6 +114,10 @@ export interface NormalizedEvent {
   actor_admin_username: string | null;
   source_enqueued_at: string;
   source_send_at: string | null;
+  source_user_created_at: string | null;
+  source_user_expire_at: string | null;
+  source_user_edit_at: string | null;
+  on_hold_expire_duration_seconds: string | null;
   reset_strategy: string | null;
   next_plan_data_limit_bytes: null;
   next_plan_expire: null;
@@ -194,6 +238,13 @@ export function normalize(
       source_enqueued_at: sourceTimestamp(input.enqueued_at),
       source_send_at:
         input.send_at === undefined ? null : sourceTimestamp(input.send_at),
+      source_user_created_at: user.created_at ?? null,
+      source_user_expire_at: user.expire ?? null,
+      source_user_edit_at: user.edit_at ?? null,
+      on_hold_expire_duration_seconds:
+        user.on_hold_expire_duration == null
+          ? null
+          : String(user.on_hold_expire_duration),
       reset_strategy: reset,
       next_plan_data_limit_bytes: null,
       next_plan_expire: null,

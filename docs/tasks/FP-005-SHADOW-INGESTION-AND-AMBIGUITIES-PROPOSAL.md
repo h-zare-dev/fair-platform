@@ -1,6 +1,6 @@
 # FP-005 — User-create shadow accounting, replay evidence, and ambiguity UI
 
-**Status: PROPOSED IMPLEMENTATION SPEC; OWNER REVIEW REQUIRED BEFORE FEATURE CODE.**
+**Status: OWNER-AUTHORIZED STAGING SHADOW EXPERIMENT (2026-11-20); PR #89 implements the bounded FP-005 Create slice.**
 **Branch of record:** `development`. **Milestone:** FP-005 (User Create).
 **Related:** `DOMAIN_RULES.md`, `ARCHITECTURE.md`, `integrations/PASARGUARD.md`,
 `FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md`, ADR 0018, FP-001/001B/002/003A/004.
@@ -8,8 +8,16 @@
 This task is deliberately bounded to the approved **user-create** milestone.
 The Owner also requested that real historical events, reset/update ambiguity
 and nightly accounting eventually be visible in Fair Platform. **This document
-does not itself authorize importing private history into public Staging,
+initially did not authorize importing private history into public Staging,
 activating any live source webhook, sending reports, or merging a PR.**
+**Owner amendment (2026-11-20):** the Owner expressly approved using the
+**existing public Staging** for real-data **SHADOW-only** testing without
+backup/restore, instead of a separate private environment. This overrides
+the synthetic-only restriction in §2 **for this explicitly acknowledged test
+only**. Staging is not a financial system of record: no real invoices,
+Telegram reporting, or production bot changes. Use second-destination
+authentication, strict retention, Owner session gating and manual activation.
+No real replay payload is placed in Git, artifacts or public logs.
 FP-006 owns previous-state/update semantics; FP-007 owns renewal/reset and
 Next Plan semantics. Their events must be retained, not silently charged as
 part of FP-005.
@@ -39,19 +47,20 @@ part of FP-005.
 
 ## 2. Environments and prohibited shortcuts
 
-1. Keep the current public `panel.fairisfair.ir` **synthetic-only**. Synthetic
-   demonstrations may populate its existing sandbox PostgreSQL, but *never*
-   copy the Owner's private 30-day replay, HMAC identity key, pseudonymized
-   user-level records or actual production webhook bodies to this host.
+1. The Owner now permits **only SHADOW test receipt** of real webhook events
+   on `panel.fairisfair.ir`, subject to separate authentication and no outward
+   delivery. Never commit the private archive, HMAC identity key, customer
+   details, or raw production webhook bodies into Git or CI artifacts. The
+   existing Staging no-backup exception stands for this limited test; a lost
+   test DB will not be restorable.
 2. Run historical replay against a **disposable isolated PostgreSQL 17** on a
    trusted local/private environment, with no outbound messaging or live
    billing. Produce an aggregate report with deterministic reconciliation and
    zero sample identifiers, not a public dataset. Existing manifest hash,
    bounded decompression and no-secret-fixture protections remain mandatory.
-3. Real live-webhook shadow ingestion requires its **own approved operational
-   environment** with an explicit data-protection, retention, access, backup
-   and restore decision. ADR 0017's deliberate *no-backup synthetic Staging*
-   exception does **not** authorize storing real billing evidence there.
+3. The previous separate-environment requirement is superseded by the
+   Owner's explicit Staging-only authorization above. Production still needs
+   a separate storage/backup/security decision; Staging is disposable.
 4. The existing legacy Pasarjew/PasarGuard webhook endpoint must remain
    untouched. A second destination may be configured only by the Owner after
    receiver-auth, independent failure/timeout isolation, retries, late events,
@@ -164,17 +173,17 @@ part of FP-005.
    reprocessing after failure, duplicate deliveries and bounded pagination;
    Owner authorization/CSRF and forbidden public API reads; no secret
    leakage. Full quality/security/containers CI and independent review.
-6. Before any real webhook activation: explicit Owner environment and
-   retention/backup sign-off, production-safe receiver secret provisioning,
+6. Before any real webhook activation: explicit Owner Staging exception and
+   acceptance of irrecoverable test data, production-safe receiver secret provisioning,
    independent endpoint failure tests proving no regression to the old bot,
    traffic comparison in shadow mode and rollout/rollback runbook.
 
 ## 7. Decisions that must precede real-data rollout
 
-1. **Where is real shadow data stored?** Recommended: a separate private,
-   access-controlled shadow environment with recoverable backups. Alternative:
-   a separately reviewed change of the public Staging policy, network/data
-   protection, and backup decision. Do not select this by inference.
+1. **Where is test shadow data stored?** Resolved for this PR by explicit Owner
+   authorization: current public Staging, encrypted short-lived source payload,
+   no backup/restore, separate authenticated read-only Owner presentation.
+   This is not production approval.
 2. **What proves active-user package duration and historical baselines?**
    Source-proven supplemental fields or separately approved read-only API
    evidence; `expire - created_at` alone is insufficient for renewals.

@@ -18,9 +18,6 @@ panel.fairisfair.ir {
 			disable_http_challenge
 		}
 	}
-	request_body {
-		max_size 4KB
-	}
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
@@ -29,8 +26,27 @@ panel.fairisfair.ir {
 		Cache-Control no-store
 		-Server
 	}
+	@webhook path /api/v1/owner/webhook/pasarguard
+	handle @webhook {
+		request_body {
+			max_size 256KB
+		}
+		reverse_proxy owner-api:3001 {
+			header_up -Forwarded
+			header_up -X-Forwarded-For
+			header_up -X-Forwarded-Host
+			header_up -X-Forwarded-Proto
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 10s
+			}
+		}
+	}
 	@owner path /api/v1/owner/* /health/live /health/ready
 	handle @owner {
+		request_body {
+			max_size 4KB
+		}
 		reverse_proxy owner-api:3001 {
 			header_up -Forwarded
 			header_up -X-Forwarded-For
@@ -43,6 +59,9 @@ panel.fairisfair.ir {
 		}
 	}
 	handle {
+		request_body {
+			max_size 4KB
+		}
 		reverse_proxy web:3000
 	}
 }

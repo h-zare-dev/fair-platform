@@ -1,8 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { PricingManagement } from './pricing';
-import { CatalogManagement } from './catalog';
-import { ThemeToggle } from './theme-toggle';
+import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 interface Summary {
   pendingBatches: string;
@@ -198,21 +196,6 @@ export function Dashboard() {
       setPageBusy(false);
     }
   }
-  async function logout() {
-    setError('');
-    try {
-      const r = await fetch('/api/v1/owner/auth/logout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Fair-CSRF': '1' },
-        body: '{}',
-        signal: AbortSignal.timeout(10000),
-      });
-      if (r.ok || r.status === 401) window.location.assign('/login');
-      else setError('خروج از حساب انجام نشد؛ دوباره تلاش کنید.');
-    } catch {
-      setError('خروج از حساب انجام نشد؛ دوباره تلاش کنید.');
-    }
-  }
   const cards = [
     [
       'دسته‌های دریافتی',
@@ -231,22 +214,7 @@ export function Dashboard() {
   ];
   return (
     <>
-      <header className="topbar">
-        <div className="wordmark">
-          <span className="brand-mark" aria-hidden="true">
-            ف
-          </span>
-          <span className="brand-text">
-            فِیر پلتفرم<small>پنل مدیریت</small>
-          </span>
-        </div>
-        <div className="topbar-actions">
-          <ThemeToggle />
-          <button className="secondary" onClick={() => void logout()}>
-            خروج از حساب
-          </button>
-        </div>
-      </header>
+      <OwnerHeader active="dashboard" />
       <main className="dashboard">
         <div className="stage" data-staging-billing-mode="no-live-billing">
           <span className="stage-dot" aria-hidden="true" /> محیط آزمایشی · دادهٔ
@@ -259,8 +227,9 @@ export function Dashboard() {
               سلام، خوش آمدید <span aria-hidden="true">✦</span>
             </h1>
             <p className="muted">
-              وضعیت رویدادها، خطاها و تنظیمات تعرفه را اینجا مدیریت کنید. همهٔ
-              زمان‌ها بر اساس UTC هستند.
+              رویدادها و خطاها را اینجا ببینید؛ مدیریت پکیج‌ها و گروه‌ها در بخش
+              تنظیمات انجام می‌شود. زمان رویدادهای فنی بر اساس UTC نمایش داده
+              می‌شود.
             </p>
           </div>
           <button
@@ -275,7 +244,7 @@ export function Dashboard() {
           <a href="#overview">نمای کلی</a>
           <a href="#events">تاریخچهٔ رویدادها</a>
           <a href="#issues">خطاهای پردازش</a>
-          <a href="#pricing">مدیریت تعرفه‌ها</a>
+          <a href="/settings/packages">تنظیمات پکیج‌ها</a>
         </nav>
         <form
           className="filters"
@@ -487,11 +456,6 @@ export function Dashboard() {
             </>
           )
         )}
-        <CatalogManagement />
-        <details className="legacy-pricing">
-          <summary>نمایش پیش‌نمایش قدیمی قیمت‌گذاری (فقط آزمایشی)</summary>
-          <PricingManagement />
-        </details>
         <footer>
           فِیر پلتفرم · فقط محیط آزمایشی · بدون اتصال زنده به منبع یا دریافت وجه
         </footer>

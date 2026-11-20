@@ -18,6 +18,7 @@ async function main() {
       'OwnerGlobalTimeIndexes1791100000000',
       'PricingEngine1791200000000',
       'AtomicCatalog1791300000000',
+      'OwnerSafeGroupDelete1791400000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -35,6 +36,7 @@ async function main() {
       'dist/owner/infrastructure/query-indexes.js',
       'dist/owner/infrastructure/pricing-migration.js',
       'dist/owner/infrastructure/catalog-migration.js',
+      'dist/owner/infrastructure/group-delete-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

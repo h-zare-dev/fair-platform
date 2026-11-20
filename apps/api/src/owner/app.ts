@@ -281,6 +281,15 @@ export async function createOwnerApi(
         (v) => catalog!.createGroup(v),
       );
     }
+    @Post('catalog/groups/delete') catalogDeleteGroup(
+      @Req() req: FastifyRequest,
+    ) {
+      return priceWrite(
+        req,
+        z.object({ sourceInstanceId: source, groupId: positive }).strict(),
+        (v) => catalog!.deleteGroup(v),
+      );
+    }
     @Post('catalog/memberships') catalogMembership(@Req() req: FastifyRequest) {
       return priceWrite(req, catalogMembership, (v) =>
         catalog!.changeMembership(v),

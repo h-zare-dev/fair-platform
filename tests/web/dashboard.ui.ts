@@ -60,6 +60,8 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   page,
   context,
 }) => {
+  const packageName = `آزمایش نیم گیگ ${test.info().project.name}`;
+  const groupName = `گروه آزمایشی ${test.info().project.name}`;
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
   await expect(
@@ -95,73 +97,55 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(page.locator('.kpi .number').nth(1)).toHaveText('۱۱');
   await expect(page.getByText('۱۰ گیگابایت').first()).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'گروه‌ها و پکیج‌های قیمت‌گذاری' }),
-  ).toBeVisible();
-  await page
-    .getByText('نمایش پیش‌نمایش قدیمی قیمت‌گذاری (فقط آزمایشی)')
-    .click();
-  const legacy = page.locator('#legacy-pricing');
-  let quoteBytes = '';
-  await page.route('**/api/v1/owner/pricing/quote', async (route) => {
-    const payload = route.request().postDataJSON() as {
-      billableBytes: string;
-    };
-    quoteBytes = payload.billableBytes;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        amountToman: '150000',
-        source: 'DEFAULT_PLAN',
-        ruleVersionId: '1',
-        billableBytes: payload.billableBytes,
-        mode: 'FIXED',
-      }),
-    });
-  });
-  await legacy.getByLabel('حجم بسته (گیگابایت)').fill('۵۰');
-  await legacy
-    .getByRole('button', { name: 'محاسبهٔ قیمت بدون ثبت هزینه' })
-    .click();
-  await expect(page.getByText('۱۵۰٬۰۰۰ تومان')).toBeVisible();
-  expect(quoteBytes).toBe('53687091200');
-  await legacy.getByLabel('مدل محاسبهٔ قیمت').selectOption('FIXED');
-  const sizeInputWidth = await legacy
-    .getByLabel('حجم (گیگابایت)')
-    .first()
-    .evaluate((input) => input.getBoundingClientRect().width);
-  expect(sizeInputWidth).toBeGreaterThan(120);
-  await legacy.getByLabel('تعرفه برای').selectOption('override');
-  await legacy
-    .locator('.pricing-grid form')
-    .nth(1)
-    .getByLabel('شناسهٔ مدیر حساب')
-    .fill('۹۰۰۱');
-  await legacy.getByLabel('حجم (گیگابایت)').first().fill('۵۰');
-  await legacy.getByLabel('قیمت (تومان)').first().fill('۱۵۰٬۰۰۰');
-  await legacy.getByRole('button', { name: 'افزودن بستهٔ دیگر' }).click();
-  await legacy.getByLabel('حجم (گیگابایت)').nth(1).fill('100');
-  await legacy.getByLabel('قیمت (تومان)').nth(1).fill('270000');
-  let fixedPackages: Record<string, string> = {};
-  await page.route('**/api/v1/owner/pricing/versions', async (route) => {
-    const payload = route.request().postDataJSON() as {
-      fixedPackages: Record<string, string>;
-    };
-    fixedPackages = payload.fixedPackages;
-    await route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: '{"id":"1"}',
-    });
-  });
-  await legacy.getByRole('button', { name: 'ثبت نسخهٔ جدید تعرفه' }).click();
+    page.getByRole('heading', { name: 'پکیج‌های قیمت‌گذاری' }),
+  ).toHaveCount(0);
+  await page.getByRole('link', { name: 'تنظیمات', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings\/packages$/);
   await expect(
-    page.getByText(/نسخهٔ جدید تعرفه با موفقیت ثبت شد/),
+    page.getByRole('heading', { name: 'پکیج‌های قیمت‌گذاری' }),
   ).toBeVisible();
-  expect(fixedPackages).toEqual({
-    '53687091200': '150000',
-    '107374182400': '270000',
-  });
+  await page.getByRole('button', { name: '+ پکیج جدید' }).click();
+  const packageDialog = page.getByRole('dialog');
+  await packageDialog.getByLabel('نام پکیج').fill(packageName);
+  await packageDialog.getByLabel('حجم (گیگابایت)').fill('۰٫۵');
+  await packageDialog.getByLabel('مدت (روز)').fill('۳۰');
+  await packageDialog.getByLabel('قیمت پکیج (تومان)').fill('۱۵۰۰۰۰');
+  await packageDialog.getByRole('button', { name: 'ذخیرهٔ پکیج' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: packageName })).toBeVisible();
+  await page
+    .locator('.catalog-tile')
+    .filter({ has: page.getByRole('heading', { name: packageName }) })
+    .getByRole('button', { name: 'کپی پکیج' })
+    .click();
+  await expect(page.getByRole('dialog')).toContainText('کپی پکیج');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'بستن پنجره' })
+    .click();
+  await page
+    .getByRole('link', { name: /گروه‌ها/ })
+    .last()
+    .click();
+  await expect(page).toHaveURL(/\/settings\/groups$/);
+  await page.getByRole('button', { name: '+ گروه جدید' }).click();
+  await page.getByRole('dialog').getByLabel('نام گروه').fill(groupName);
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'ایجاد گروه' })
+    .click();
+  await expect(page.getByRole('heading', { name: groupName })).toBeVisible();
+  await page
+    .locator('.catalog-tile')
+    .filter({ has: page.getByRole('heading', { name: groupName }) })
+    .getByRole('button', { name: 'مدیران گروه' })
+    .click();
+  await expect(page.getByRole('dialog')).toContainText('شناسهٔ مدیر');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'بستن پنجره' })
+    .click();
+  await page.getByRole('link', { name: 'داشبورد', exact: true }).click();
   const cookies = await context.cookies();
   const session = cookies.find((c) => c.name === '__Host-fair_owner');
   expect(session).toMatchObject({

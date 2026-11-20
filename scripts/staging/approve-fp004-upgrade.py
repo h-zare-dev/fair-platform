@@ -21,6 +21,8 @@ ADDITION = b'      FAIR_TIME_ZONE: ${FAIR_TIME_ZONE:-Asia/Tehran}\n'
 ANCHOR = b'      OWNER_ORIGIN: https://panel.fairisfair.ir\n'
 NEW_MIGRATION = 'AtomicCatalog1791300000000'
 NEW_MIGRATION_FILE = 'dist/owner/infrastructure/catalog-migration.js'
+GROUP_MIGRATION = 'OwnerSafeGroupDelete1791400000000'
+GROUP_MIGRATION_FILE = 'dist/owner/infrastructure/group-delete-migration.js'
 IMAGE_RE = re.compile(r'ghcr\.io/h-zare-dev/fair-platform-owner-api@sha256:[0-9a-f]{64}')
 
 
@@ -28,16 +30,22 @@ class UpgradeError(Exception):
     pass
 
 
-def check_compose(previous, proposed):
+def check_compose(previous, proposed, mode='initial'):
     """Only the one exact reviewed environment mapping may be added."""
+    if mode == 'group-delete':
+        if proposed != previous:
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        return
     if previous.count(ADDITION) != 0 or previous.count(ANCHOR) != 1:
         raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
     if proposed != previous.replace(ANCHOR, ANCHOR + ADDITION, 1):
         raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
 
 
-def check_proofs(approved, old, new):
+def check_proofs(approved, old, new, mode='initial'):
     """Exact additive migration: preserve every previously accepted code hash."""
+    added_name, added_file = ((GROUP_MIGRATION, GROUP_MIGRATION_FILE)
+                              if mode == 'group-delete' else (NEW_MIGRATION, NEW_MIGRATION_FILE))
     for proof in (old, new):
         if proof.get('schema') != 'fp003b-v1':
             raise UpgradeError('STAGING_MIGRATION_PROOF_INVALID')
@@ -54,13 +62,13 @@ def check_proofs(approved, old, new):
             or old['hashes'] != approved.get('hashes')
             or any(name not in old['configuredMigrations'] for name in old['migrations'])):
         raise UpgradeError('STAGING_ACCEPTED_MIGRATIONS_DRIFT')
-    if NEW_MIGRATION in old['configuredMigrations'] or NEW_MIGRATION_FILE in old['hashes']:
+    if added_name in old['configuredMigrations'] or added_file in old['hashes']:
         raise UpgradeError('STAGING_MIGRATION_ALREADY_APPROVED')
-    if new['configuredMigrations'] != sorted(old['configuredMigrations'] + [NEW_MIGRATION]):
+    if new['configuredMigrations'] != sorted(old['configuredMigrations'] + [added_name]):
         raise UpgradeError('STAGING_UNEXPECTED_NEW_MIGRATIONS')
     if new['migrations'] != old['migrations']:
         raise UpgradeError('STAGING_DATABASE_CHANGED_DURING_REVIEW')
-    if (set(new['hashes']) != set(old['hashes']) | {NEW_MIGRATION_FILE}
+    if (set(new['hashes']) != set(old['hashes']) | {added_file}
             or any(new['hashes'].get(k) != v for k, v in old['hashes'].items())):
         raise UpgradeError('STAGING_PREVIOUS_MIGRATION_HASH_CHANGED')
     return {'configuredMigrations': new['configuredMigrations'], 'hashes': new['hashes']}
@@ -89,7 +97,7 @@ def read_proof(commands, root, compose_path, env_path, name):
     return json.loads(output)
 
 
-def review_and_approve(root, settings, proposed, sha, commands):
+def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise UpgradeError('STAGING_OPERATOR_INVALID_SHA')
     if not (root / 'current.json').is_file() or not (root / 'current.env').is_file():
@@ -116,7 +124,7 @@ def review_and_approve(root, settings, proposed, sha, commands):
         if (comparison.get('status') != 'ahead'
                 or comparison.get('merge_base_commit', {}).get('sha') != high):
             raise UpgradeError('STAGING_OPERATOR_NOT_DESCENDANT')
-    check_compose((root / 'compose.yml').read_bytes(), proposed)
+    check_compose((root / 'compose.yml').read_bytes(), proposed, mode)
     baseline = json.loads((settings / 'compatible-migrations.json').read_text())
     before = database_identity(commands, root / 'current.env', accepted['postgres'])
 
@@ -142,7 +150,7 @@ def review_and_approve(root, settings, proposed, sha, commands):
                          'fair-staging-operator-accepted-preflight')
         new = read_proof(commands, root, candidate_compose, candidate_env,
                          'fair-staging-operator-candidate-preflight')
-        reviewed = check_proofs(baseline, old, new)
+        reviewed = check_proofs(baseline, old, new, mode)
 
     after = database_identity(commands, root / 'current.env', accepted['postgres'])
     if not same_database_identity(before, after):
@@ -152,7 +160,7 @@ def review_and_approve(root, settings, proposed, sha, commands):
         raise UpgradeError('STAGING_OPERATOR_NOT_LATEST_TIP')
     if accepted['configHash'] != config_hash(root):
         raise UpgradeError('STAGING_ACCEPTED_CONFIG_DRIFT')
-    check_compose((root / 'compose.yml').read_bytes(), proposed)
+    check_compose((root / 'compose.yml').read_bytes(), proposed, mode)
     if baseline != json.loads((settings / 'compatible-migrations.json').read_text()):
         raise UpgradeError('STAGING_MIGRATION_APPROVAL_DRIFT')
 
@@ -162,9 +170,10 @@ def review_and_approve(root, settings, proposed, sha, commands):
     original_compat = (settings / 'compatible-migrations.json').read_text()
     new_manifest = {**accepted, 'configHash': ''}
     try:
-        atomic(root / 'compose.yml', proposed.decode('utf-8'))
-        new_manifest['configHash'] = config_hash(root)
-        atomic(root / 'current.json', json.dumps(new_manifest))
+        if mode == 'initial':
+            atomic(root / 'compose.yml', proposed.decode('utf-8'))
+            new_manifest['configHash'] = config_hash(root)
+            atomic(root / 'current.json', json.dumps(new_manifest))
         atomic(settings / 'compatible-migrations.json', json.dumps(reviewed))
     except Exception:
         # Keep the previously accepted config valid if any local write fails.
@@ -172,12 +181,16 @@ def review_and_approve(root, settings, proposed, sha, commands):
         atomic(root / 'current.json', original_manifest)
         atomic(settings / 'compatible-migrations.json', original_compat)
         raise
-    return 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED'
+    return ('STAGING_GROUP_DELETE_MIGRATION_APPROVED' if mode == 'group-delete'
+            else 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED')
 
 
 def main():
     os.umask(0o077)
-    if os.geteuid() != 0 or len(sys.argv) != 2:
+    if os.geteuid() != 0 or len(sys.argv) not in (2, 3):
+        raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
+    mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
+    if mode not in ('initial', 'group-delete'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)
     if len(proposed) > 30000:
@@ -187,7 +200,7 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise UpgradeError('STAGING_DEPLOYMENT_BUSY') from None
-        print(review_and_approve(ROOT, SETTINGS, proposed, sys.argv[1], Commands(ROOT)))
+        print(review_and_approve(ROOT, SETTINGS, proposed, sys.argv[1], Commands(ROOT), mode))
 
 
 if __name__ == '__main__':

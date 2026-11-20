@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   asciiDigits,
+  bytesToEditableGiB,
   fixedCatalogGiB,
   fixedRowsToCatalog,
   formatGiB,
@@ -18,8 +19,13 @@ describe('Owner UI: GiB input/output is exact at the API boundary', () => {
     expect(gibToBytes('۰٫۱۲۵')).toBe('134217728');
   });
 
-  it('never silently rounds a fractional GiB to an inexact byte count', () => {
-    for (const value of ['0.1', '0', '-1', 'NaN', '1e3', '1.2.3'])
+  it('accepts fractional GiB with explicit nearest-byte rounding and exact edit round-trips', () => {
+    expect(gibToBytes('۰٫۲')).toBe('214748365');
+    expect(gibToBytes('0.5')).toBe('536870912');
+    expect(bytesToEditableGiB('214748365')).toBe('0.200000000186');
+    expect(gibToBytes(bytesToEditableGiB('214748365'))).toBe('214748365');
+    expect(bytesToEditableGiB('536870912')).toBe('0.5');
+    for (const value of ['0', '-1', 'NaN', '1e3', '1.2.3'])
       expect(() => gibToBytes(value)).toThrow();
     expect(() => gibToBytes('8589934592')).toThrow();
   });
@@ -34,7 +40,7 @@ describe('Owner UI: GiB input/output is exact at the API boundary', () => {
       '2147483648': '180',
     });
     expect(() => fixedCatalogGiB('1:100, ۱:200')).toThrow(/تکراری/);
-    expect(() => fixedCatalogGiB('0.1:100')).toThrow(/صحیح بایت/);
+    expect(fixedCatalogGiB('0.1:100')).toEqual({ '107374182': '100' });
     expect(() => fixedCatalogGiB('50:-100')).toThrow(/قیمت/);
     expect(() => fixedCatalogGiB('50:100,')).toThrow();
   });

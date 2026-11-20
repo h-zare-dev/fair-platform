@@ -68,6 +68,39 @@ beforeEach(async () => {
 });
 
 describe('FP-004 atomic catalog: forward migration, immutable history and conflicts', () => {
+  it('deletes only unused groups and preserves membership and assignment history', async () => {
+    const empty = await catalog.createGroup({
+      sourceInstanceId: s,
+      name: 'Temporary',
+    });
+    expect(
+      await catalog.deleteGroup({ sourceInstanceId: s, groupId: empty.id }),
+    ).toEqual({ id: empty.id });
+    expect((await catalog.list(s)).groups).toHaveLength(0);
+    const used = await catalog.createGroup({
+      sourceInstanceId: s,
+      name: 'Used',
+    });
+    await catalog.changeMembership({
+      sourceInstanceId: s,
+      billingAdminId: '9001',
+      groupId: used.id,
+    });
+    await catalog.changeMembership({
+      sourceInstanceId: s,
+      billingAdminId: '9001',
+      groupId: null,
+    });
+    await expect(
+      catalog.deleteGroup({ sourceInstanceId: s, groupId: used.id }),
+    ).rejects.toThrow('GROUP_HAS_HISTORY');
+    await expect(
+      db.query('DELETE FROM fair_admin_groups WHERE id=$1', [used.id]),
+    ).rejects.toThrow('GROUP_HAS_HISTORY');
+    expect((await catalog.list(s)).groups).toHaveLength(1);
+    expect((await catalog.list(s)).membershipHistory).toHaveLength(2);
+  });
+
   it('tracks single membership and immutable transitions without any membership date fields', async () => {
     const a = await catalog.createGroup({ sourceInstanceId: s, name: 'A' });
     const b = await catalog.createGroup({ sourceInstanceId: s, name: 'B' });

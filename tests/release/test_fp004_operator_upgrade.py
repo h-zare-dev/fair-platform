@@ -166,6 +166,41 @@ class UpgradeTests(unittest.TestCase):
             self.approve()
         self.assertEqual(self.commands.calls, [])
 
+    def test_approves_only_safe_group_delete_migration_without_config_change(self):
+        (self.root / 'compose.yml').write_bytes(self.proposed)
+        self.accepted['configHash'] = release.config_hash(self.root)
+        (self.root / 'current.json').write_text(json.dumps(self.accepted))
+        names = OLD + [upgrade.NEW_MIGRATION]
+        hashes = NEW_HASHES
+        (self.settings / 'compatible-migrations.json').write_text(json.dumps({
+            'configuredMigrations': sorted(names), 'hashes': hashes,
+        }))
+        self.commands.old = report(names, hashes)
+        new_hashes = {**hashes, upgrade.GROUP_MIGRATION_FILE: 'd' * 64}
+        self.commands.new = report(names + [upgrade.GROUP_MIGRATION], new_hashes)
+        result = upgrade.review_and_approve(self.root, self.settings, self.proposed,
+                                            self.target_sha, self.commands, 'group-delete')
+        self.assertEqual(result, 'STAGING_GROUP_DELETE_MIGRATION_APPROVED')
+        self.assertEqual((self.root / 'compose.yml').read_bytes(), self.proposed)
+        self.assertEqual(json.loads((self.root / 'current.json').read_text()), self.accepted)
+        self.assertEqual(json.loads((self.settings / 'compatible-migrations.json').read_text())['hashes'], new_hashes)
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+            upgrade.check_compose(self.proposed, self.proposed + b'unsafe\n', 'group-delete')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'PREVIOUS_MIGRATION_HASH_CHANGED'):
+            upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
+                                 report(names, hashes), report(names + [upgrade.GROUP_MIGRATION],
+                                    {**new_hashes, upgrade.NEW_MIGRATION_FILE: 'f' * 64}), 'group-delete')
+
+    def test_group_delete_workflow_is_owner_only_and_serialized(self):
+        workflow = (REPO / '.github/workflows/staging-fp004-group-delete-approval.yml').read_text()
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertIn("github.actor == 'h-zare-dev'", workflow)
+        self.assertIn('github.ref_protected', workflow)
+        self.assertIn('group: fair-staging-deployment', workflow)
+        self.assertIn('environment: staging-bootstrap', workflow)
+        self.assertIn('APPROVE_FP004_GROUP_DELETE', workflow)
+        self.assertIn('group-delete', workflow)
+
     def test_workflow_is_manual_owner_only_protected_and_serialized(self):
         workflow = (REPO / '.github/workflows/staging-fp004-operator-upgrade.yml').read_text()
         self.assertIn('workflow_dispatch:', workflow)

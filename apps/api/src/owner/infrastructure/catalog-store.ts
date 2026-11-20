@@ -10,7 +10,8 @@ export class CatalogError extends Error {
     readonly code:
       | 'INVALID_CATALOG_INPUT'
       | 'CATALOG_NOT_FOUND'
-      | 'PACKAGE_ALREADY_ASSIGNED',
+      | 'PACKAGE_ALREADY_ASSIGNED'
+      | 'GROUP_HAS_HISTORY',
   ) {
     super(code);
   }
@@ -145,6 +146,31 @@ export class PostgresCatalogStore {
       [source(input.sourceInstanceId), name(input.name)],
     );
     return { id: row!.id };
+  }
+
+  /** Only unused groups may be deleted; never erase a group's financial or audit identity. */
+  async deleteGroup(input: { sourceInstanceId: string; groupId: string }) {
+    const s = source(input.sourceInstanceId);
+    const groupId = id(input.groupId);
+    return this.db.transaction(async (tx) => {
+      const [group] = await tx.query<{ id: string }[]>(
+        'SELECT id::text AS id FROM fair_admin_groups WHERE id=$1 AND source_instance_id=$2 FOR UPDATE',
+        [groupId, s],
+      );
+      if (!group) throw new CatalogError('CATALOG_NOT_FOUND');
+      const [used] = await tx.query<{ used: boolean }[]>(
+        `SELECT (EXISTS (SELECT 1 FROM fair_admin_group_memberships WHERE source_instance_id=$1 AND group_id=$2)
+          OR EXISTS (SELECT 1 FROM fair_admin_group_membership_audit WHERE source_instance_id=$1 AND (old_group_id=$2 OR new_group_id=$2))
+          OR EXISTS (SELECT 1 FROM fair_tariff_assignments WHERE source_instance_id=$1 AND group_id=$2)) AS used`,
+        [s, groupId],
+      );
+      if (used?.used) throw new CatalogError('GROUP_HAS_HISTORY');
+      await tx.query(
+        'DELETE FROM fair_admin_groups WHERE id=$1 AND source_instance_id=$2',
+        [groupId, s],
+      );
+      return { id: groupId };
+    });
   }
 
   async changeMembership(input: {

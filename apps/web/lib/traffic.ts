@@ -19,15 +19,26 @@ export function gibToBytes(input: string): string {
   if (decimal.length > 18) throw new Error('دقت اعشار حجم بیش از حد مجاز است.');
   const denominator = 10n ** BigInt(decimal.length);
   const numerator = BigInt(whole) * denominator + BigInt(decimal || '0');
-  const exactBytes = numerator * GIB;
-  if (exactBytes % denominator !== 0n)
-    throw new Error(
-      'این کسر گیگابایت معادل تعداد صحیح بایت نیست؛ مقدار دقیق‌تری وارد کنید.',
-    );
-  const bytes = exactBytes / denominator;
+  // Decimal GiB such as 0.2 cannot be expressed as an integral number of
+  // bytes. Choose the nearest byte explicitly; all persisted values remain
+  // integers and the conversion error is bounded by half a byte.
+  const bytes = (numerator * GIB + denominator / 2n) / denominator;
   if (bytes <= 0n || bytes > MAX_SIGNED_BIGINT)
     throw new Error('حجم باید بیشتر از صفر و در محدودهٔ مجاز باشد.');
   return bytes.toString();
+}
+
+/** Editable decimal GiB, with enough precision to round-trip any byte count. */
+export function bytesToEditableGiB(input: string): string {
+  const bytes = BigInt(input);
+  if (bytes <= 0n) throw new Error('حجم نامعتبر است.');
+  const scale = 1_000_000_000_000n;
+  const scaled = (bytes * scale + GIB / 2n) / GIB;
+  const fraction = (scaled % scale)
+    .toString()
+    .padStart(12, '0')
+    .replace(/0+$/, '');
+  return `${scaled / scale}${fraction ? `.${fraction}` : ''}`;
 }
 
 export function fixedCatalogGiB(input: string): Record<string, string> {

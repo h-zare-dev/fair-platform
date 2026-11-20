@@ -3,6 +3,7 @@ import { OwnerGlobalTimeIndexes1791100000000 } from './query-indexes.js';
 import { OwnerDashboard1791000000000 } from './migration.js';
 import { PricingEngine1791200000000 } from './pricing-migration.js';
 import { AtomicCatalog1791300000000 } from './catalog-migration.js';
+import { OwnerSafeGroupDelete1791400000000 } from './group-delete-migration.js';
 
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
@@ -13,6 +14,7 @@ export function createOwnerDataSource(url: string) {
       OwnerGlobalTimeIndexes1791100000000,
       PricingEngine1791200000000,
       AtomicCatalog1791300000000,
+      OwnerSafeGroupDelete1791400000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

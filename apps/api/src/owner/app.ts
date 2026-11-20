@@ -18,6 +18,10 @@ import {
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PricingError } from '@fair-platform/pricing';
+import {
+  DirectoryUnavailable,
+  type AdminDirectory,
+} from './infrastructure/admin-directory.js';
 import type { PricingReader } from './infrastructure/pricing-store.js';
 import {
   CatalogError,
@@ -87,6 +91,27 @@ const catalogMembership = z
     groupId: positive.nullable(),
   })
   .strict();
+const directoryQuery = z
+  .object({
+    search: z
+      .string()
+      .max(64)
+      .regex(/^[^\x00-\x1f\x7f]*$/)
+      .transform((v) => v.trim())
+      .default(''),
+    offset: z
+      .string()
+      .regex(/^(0|[1-9]\d{0,4})$/)
+      .transform(Number)
+      .default(0),
+    limit: z
+      .string()
+      .regex(/^[1-9]\d?$/)
+      .transform(Number)
+      .refine((v) => v <= 50)
+      .default(25),
+  })
+  .strict();
 const catalogAssignment = z
   .object({
     sourceInstanceId: source,
@@ -118,6 +143,7 @@ export async function createOwnerApi(
   origin: string,
   pricing?: PricingReader,
   catalog?: PostgresCatalogStore,
+  directory?: AdminDirectory,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -244,6 +270,18 @@ export async function createOwnerApi(
     }
     @Get('operations/issues') issues(@Req() req: FastifyRequest) {
       return this.read('issues', req);
+    }
+    @Get('directory/admins') async directoryAdmins(@Req() req: FastifyRequest) {
+      await requireOwner(req);
+      const query = input(directoryQuery, req.query);
+      if (!directory) throw new HttpException('DIRECTORY_UNAVAILABLE', 503);
+      try {
+        return await directory.list(query);
+      } catch (error) {
+        if (error instanceof DirectoryUnavailable)
+          throw new HttpException('DIRECTORY_UNAVAILABLE', 503);
+        throw error;
+      }
     }
     @Get('pricing/config') async pricingConfig(@Req() req: FastifyRequest) {
       await requireOwner(req);
@@ -395,7 +433,10 @@ export async function createOwnerApi(
               ? 'Invalid credentials or session'
               : status === 429
                 ? 'Try again later'
-                : 'Request failed',
+                : e instanceof HttpException &&
+                    e.getResponse() === 'DIRECTORY_UNAVAILABLE'
+                  ? 'DIRECTORY_UNAVAILABLE'
+                  : 'Request failed',
         });
     },
   });

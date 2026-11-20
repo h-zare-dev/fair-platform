@@ -1,6 +1,6 @@
 # FP-004 Owner UI addendum — read-only admin directory and Jalali date-only input
 
-**Status: DESIGN DIRECTION APPROVED 2026-11-19; IMPLEMENTATION/REAL API CREDENTIAL ACTIVATION NOT APPROVED.** The Owner selected (a) read-only actual PasarGuard admin **ID and username only** and (b) **Jalali date-only** controls, with local midnight based on a configurable IANA timezone (initially `Asia/Tehran`). The older Gregorian date-only wording is superseded by the later Owner decision. This proposal must be implemented under the approved phased specifications in [Nightly Accounting and local groups](FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md). This does not renumber FP-004/005/006/007.
+**Status: DESIGN DIRECTION APPROVED 2026-11-19; LIMITED READ-ONLY DIRECTORY CODE IMPLEMENTATION DIRECTED 2026-11-20; REAL API CREDENTIAL/HOST ACTIVATION STILL OPERATOR-GATED.** The Owner selected (a) read-only actual PasarGuard admin **ID and username only** and (b) **Jalali date-only** controls, with local midnight based on a configurable IANA timezone (initially `Asia/Tehran`). The code-only directory implementation is bounded by [the November 20 task](FP-004-read-only-pasarguard-admin-directory-implementation.md). The older Gregorian date-only wording is superseded by the later Owner decision. The accounting portion remains under the approved phased specifications in [Nightly Accounting and local groups](FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md). This does not renumber FP-004/005/006/007.
 
 ## 1. Goal and authoritative boundaries
 
@@ -49,4 +49,4 @@ Official PasarGuard source on its `main` branch: [`app/routers/admin.py`](https:
 
 ## 6. Explicit decisions still required before implementation
 
-**Owner approved the new date/group/settlement design direction and publication on 2026-11-19.** The upstream admin-directory security exception still requires a separately approved implementation task and Owner-controlled provisioning of its limited API key. This docs-only PR does not activate upstream access or alter runtime security.
+**Owner approved the new date/group/settlement design direction and publication on 2026-11-19.** On 2026-11-20 the Owner separately directed a read-only admin directory implementation and created the protected secret; see [the bounded code task](FP-004-read-only-pasarguard-admin-directory-implementation.md). Actual host-side key provisioning and release configuration are still separately gated; the code-only PR must not activate upstream access or alter runtime Staging security.

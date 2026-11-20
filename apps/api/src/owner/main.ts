@@ -7,12 +7,15 @@ import { OwnerAuth } from './application/auth.js';
 import { createOwnerApi } from './app.js';
 import { PostgresPricingStore } from './infrastructure/pricing-store.js';
 import { PostgresCatalogStore } from './infrastructure/catalog-store.js';
+import { PasarguardAdminDirectory } from './infrastructure/admin-directory.js';
 async function main() {
   const config = z
     .object({
       DATABASE_URL: z.string().min(1),
       OWNER_ORIGIN: z.literal('https://panel.fairisfair.ir'),
       FAIR_TIME_ZONE: z.string().default('Asia/Tehran'),
+      PASARGUARD_BASE_URL: z.string().optional(),
+      PASARGUARD_API_KEY_FILE: z.string().optional(),
     })
     .parse(process.env);
   const db = createOwnerDataSource(config.DATABASE_URL);
@@ -30,6 +33,12 @@ async function main() {
       config.OWNER_ORIGIN,
       new PostgresPricingStore(db),
       new PostgresCatalogStore(db, config.FAIR_TIME_ZONE),
+      config.PASARGUARD_BASE_URL && config.PASARGUARD_API_KEY_FILE
+        ? new PasarguardAdminDirectory(
+            config.PASARGUARD_BASE_URL,
+            config.PASARGUARD_API_KEY_FILE,
+          )
+        : undefined,
     );
     const cleanup = setInterval(() => {
       void store.cleanup().catch(() => console.error('OWNER_CLEANUP_FAILED'));

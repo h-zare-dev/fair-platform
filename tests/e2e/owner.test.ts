@@ -440,6 +440,14 @@ it('additive migrations upgrade prior schema and reverse only in disposable DB',
   expect(
     await db.query("SELECT to_regclass('fair_shadow_days')::text AS name"),
   ).toEqual([{ name: null }]);
+  // The ingestion projection has a separate later timestamp than the
+  // historical Owner catalog migrations; undo it before their assertions.
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('pasarguard_create_closure')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
   await db.undoLastMigration({ transaction: 'all' });
   expect(
     await db.query(

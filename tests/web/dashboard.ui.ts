@@ -60,6 +60,8 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   page,
   context,
 }) => {
+  const packageName = `آزمایش نیم گیگ ${test.info().project.name}`;
+  const groupName = `گروه آزمایشی ${test.info().project.name}`;
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
   await expect(
@@ -104,16 +106,18 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   ).toBeVisible();
   await page.getByRole('button', { name: '+ پکیج جدید' }).click();
   const packageDialog = page.getByRole('dialog');
-  await packageDialog.getByLabel('نام پکیج').fill('آزمایش نیم گیگ');
+  await packageDialog.getByLabel('نام پکیج').fill(packageName);
   await packageDialog.getByLabel('حجم (گیگابایت)').fill('۰٫۵');
   await packageDialog.getByLabel('مدت (روز)').fill('۳۰');
   await packageDialog.getByLabel('قیمت پکیج (تومان)').fill('۱۵۰۰۰۰');
   await packageDialog.getByRole('button', { name: 'ذخیرهٔ پکیج' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(
-    page.getByRole('heading', { name: 'آزمایش نیم گیگ' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'کپی پکیج' }).click();
+  await expect(page.getByRole('heading', { name: packageName })).toBeVisible();
+  await page
+    .locator('.catalog-tile')
+    .filter({ has: page.getByRole('heading', { name: packageName }) })
+    .getByRole('button', { name: 'کپی پکیج' })
+    .click();
   await expect(page.getByRole('dialog')).toContainText('کپی پکیج');
   await page
     .getByRole('dialog')
@@ -125,15 +129,17 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .click();
   await expect(page).toHaveURL(/\/settings\/groups$/);
   await page.getByRole('button', { name: '+ گروه جدید' }).click();
-  await page.getByRole('dialog').getByLabel('نام گروه').fill('گروه آزمایشی');
+  await page.getByRole('dialog').getByLabel('نام گروه').fill(groupName);
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'ایجاد گروه' })
     .click();
-  await expect(
-    page.getByRole('heading', { name: 'گروه آزمایشی' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'مدیران گروه' }).click();
+  await expect(page.getByRole('heading', { name: groupName })).toBeVisible();
+  await page
+    .locator('.catalog-tile')
+    .filter({ has: page.getByRole('heading', { name: groupName }) })
+    .getByRole('button', { name: 'مدیران گروه' })
+    .click();
   await expect(page.getByRole('dialog')).toContainText('شناسهٔ مدیر');
   await page
     .getByRole('dialog')

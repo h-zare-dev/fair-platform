@@ -18,6 +18,7 @@ import {
   assignmentExpired,
   partitionAssignments,
 } from '../lib/assignment-visibility';
+import { AdminDirectoryPicker } from './admin-directory-picker';
 
 type Group = { id: string; name: string };
 type Member = { billingAdminId: string; groupId: string };
@@ -177,6 +178,7 @@ export function CatalogManagement({
   const [duration, setDuration] = useState('30');
   const [cost, setCost] = useState('');
   const [adminId, setAdminId] = useState('');
+  const [adminLabels, setAdminLabels] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<'FIXED' | 'PER_GIB'>('FIXED');
   const [selectedPackage, setSelectedPackage] = useState('');
   const [rate, setRate] = useState('');
@@ -917,7 +919,8 @@ export function CatalogManagement({
                     groupMembers(popup.groupId).map((m) => (
                       <div className="catalog-member" key={m.billingAdminId}>
                         <span>
-                          مدیر <b dir="ltr">{m.billingAdminId}</b>
+                          {adminLabels[m.billingAdminId] ?? 'مدیر'}{' '}
+                          <b dir="ltr">({m.billingAdminId})</b>
                         </span>
                         <button
                           className="secondary"
@@ -955,24 +958,13 @@ export function CatalogManagement({
                     )
                   }
                 >
-                  <label>
-                    شناسهٔ مدیر
-                    <input
-                      autoFocus
-                      required
-                      inputMode="numeric"
-                      dir="ltr"
-                      placeholder="9001"
-                      value={adminId}
-                      onChange={(e) => setAdminId(e.target.value)}
-                    />
-                  </label>
+                  <AdminDirectoryPicker
+                    value={adminId}
+                    onChange={setAdminId}
+                    setLabels={setAdminLabels}
+                  />
                   <button disabled={busy}>+ افزودن مدیر به گروه</button>
                 </form>
-                <p className="field-hint">
-                  نمایش نام مدیران پس از تأیید اتصال خواندنی به API پاسارگاد
-                  فعال می‌شود.
-                </p>
               </div>
             )}
             {popup.kind === 'remove-member' && (
@@ -1093,18 +1085,11 @@ export function CatalogManagement({
                     }
                   }}
                 >
-                  <label>
-                    شناسهٔ مدیر
-                    <input
-                      autoFocus
-                      required
-                      dir="ltr"
-                      inputMode="numeric"
-                      value={adminId}
-                      onChange={(e) => setAdminId(e.target.value)}
-                      placeholder="9001"
-                    />
-                  </label>
+                  <AdminDirectoryPicker
+                    value={adminId}
+                    onChange={setAdminId}
+                    setLabels={setAdminLabels}
+                  />
                   <button>ادامه</button>
                 </form>
               </div>

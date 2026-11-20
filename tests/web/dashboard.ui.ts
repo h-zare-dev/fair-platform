@@ -143,12 +143,35 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .getByRole('button', { name: 'ایجاد گروه' })
     .click();
   await expect(page.getByRole('heading', { name: groupName })).toBeVisible();
+  await page.route('**/api/v1/owner/directory/admins?*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'available',
+        admins: [{ id: '9001', username: 'synthetic_manager' }],
+        total: 1,
+        offset: 0,
+        limit: 25,
+      }),
+    }),
+  );
   await page
     .locator('.catalog-tile')
     .filter({ has: page.getByRole('heading', { name: groupName }) })
     .getByRole('button', { name: 'مدیران گروه' })
     .click();
   await expect(page.getByRole('dialog')).toContainText('شناسهٔ مدیر');
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: /synthetic_manager/ }),
+  ).toBeVisible();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /synthetic_manager/ })
+    .click();
+  await expect(
+    page.getByRole('dialog').getByLabel(/شناسهٔ مدیر انتخاب‌شده/),
+  ).toHaveValue('9001');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'بستن پنجره' })

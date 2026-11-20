@@ -1170,6 +1170,37 @@ button.catalog-toast-close {
 .catalog-member button {
   padding: 7px 11px;
 }
+.admin-directory {
+  display: grid;
+  gap: 12px;
+}
+.admin-directory-results {
+  max-height: 210px;
+}
+.admin-directory-results > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: right;
+  padding: 9px 12px;
+  border-radius: 9px;
+}
+.admin-directory-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.admin-directory-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.admin-directory-pagination button {
+  padding: 7px 12px;
+}
 .catalog-history-item small {
   color: var(--muted);
 }

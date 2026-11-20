@@ -100,9 +100,12 @@ describe('nightly-only SHADOW create classification', () => {
     expect(sql).not.toContain('a.effective_until > $3');
   });
   it('never classifies pre-existing synthetic dashboard events as live Shadow', async () => {
-    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
-      sql.includes('pg_try_advisory_xact_lock') ? [{ locked: true }] : [],
-    );
+    const query = vi.fn((sql: string, params?: unknown[]) => {
+      void params;
+      return Promise.resolve(
+        sql.includes('pg_try_advisory_xact_lock') ? [{ locked: true }] : [],
+      );
+    });
     const fake = {
       transaction: async (
         _isolation: string,

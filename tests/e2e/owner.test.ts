@@ -126,6 +126,97 @@ it('CSRF rejects foreign/missing origin, plain forms and forwarded spoofing; no 
     ).statusCode,
   ).toBe(404);
 });
+it('the fixed 30-day import requires Owner session and CSRF, and never invokes the live webhook', async () => {
+  const received: { payload: unknown; at: Date }[] = [];
+  await app.close();
+  app = await createOwnerApi(
+    auth,
+    reader,
+    origin,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      receive: (payload: unknown, at: Date) => {
+        received.push({ payload, at });
+        return Promise.resolve();
+      },
+    } as Parameters<typeof createOwnerApi>[8],
+  );
+  const url = '/api/v1/owner/webhook/pasarguard';
+  const uploadHeaders = {
+    ...headers,
+    'x-fair-replay-import':
+      'fa845d0a2276e65ff7ca4c77fc253c289309541ed3367d752ab3ee4af190e242',
+  };
+  const payload = {
+    records: [
+      {
+        receivedAt: '2026-11-20T12:00:00Z',
+        payload: [{ action: 'user_created' }],
+      },
+    ],
+  };
+  expect(
+    (await app.inject({ method: 'POST', url, headers: uploadHeaders, payload }))
+      .statusCode,
+  ).toBe(401);
+  await store.bootstrap(hash);
+  const cookie = cookieOf(await login());
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url,
+        headers: { ...uploadHeaders, cookie, origin: 'https://evil.invalid' },
+        payload,
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url,
+        headers: {
+          ...headers,
+          cookie,
+          'x-fair-replay-import': 'not-the-approved-file',
+        },
+        payload,
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url,
+        headers: { ...uploadHeaders, cookie },
+        payload: {
+          records: [{ receivedAt: '2020-01-01T00:00:00Z', payload: [{}] }],
+        },
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect(received).toHaveLength(0);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url,
+        headers: { ...uploadHeaders, cookie },
+        payload,
+      })
+    ).statusCode,
+  ).toBe(202);
+  expect(received).toHaveLength(1);
+  expect(received[0]?.at.toISOString()).toBe('2026-11-20T12:00:00.000Z');
+  await app.close();
+  app = await createOwnerApi(auth, reader, origin);
+});
 it('unauthorized, fixation, rotation, hash-only persistence, cookies, logout and restart', async () => {
   for (const route of [
     'auth/session',

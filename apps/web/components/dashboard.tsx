@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { OwnerHeader } from './owner-header';
+import { ReplayImport } from './replay-import';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 interface Summary {
   pendingBatches: string;
@@ -282,6 +283,7 @@ export function Dashboard() {
             اعمال فیلتر
           </button>
         </form>
+        <ReplayImport />
         {error && (
           <div className="error-banner" role="alert">
             {error}{' '}

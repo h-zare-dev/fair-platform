@@ -16,6 +16,7 @@ import {
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { DurableInbox } from '@fair-platform/pasarguard/infrastructure';
 import { z } from 'zod';
 import { PricingError } from '@fair-platform/pricing';
 import {
@@ -157,6 +158,27 @@ const shadowQuery = z
     limit: z.coerce.number().int().min(1).max(100).default(25),
   })
   .strict();
+// One exact Owner-supplied legacy export; never a second live webhook source.
+const REPLAY_SHA256 =
+  'fa845d0a2276e65ff7ca4c77fc253c289309541ed3367d752ab3ee4af190e242';
+const replayRecords = z
+  .object({
+    records: z
+      .array(
+        z
+          .object({
+            receivedAt: z.string().datetime({ offset: true }),
+            payload: z
+              .array(z.record(z.string(), z.unknown()))
+              .min(1)
+              .max(1000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  })
+  .strict();
 export function sessionToken(cookie: string | undefined): string | null {
   const matches =
     cookie
@@ -174,6 +196,7 @@ export async function createOwnerApi(
   directory?: AdminDirectory,
   shadow?: PostgresShadowReader,
   webhook?: ReceiveWebhook,
+  replayInbox?: DurableInbox,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -446,6 +469,28 @@ export async function createOwnerApi(
     @Post('pasarguard')
     @HttpCode(202)
     async accept(@Req() req: FastifyRequest) {
+      if (req.headers['x-fair-replay-import'] !== undefined) {
+        csrf(req);
+        await requireOwner(req);
+        if (!replayInbox) throw new HttpException('Unavailable', 503);
+        if (req.headers['x-fair-replay-import'] !== REPLAY_SHA256)
+          throw new HttpException('Replay archive mismatch', 400);
+        const data = input(replayRecords, req.body);
+        // Validate all timestamps before writing any batch in this request.
+        const dates = data.records.map((r) => new Date(r.receivedAt));
+        if (
+          dates.some(
+            (d) =>
+              !Number.isFinite(d.getTime()) ||
+              d.getTime() < Date.parse('2026-10-21T00:00:00Z') ||
+              d.getTime() > Date.parse('2026-11-21T00:00:00Z'),
+          )
+        )
+          throw new HttpException('Replay date outside approved window', 400);
+        for (let i = 0; i < data.records.length; i++)
+          await replayInbox.receive(data.records[i]!.payload, dates[i]);
+        return { accepted: data.records.length };
+      }
       // This is NOT an Owner session endpoint: a distinct long random secret
       // authenticates the upstream source. Never permit an unauthenticated bypass.
       if (!webhook) throw new HttpException('Unavailable', 503);

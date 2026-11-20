@@ -1,5 +1,31 @@
 # FP-005 — Staging shadow test and Owner acceptance
 
+## Owner's 2026-11-21 ingestion-only replay test
+
+The Owner requested **only the verified 30-day private legacy export** before
+enabling any second live webhook. This extends the disposable Staging test
+without changing the night-only financial rules. The one exact gzip SHA-256
+`fa845d0a2276e65ff7ca4c77fc253c289309541ed3367d752ab3ee4af190e242`
+contains 15,914 batches and 64,135 children. The archive itself and all
+identities remain private: do not commit or upload them to Actions artifacts.
+
+After a healthy protected deployment, the Owner can select the existing `.gz`
+file using **Dashboard → ورود آرشیو ۳۰روزهٔ ربات قبلی**. The Owner-authenticated
+CSRF-protected browser importer validates the complete compressed SHA-256 and
+child counts, chunks JSONL records below Caddy's existing webhook request size,
+and inserts encrypted durable inbox batches under source `replay-30d`. Repeats
+are idempotent. The normalization worker drains the queue in bounded batches.
+Use the dashboard's **۳۰ روز گذشته** range and source filter `replay-30d` to
+verify intake and processing. Re-run the same file after an interruption; it
+must not double-insert previously accepted batches.
+
+`replay-30d` is **not** source `primary`: the NightlyShadow closer only reads
+`primary`, so this replay generates no shadow accounting, no invoices and no
+Telegram deliveries. Do not turn on the PasarGuard second webhook during this
+replay test. The normal webhook still requires its distinct secret; the upload
+branch requires an Owner session + same-origin CSRF, never an anonymous bearer
+value. This is one historical upload, **not** a general arbitrary JSON import.
+
 **Owner decision (2026-11-20):** use existing `panel.fairisfair.ir` public
 test server, **without backup or restore**. Data may be lost. No legacy-bot
 modifications, no financial settlement, no real invoices, no Telegram messages.

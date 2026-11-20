@@ -69,6 +69,15 @@ async function main() {
                 new PasarguardSecretAuthenticator(secret),
                 new DurableInbox(db, encryption, settings),
               ),
+              // Isolated from primary: the nightly financial SHADOW closer only
+              // considers source `primary`, never the private 30-day replay.
+              replayInbox:
+                config.FAIR_SHADOW_ENABLED === 'true'
+                  ? new DurableInbox(db, encryption, {
+                      ...settings,
+                      PASARGUARD_SOURCE_INSTANCE_ID: 'replay-30d',
+                    })
+                  : undefined,
               processor: new BatchProcessor(
                 db,
                 encryption,
@@ -99,13 +108,18 @@ async function main() {
         : undefined,
       new PostgresShadowReader(db),
       ingest?.receiver,
+      ingest?.replayInbox,
     );
     let processing = false;
     const ingestionLoop = setInterval(() => {
       if (!ingest || processing) return;
       processing = true;
-      void ingest.processor
-        .processNext()
+      void (async () => {
+        // Bounded backlogs drain without waiting a whole second per batch.
+        // This performs normalization only, never a financial calculation.
+        for (let i = 0; i < 40; i++)
+          if (!(await ingest.processor.processNext())) break;
+      })()
         .catch(() => console.error('SHADOW_INGESTION_FAILED'))
         .finally(() => {
           processing = false;

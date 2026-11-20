@@ -10,22 +10,25 @@ type Result = {
   offset: number;
   limit: number;
 };
+export type DirectoryStatus = 'loading' | 'ready' | 'unavailable';
 
 export function AdminDirectoryPicker({
   value,
   onChange,
   setLabels,
+  labels,
+  onStatusChange,
 }: {
   value: string;
   onChange: (value: string) => void;
   setLabels: Dispatch<SetStateAction<Record<string, string>>>;
+  labels: Record<string, string>;
+  onStatusChange: Dispatch<SetStateAction<DirectoryStatus>>;
 }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>(
-    'loading',
-  );
+  const [state, setState] = useState<DirectoryStatus>('loading');
   const limit = 25;
 
   useEffect(() => {
@@ -52,6 +55,7 @@ export function AdminDirectoryPicker({
           if (controller.signal.aborted) return;
           setResult(data);
           setState('ready');
+          onStatusChange('ready');
           setLabels((previous) => {
             const next = { ...previous };
             for (const admin of data.admins) next[admin.id] = admin.username;
@@ -62,6 +66,7 @@ export function AdminDirectoryPicker({
           if (!controller.signal.aborted) {
             setResult(null);
             setState('unavailable');
+            onStatusChange('unavailable');
           }
         });
     }, 250);
@@ -69,7 +74,7 @@ export function AdminDirectoryPicker({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [search, page, setLabels]);
+  }, [search, page, setLabels, onStatusChange]);
 
   return (
     <section className="admin-directory">
@@ -85,14 +90,15 @@ export function AdminDirectoryPicker({
             setPage(0);
             setResult(null);
             setState('loading');
+            onStatusChange('loading');
           }}
         />
       </label>
       {state === 'unavailable' && (
         <p className="catalog-note" role="status">
-          فهرست مدیران فعلاً در دسترس نیست (DIRECTORY_UNAVAILABLE). می‌توانید
-          شناسهٔ مدیر را پایین به‌صورت دستی وارد کنید؛ این شناسه تا زمان اتصال
-          مجدد با پاسارگاد تطبیق داده نمی‌شود.
+          اتصال فهرست مدیران پاسارگاد برقرار نیست (DIRECTORY_UNAVAILABLE). ثبت
+          مدیر تا زمان برقراری اتصال غیرفعال است. لطفاً تنظیمات اتصال سرور را
+          بررسی کنید.
         </p>
       )}
       {state === 'loading' && (
@@ -131,6 +137,7 @@ export function AdminDirectoryPicker({
                 onClick={() => {
                   setPage((v) => v - 1);
                   setState('loading');
+                  onStatusChange('loading');
                 }}
               >
                 قبلی
@@ -145,6 +152,7 @@ export function AdminDirectoryPicker({
                 onClick={() => {
                   setPage((v) => v + 1);
                   setState('loading');
+                  onStatusChange('loading');
                 }}
               >
                 بعدی
@@ -153,17 +161,25 @@ export function AdminDirectoryPicker({
           )}
         </>
       )}
-      <label>
-        شناسهٔ مدیر انتخاب‌شده (امکان ورود دستی)
-        <input
-          required
-          inputMode="numeric"
-          dir="ltr"
-          placeholder="9001"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      </label>
+      {value ? (
+        <div className="admin-directory-choice" role="status">
+          <span>
+            مدیر انتخاب‌شده: <strong>{labels[value] ?? 'شناسهٔ مدیر'}</strong>{' '}
+            <b dir="ltr">({value})</b>
+          </span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => onChange('')}
+          >
+            لغو انتخاب
+          </button>
+        </div>
+      ) : (
+        <p className="field-hint">
+          برای افزودن، یک مدیر را از فهرست انتخاب کنید.
+        </p>
+      )}
     </section>
   );
 }

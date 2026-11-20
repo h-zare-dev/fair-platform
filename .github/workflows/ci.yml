@@ -59,6 +59,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/release -p test_release.py
           python3 -m unittest discover -s tests/release -p test_fast_delivery.py
+          python3 -m unittest discover -s tests/release -p test_activate_pasarguard_directory.py
 
       - name: Build
         run: pnpm build

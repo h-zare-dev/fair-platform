@@ -92,6 +92,8 @@ jobs:
           sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
             "python3 /opt/fair-staging/tooling/approve-fp004-upgrade.py $GITHUB_SHA" \
             < docker/staging/compose.yml 2>"$work/ssh-error" || {
+              # Only exact bounded public guard codes; never raw SSH/Docker output.
+              grep -E '^STAGING_[A-Z0-9_]+$' "$work/ssh-error" | head -n 1 || true
               echo STAGING_FP004_OPERATOR_REVIEW_FAILED
               exit 1
             }

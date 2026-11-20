@@ -193,6 +193,10 @@ def main():
 if __name__ == '__main__':
     try:
         main()
+    except UpgradeError as error:
+        # UpgradeError messages are fixed secret-free gate codes only.
+        print(str(error), file=sys.stderr)
+        sys.exit(1)
     except (Exception, KeyboardInterrupt):
         # Never echo Docker stderr, secrets, DB records or traceback to public CI.
         print('STAGING_FP004_OPERATOR_REVIEW_FAILED', file=sys.stderr)

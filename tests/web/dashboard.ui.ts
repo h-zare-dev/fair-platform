@@ -93,6 +93,12 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(
     page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
   ).toBeVisible();
+  await expect(page.locator('.quick-nav a')).toHaveCount(3);
+  await expect(
+    page.getByRole('navigation', { name: 'بخش‌های پنل' }).getByRole('link', {
+      name: 'تنظیمات پکیج‌ها',
+    }),
+  ).toHaveCount(0);
   await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
   await expect(page.locator('.kpi .number').nth(1)).toHaveText('۱۱');
   await expect(page.getByText('۱۰ گیگابایت').first()).toBeVisible();

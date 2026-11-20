@@ -99,6 +99,26 @@ describe('nightly-only SHADOW create classification', () => {
     expect(sql).toContain('a.effective_until >= $4');
     expect(sql).not.toContain('a.effective_until > $3');
   });
+  it('never classifies pre-existing synthetic dashboard events as live Shadow', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('pg_try_advisory_xact_lock') ? [{ locked: true }] : [],
+    );
+    const fake = {
+      transaction: async (
+        _isolation: string,
+        work: (tx: unknown) => Promise<boolean>,
+      ) => work({ query }),
+    };
+    const runner = new NightlyShadow(fake as never, 'Asia/Tehran');
+    await (
+      runner as unknown as { closeNext: (now: Date) => Promise<boolean> }
+    ).closeNext(new Date());
+    const lookup = query.mock.calls.find(([sql]) =>
+      sql.includes('FROM pasarguard_events e LEFT JOIN'),
+    );
+    expect(lookup?.[0]).toContain('e.source_instance_id=$2');
+    expect(lookup?.[1]?.[1]).toBe('primary');
+  });
 });
 describe('authenticated second destination', () => {
   it('accepts only the independent exact secret without logging it', async () => {

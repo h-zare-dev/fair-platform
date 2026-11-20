@@ -99,10 +99,13 @@ export class NightlyShadow {
     private readonly db: DataSource,
     zone: string,
     private readonly runAfter: string = '02:10',
+    private readonly liveSource: string = 'primary',
   ) {
     this.zone = validateTimeZone(zone);
     if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(runAfter))
       throw new RangeError('INVALID_SHADOW_CLOSE_TIME');
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(liveSource))
+      throw new RangeError('INVALID_SHADOW_SOURCE');
   }
 
   private inNightWindow(now: Date): boolean {
@@ -151,10 +154,11 @@ export class NightlyShadow {
           e.on_hold_expire_duration_seconds::text,e.event_status
          FROM pasarguard_events e LEFT JOIN fair_shadow_items i ON i.event_id=e.id
          LEFT JOIN fair_shadow_late_events l ON l.event_id=e.id
-         WHERE e.action='user_created' AND i.event_id IS NULL AND l.event_id IS NULL
+         WHERE e.action='user_created' AND e.source_instance_id=$2
+           AND i.event_id IS NULL AND l.event_id IS NULL
            AND e.source_enqueued_at < $1::timestamptz
          ORDER BY e.source_enqueued_at,e.id LIMIT 1`,
-        [now.toISOString()],
+        [now.toISOString(), this.liveSource],
       );
       if (!candidate) return false;
       const day = localJalaliDate(candidate.source_enqueued_at, this.zone);

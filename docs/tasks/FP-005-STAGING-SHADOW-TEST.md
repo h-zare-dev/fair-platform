@@ -25,6 +25,9 @@ Only the Owner marks PR #89 Ready and merges it.
    uses the group membership audit at local midnight, assignment creation
    cutoff and exact fixed `(bytes, integer days)` match. Per-GiB uses integer
    bytes and final Toman CEIL; direct Admin rules have matching precedence.
+   Only the newly authenticated source `primary` is eligible for this Staging
+   Shadow run; the existing `synthetic` dashboard seed is never billed, even
+   in Shadow.
 4. Sends unprovable duration, unknown package, same-day correction and
    duplicated/conflicting sources to typed ambiguity rows. Holds only that
    Admin/day. Later Admin/days proceed. Late events after a sealed Shadow day

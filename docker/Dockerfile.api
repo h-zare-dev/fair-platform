@@ -2,7 +2,7 @@ FROM node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9
 WORKDIR /src
 RUN npm install --global pnpm@12.6.0
 COPY . .
-RUN pnpm install --frozen-lockfile && pnpm --filter @fair-platform/pasarguard --filter @fair-platform/pricing --filter @fair-platform/api build
+RUN pnpm install --frozen-lockfile && pnpm --filter @fair-platform/pasarguard --filter @fair-platform/pricing --filter @fair-platform/calendar --filter @fair-platform/api build
 RUN pnpm --filter @fair-platform/api deploy --legacy --prod /out
 
 FROM node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS runtime

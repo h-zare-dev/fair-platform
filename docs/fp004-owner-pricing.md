@@ -1,5 +1,7 @@
 # FP-004 — Owner pricing configuration (staging)
 
+> **HISTORICAL LEGACY EDITOR (2026-11-19).** This page describes the already-deployed, synthetic versioned-pricing preview, **not** the approved future FP-004 atomic catalog or nightly accounting rules. The system-default plan, `MIXED`, per-rule UTC time windows and version-authoring UI documented below are legacy behavior being superseded by [FP-004 Phase A](tasks/FP-004-PHASE-A-IMPLEMENTATION.md) and the [Owner-approved nightly design](tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md). Do not treat legacy quote results as financial charges. The newer catalog rollout is in a Draft implementation PR and is not yet a verified Staging deploy.
+
 Status: implementation candidate for **Owner review**, not automatically authorized for schema activation or live billing. Business contract: [`tasks/FP-004-pricing-engine.md`](tasks/FP-004-pricing-engine.md).
 
 ## Dashboard workflow
@@ -23,4 +25,4 @@ The Owner UI is Persian/RTL on login, operational dashboard, pricing forms and h
 
 This feature adds migration `PricingEngine1791200000000` and updates the runtime-only role grants. The staging auto-release pipeline **compares the candidate migration names and SHA-256 hashes to the human-accepted local VPS baseline** (`compatible-migrations.json`). Until the Owner has separately reviewed and approved the exact candidate migration and an updated local baseline, the existing release gate **must fail closed** for an FP-004 merge. A passing GitHub CI build does not automatically authorize the new database schema. Do not bypass the gate by deleting state, rewriting previous migrations, copying production data, or modifying the expected schema hash directly.
 
-The established encrypted PostgreSQL backup and isolated restore validation remain on the **same VPS**. Nothing is sent to an external server. This task does not enable live billing, Pasarguard integration, automatic accounting charges or user-facing prices.
+**Historical sentence superseded by ADR 0017:** the disposable synthetic Staging VPS has **no automatic backup or restore**. The isolated `test:backup` CI suite is a synthetic verification, not a real VPS backup. No live billing, Pasarguard integration, automatic accounting charges or customer prices are enabled by the legacy editor.

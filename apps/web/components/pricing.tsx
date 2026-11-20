@@ -187,7 +187,7 @@ export function PricingManagement() {
   return (
     <section
       className="pricing-card"
-      id="pricing"
+      id="legacy-pricing"
       aria-label="تنظیمات قیمت‌گذاری"
     >
       <div className="section-heading">

@@ -10,6 +10,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@fair-platform/calendar": "workspace:*",
     "@fair-platform/pasarguard": "workspace:*",
     "@fair-platform/pricing": "workspace:*",
     "@nestjs/common": "^12.4.2",

@@ -19,6 +19,10 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PricingError } from '@fair-platform/pricing';
 import type { PricingReader } from './infrastructure/pricing-store.js';
+import {
+  CatalogError,
+  type PostgresCatalogStore,
+} from './infrastructure/catalog-store.js';
 import type { OwnerAuth } from './application/auth.js';
 import {
   OwnerOperations,
@@ -67,6 +71,39 @@ const quoteInput = z
     unlimited: z.boolean().optional(),
   })
   .strict();
+const catalogPackage = z
+  .object({
+    sourceInstanceId: source,
+    name: z.string().min(1).max(100),
+    packageBytes: positive,
+    durationDays: z.number().int().min(1).max(36500),
+    amountToman: positive,
+  })
+  .strict();
+const catalogMembership = z
+  .object({
+    sourceInstanceId: source,
+    billingAdminId: decimal,
+    groupId: positive.nullable(),
+  })
+  .strict();
+const catalogAssignment = z
+  .object({
+    sourceInstanceId: source,
+    targetKind: z.enum(['GROUP', 'ADMIN']),
+    targetId: decimal,
+    packageId: positive.optional(),
+    rateTomanPerGiB: positive.optional(),
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+    endDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+  })
+  .strict();
 export function sessionToken(cookie: string | undefined): string | null {
   const matches =
     cookie
@@ -80,6 +117,7 @@ export async function createOwnerApi(
   reader: OperationsReader,
   origin: string,
   pricing?: PricingReader,
+  catalog?: PostgresCatalogStore,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -107,6 +145,13 @@ export async function createOwnerApi(
           e.code,
           e.code === 'PRICING_MISSING' ? 422 : 400,
         );
+      if (e instanceof CatalogError)
+        throw new HttpException(
+          e.code,
+          e.code === 'CATALOG_NOT_FOUND' ? 404 : 409,
+        );
+      if (e instanceof RangeError)
+        throw new HttpException('Invalid calendar date or timezone', 400);
       if (
         typeof e === 'object' &&
         e !== null &&
@@ -217,6 +262,78 @@ export async function createOwnerApi(
     @HttpCode(200)
     pricingQuote(@Req() req: FastifyRequest) {
       return priceWrite(req, quoteInput, (v) => pricing!.quote(v));
+    }
+    @Get('catalog/config') async catalogConfig(@Req() req: FastifyRequest) {
+      await requireOwner(req);
+      if (!catalog) throw new HttpException('Unavailable', 503);
+      const q = input(z.object({ source }).strict(), req.query);
+      return catalog.list(q.source);
+    }
+    @Post('catalog/groups') catalogGroup(@Req() req: FastifyRequest) {
+      return priceWrite(
+        req,
+        z
+          .object({
+            sourceInstanceId: source,
+            name: z.string().trim().min(1).max(100),
+          })
+          .strict(),
+        (v) => catalog!.createGroup(v),
+      );
+    }
+    @Post('catalog/memberships') catalogMembership(@Req() req: FastifyRequest) {
+      return priceWrite(req, catalogMembership, (v) =>
+        catalog!.changeMembership(v),
+      );
+    }
+    @Post('catalog/packages') catalogCreatePackage(@Req() req: FastifyRequest) {
+      return priceWrite(req, catalogPackage, (v) => catalog!.createPackage(v));
+    }
+    @Post('catalog/packages/edit') catalogEditPackage(
+      @Req() req: FastifyRequest,
+    ) {
+      return priceWrite(
+        req,
+        catalogPackage.extend({ packageId: positive }),
+        (v) => catalog!.editPackage(v),
+      );
+    }
+    @Post('catalog/packages/copy') catalogCopyPackage(
+      @Req() req: FastifyRequest,
+    ) {
+      return priceWrite(
+        req,
+        z
+          .object({
+            sourceInstanceId: source,
+            packageId: positive,
+            name: z.string().trim().min(1).max(100),
+            amountToman: positive,
+          })
+          .strict(),
+        (v) => catalog!.copyPackage(v),
+      );
+    }
+    @Post('catalog/assignments') catalogAssign(@Req() req: FastifyRequest) {
+      return priceWrite(req, catalogAssignment, (v) => catalog!.assign(v));
+    }
+    @Post('catalog/assignments/end') catalogChangeEnd(
+      @Req() req: FastifyRequest,
+    ) {
+      return priceWrite(
+        req,
+        z
+          .object({
+            sourceInstanceId: source,
+            assignmentId: positive,
+            endDate: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/)
+              .nullable(),
+          })
+          .strict(),
+        (v) => catalog!.changeEnd(v),
+      );
     }
   }
   @Controller('health')

@@ -6,11 +6,13 @@ import { passwords } from './infrastructure/password.js';
 import { OwnerAuth } from './application/auth.js';
 import { createOwnerApi } from './app.js';
 import { PostgresPricingStore } from './infrastructure/pricing-store.js';
+import { PostgresCatalogStore } from './infrastructure/catalog-store.js';
 async function main() {
   const config = z
     .object({
       DATABASE_URL: z.string().min(1),
       OWNER_ORIGIN: z.literal('https://panel.fairisfair.ir'),
+      FAIR_TIME_ZONE: z.string().default('Asia/Tehran'),
     })
     .parse(process.env);
   const db = createOwnerDataSource(config.DATABASE_URL);
@@ -27,6 +29,7 @@ async function main() {
       new PostgresOwnerOperations(db),
       config.OWNER_ORIGIN,
       new PostgresPricingStore(db),
+      new PostgresCatalogStore(db, config.FAIR_TIME_ZONE),
     );
     const cleanup = setInterval(() => {
       void store.cleanup().catch(() => console.error('OWNER_CLEANUP_FAILED'));

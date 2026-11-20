@@ -465,7 +465,9 @@ it('fresh database requires FP-001 first, then supports FP-002 and ordered rollb
     expect(
       await freshAccounting.query('SELECT * FROM accounting_transactions'),
     ).toEqual([]);
-    // The FK dependency intentionally forbids rolling back FP-001 first.
+    // FP-005 adds a forward-only projection after FP-001: undo that additive
+    // change first, then FP-002's FK still protects the ingestion baseline.
+    await freshIngestion.undoLastMigration();
     await expect(freshIngestion.undoLastMigration()).rejects.toThrow();
     const disposable = createAccountingDataSource(url.toString());
     disposable.setOptions({

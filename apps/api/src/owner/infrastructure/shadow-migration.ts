@@ -26,7 +26,10 @@ export class FairShadowCreate1791600000000 implements MigrationInterface {
         OR (status='SHADOW_READY' AND total_toman IS NOT NULL AND ambiguity_count = 0))
     )`);
     await r.query(`CREATE TABLE fair_shadow_items (
-      event_id bigint PRIMARY KEY REFERENCES pasarguard_events(id),
+      -- An INSERT trigger validates event existence. A physical FK to the
+      -- legacy table blocks its independent synthetic test reset even when
+      -- no Shadow rows exist; runtime has no DELETE permission on either.
+      event_id bigint PRIMARY KEY,
       day_id bigint NOT NULL REFERENCES fair_shadow_days(id),
       source_instance_id varchar(100) NOT NULL,
       billing_admin_id bigint NOT NULL,
@@ -46,7 +49,7 @@ export class FairShadowCreate1791600000000 implements MigrationInterface {
       ON fair_shadow_items(source_instance_id,billing_admin_id,local_day,reason_code)
       WHERE reason_code IS NOT NULL`);
     await r.query(`CREATE TABLE fair_shadow_late_events (
-      event_id bigint PRIMARY KEY REFERENCES pasarguard_events(id),
+      event_id bigint PRIMARY KEY,
       day_id bigint NOT NULL REFERENCES fair_shadow_days(id),
       source_instance_id varchar(100) NOT NULL,
       billing_admin_id bigint NOT NULL,
@@ -55,6 +58,16 @@ export class FairShadowCreate1791600000000 implements MigrationInterface {
         CHECK (reason_code='LATE_EVENT_AFTER_CLOSE'),
       discovered_at timestamptz NOT NULL DEFAULT now()
     )`);
+    await r.query(`CREATE FUNCTION fair_shadow_event_exists() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pasarguard_events WHERE id=NEW.event_id)
+        THEN RAISE EXCEPTION 'SHADOW_EVENT_MISSING'; END IF;
+        RETURN NEW;
+      END $$`);
+    for (const table of ['fair_shadow_items', 'fair_shadow_late_events']) {
+      await r.query(`CREATE TRIGGER shadow_event_valid BEFORE INSERT ON ${table}
+        FOR EACH ROW EXECUTE FUNCTION fair_shadow_event_exists()`);
+    }
     await r.query(`CREATE FUNCTION fair_shadow_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN RAISE EXCEPTION 'SHADOW_EVIDENCE_IMMUTABLE'; END $$`);
     for (const table of [
@@ -77,6 +90,7 @@ export class FairShadowCreate1791600000000 implements MigrationInterface {
     await r.query('DROP TABLE fair_shadow_late_events');
     await r.query('DROP TABLE fair_shadow_items');
     await r.query('DROP TABLE fair_shadow_days');
+    await r.query('DROP FUNCTION fair_shadow_event_exists()');
     await r.query('DROP FUNCTION fair_shadow_immutable()');
   }
 }

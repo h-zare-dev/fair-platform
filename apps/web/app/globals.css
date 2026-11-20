@@ -796,6 +796,93 @@ tbody tr:hover {
 .catalog-source-panel form label {
   flex: 1 1 260px;
 }
+.catalog-source-advanced {
+  margin-top: 36px;
+  margin-bottom: 0;
+}
+.catalog-source-advanced .field-hint {
+  margin: 12px 0 0;
+  line-height: 2;
+}
+.catalog-toast {
+  position: fixed;
+  inset: 20px 20px auto auto;
+  z-index: 200;
+  width: min(400px, calc(100vw - 40px));
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  box-shadow: 0 20px 55px rgb(0 0 0 / 19%);
+  animation: catalog-toast-enter 350ms ease-out both;
+}
+.catalog-toast-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px;
+}
+.catalog-toast-body > div {
+  flex: 1;
+}
+.catalog-toast-body strong {
+  color: var(--accent-ink);
+}
+.catalog-toast-body p {
+  margin: 0;
+  font-size: 12px;
+}
+.catalog-toast-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  font-size: 18px;
+  font-weight: 900;
+}
+button.catalog-toast-close {
+  align-self: flex-start;
+  color: var(--muted);
+  border: none;
+  background: transparent;
+  padding: 0 6px;
+  font-size: 23px;
+  line-height: 1;
+}
+.catalog-toast-progress {
+  height: 4px;
+  background: var(--accent);
+  transform-origin: right;
+  animation: catalog-toast-countdown 20s linear both;
+}
+@keyframes catalog-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes catalog-toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .catalog-toast,
+  .catalog-toast-progress {
+    animation: none;
+  }
+}
 .catalog-section-heading {
   display: flex;
   align-items: center;
@@ -948,6 +1035,13 @@ tbody tr:hover {
 .catalog-history summary {
   cursor: pointer;
   font-weight: 800;
+}
+.catalog-expired-history {
+  margin-top: 12px;
+  background: var(--surface-soft);
+}
+.catalog-expired-history .catalog-mini-grid {
+  margin-top: 12px;
 }
 .catalog-overlay {
   position: fixed;

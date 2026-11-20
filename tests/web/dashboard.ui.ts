@@ -112,6 +112,8 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await packageDialog.getByLabel('قیمت پکیج (تومان)').fill('۱۵۰۰۰۰');
   await packageDialog.getByRole('button', { name: 'ذخیرهٔ پکیج' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.catalog-toast')).toContainText('عملیات موفق');
+  await expect(page.locator('.catalog-toast-progress')).toBeVisible();
   await expect(page.getByRole('heading', { name: packageName })).toBeVisible();
   await page
     .locator('.catalog-tile')

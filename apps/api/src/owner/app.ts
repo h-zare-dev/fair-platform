@@ -152,6 +152,8 @@ export async function createOwnerApi(
         );
       if (e instanceof RangeError)
         throw new HttpException('Invalid calendar date or timezone', 400);
+      if (e instanceof Error && e.message === 'ASSIGNMENT_CLOSED_PERIOD')
+        throw new HttpException('ASSIGNMENT_CLOSED_PERIOD', 409);
       if (
         typeof e === 'object' &&
         e !== null &&

@@ -153,6 +153,10 @@ describe('FP-004 atomic catalog: forward migration, immutable history and confli
       endDate: '1405-09-30',
       fromUtc: '2026-11-30T20:30:00.000Z',
     });
+    expect(
+      (await catalog.list(s)).assignments.find((a) => a.id === result.id)
+        ?.effectiveUntil,
+    ).toEqual(new Date('2026-12-21T20:30:00.000Z'));
     await expect(
       catalog.editPackage({ ...pkgInput, packageId: pkg.id }),
     ).rejects.toThrow('PACKAGE_ALREADY_ASSIGNED');
@@ -239,6 +243,37 @@ describe('FP-004 atomic catalog: forward migration, immutable history and confli
       endDate: null,
     });
     expect(future.startDate).toBe('1405-09-30');
+  });
+
+  it('returns the configured server timezone, without changing existing assignment zones', async () => {
+    await catalog.createGroup({ sourceInstanceId: s, name: 'A' });
+    const pkg = await catalog.createPackage(pkgInput);
+    await catalog.assign({ ...input, packageId: pkg.id });
+    const berlin = new PostgresCatalogStore(db, 'Europe/Berlin');
+    expect((await berlin.list(s)).timeZone).toBe('Europe/Berlin');
+    expect((await berlin.list(s)).assignments[0]).toMatchObject({
+      timeZone: 'Asia/Tehran',
+      effectiveUntil: new Date('2026-12-21T20:30:00.000Z'),
+    });
+  });
+
+  it('does not revise a finished historical assignment when changing an end date', async () => {
+    await catalog.createGroup({ sourceInstanceId: s, name: 'Former Group' });
+    const pkg = await catalog.createPackage(pkgInput);
+    const expired = await catalog.assign({
+      ...input,
+      packageId: pkg.id,
+      startDate: '1405-06-01',
+      endDate: '1405-06-30',
+    });
+    await expect(
+      catalog.changeEnd({
+        sourceInstanceId: s,
+        assignmentId: expired.id,
+        endDate: '1405-07-01',
+      }),
+    ).rejects.toThrow('ASSIGNMENT_CLOSED_PERIOD');
+    expect((await catalog.list(s)).assignments[0]?.endDate).toBe('1405-06-30');
   });
 
   it('enforces Owner session+CSRF and rejects unauthenticated catalogue writes', async () => {

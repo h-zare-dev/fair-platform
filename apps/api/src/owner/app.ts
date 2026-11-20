@@ -28,6 +28,11 @@ import {
   type PostgresCatalogStore,
 } from './infrastructure/catalog-store.js';
 import type { OwnerAuth } from './application/auth.js';
+import type { PostgresShadowReader } from './infrastructure/shadow-reader.js';
+import {
+  ReceiveWebhook,
+  WebhookFailure,
+} from '../modules/webhooks/application/receive-webhook.js';
 import {
   OwnerOperations,
   type OperationsReader,
@@ -129,6 +134,29 @@ const catalogAssignment = z
       .nullable(),
   })
   .strict();
+const shadowQuery = z
+  .object({
+    source: source.optional(),
+    admin: decimal.optional(),
+    reason: z
+      .enum([
+        'MISSING_DURATION',
+        'PRICING_MISSING',
+        'UNEXPECTED_UNLIMITED',
+        'AMBIGUOUS_CORRELATION',
+        'AMBIGUOUS_CORRECTION',
+        'PRICING_CONFIG_CONFLICT',
+        'LATE_EVENT_AFTER_CLOSE',
+      ])
+      .optional(),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    offset: z.coerce.number().int().min(0).max(100000).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+  })
+  .strict();
 export function sessionToken(cookie: string | undefined): string | null {
   const matches =
     cookie
@@ -144,6 +172,8 @@ export async function createOwnerApi(
   pricing?: PricingReader,
   catalog?: PostgresCatalogStore,
   directory?: AdminDirectory,
+  shadow?: PostgresShadowReader,
+  webhook?: ReceiveWebhook,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -242,7 +272,7 @@ export async function createOwnerApi(
       await requireOwner(req);
       return {
         authenticated: true,
-        mode: 'STAGING / SYNTHETIC / SHADOW / NO LIVE BILLING',
+        mode: 'STAGING / AUTHENTICATED SHADOW TEST / NO LIVE BILLING',
       };
     }
     async read(kind: 'summary' | 'events' | 'issues', req: FastifyRequest) {
@@ -270,6 +300,32 @@ export async function createOwnerApi(
     }
     @Get('operations/issues') issues(@Req() req: FastifyRequest) {
       return this.read('issues', req);
+    }
+    @Get('operations/accounting/summary') async accountingSummary(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      const q = input(
+        z.object({ source: source.optional() }).strict(),
+        req.query,
+      );
+      return shadow.summary(q.source ?? null);
+    }
+    @Get('operations/accounting/ambiguities') async accountingAmbiguities(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      const q = input(shadowQuery, req.query);
+      return shadow.ambiguities({
+        source: q.source ?? null,
+        admin: q.admin ?? null,
+        reason: q.reason ?? null,
+        date: q.date ?? null,
+        limit: q.limit,
+        offset: q.offset,
+      });
     }
     @Get('directory/admins') async directoryAdmins(@Req() req: FastifyRequest) {
       await requireOwner(req);
@@ -385,6 +441,24 @@ export async function createOwnerApi(
       );
     }
   }
+  @Controller('api/v1/owner/webhook')
+  class ShadowWebhookController {
+    @Post('pasarguard')
+    @HttpCode(202)
+    async accept(@Req() req: FastifyRequest) {
+      // This is NOT an Owner session endpoint: a distinct long random secret
+      // authenticates the upstream source. Never permit an unauthenticated bypass.
+      if (!webhook) throw new HttpException('Unavailable', 503);
+      try {
+        await webhook.execute(req.body, { headers: req.headers }, new Date());
+      } catch (error) {
+        if (error instanceof WebhookFailure)
+          throw new HttpException('Webhook rejected', error.status);
+        throw error;
+      }
+      return { accepted: true };
+    }
+  }
   @Controller('health')
   class HealthController {
     @Get('live') live() {
@@ -399,13 +473,15 @@ export async function createOwnerApi(
       }
     }
   }
-  @Module({ controllers: [OwnerController, HealthController] })
+  @Module({
+    controllers: [OwnerController, ShadowWebhookController, HealthController],
+  })
   class OwnerModule {}
   const app = await NestFactory.create<NestFastifyApplication>(
     OwnerModule,
     new FastifyAdapter({
       logger: false,
-      bodyLimit: 16384,
+      bodyLimit: 262144,
       trustProxy: false,
       requestTimeout: 10000,
     }),

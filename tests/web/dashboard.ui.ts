@@ -93,7 +93,10 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(
     page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
   ).toBeVisible();
-  await expect(page.locator('.quick-nav a')).toHaveCount(3);
+  await expect(page.locator('.quick-nav a')).toHaveCount(4);
+  await expect(
+    page.getByRole('link', { name: 'ابهامات حسابداری' }),
+  ).toHaveAttribute('href', '/accounting/ambiguities');
   await expect(
     page.getByRole('navigation', { name: 'بخش‌های پنل' }).getByRole('link', {
       name: 'تنظیمات پکیج‌ها',

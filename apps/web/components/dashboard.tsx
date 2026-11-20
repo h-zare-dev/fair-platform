@@ -218,7 +218,7 @@ export function Dashboard() {
       <main className="dashboard">
         <div className="stage" data-staging-billing-mode="no-live-billing">
           <span className="stage-dot" aria-hidden="true" /> محیط آزمایشی · دادهٔ
-          ساختگی · حسابداری سایه · بدون دریافت وجه واقعی
+          تست دریافت داده · حسابداری سایه · بدون دریافت وجه واقعی
         </div>
         <div className="intro">
           <div>
@@ -244,6 +244,7 @@ export function Dashboard() {
           <a href="#overview">نمای کلی</a>
           <a href="#events">تاریخچهٔ رویدادها</a>
           <a href="#issues">خطاهای پردازش</a>
+          <a href="/accounting/ambiguities">ابهامات حسابداری</a>
         </nav>
         <form
           className="filters"
@@ -456,7 +457,7 @@ export function Dashboard() {
           )
         )}
         <footer>
-          فِیر پلتفرم · فقط محیط آزمایشی · بدون اتصال زنده به منبع یا دریافت وجه
+          فِیر پلتفرم · محیط آزمایشی · بدون دریافت وجه یا صدور صورتحساب
         </footer>
       </main>
     </>

@@ -23,13 +23,20 @@ export interface BatchRow {
 }
 export interface EventRow extends Omit<
   NormalizedEvent,
-  'source_enqueued_at' | 'source_send_at'
+  | 'source_enqueued_at'
+  | 'source_send_at'
+  | 'source_user_created_at'
+  | 'source_user_expire_at'
+  | 'source_user_edit_at'
 > {
   id: string;
   batch_id: string;
   batch_index: number;
   source_enqueued_at: Date;
   source_send_at: Date | null;
+  source_user_created_at: Date | null;
+  source_user_expire_at: Date | null;
+  source_user_edit_at: Date | null;
   first_seen_at: Date;
   last_seen_at: Date;
   occurrence_count: number;
@@ -91,6 +98,10 @@ export const EventEntity = new EntitySchema<EventRow>({
     actor_admin_username: { type: 'varchar', length: 255, nullable: true },
     source_enqueued_at: { type: 'timestamptz' },
     source_send_at: { type: 'timestamptz', nullable: true },
+    source_user_created_at: { type: 'timestamptz', nullable: true },
+    source_user_expire_at: { type: 'timestamptz', nullable: true },
+    source_user_edit_at: { type: 'timestamptz', nullable: true },
+    on_hold_expire_duration_seconds: { type: 'bigint', nullable: true },
     reset_strategy: { type: 'varchar', length: 64, nullable: true },
     next_plan_data_limit_bytes: { type: 'bigint', nullable: true },
     next_plan_expire: { type: 'timestamptz', nullable: true },

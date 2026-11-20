@@ -7,6 +7,18 @@ dashboard is now available. This is a **documentation-only status record**:
 it does not independently attest the live VPS at every moment, authorize a
 server change, or claim financial production activation.
 
+**2026-11-20 addendum (supersedes the synthetic-only restriction for this
+one task):** The Owner subsequently activated the *read-only* PasarGuard admin
+directory and authorized FP-005 to attach an independently authenticated
+**second** webhook on the existing disposable public Staging VPS. Real events
+may be stored in an encrypted inbox and classified in **SHADOW only**; no
+financial ledger, report delivery, or legacy webhook changes are authorized.
+The Owner explicitly accepts the lack of Staging backup/restore for this test.
+The proposed code and release procedure are in Draft PR #89; their presence
+does not establish that the VPS is running them. The historical table and
+original policy below are snapshots as of November 19, not a current denial
+of this narrowly scoped Owner exception.
+
 ## Read this first: implemented vs observed vs planned
 
 | Area | Current evidence and correct interpretation |
@@ -109,8 +121,11 @@ blocked unless the Owner explicitly reviews and renews that risk decision.
   from official API and still separately credential-gated.
 - Sensitive raw webhook batches are encrypted by the ingestion code (AES-GCM)
   **and** protected by host/DB/secret-access controls; encryption is not a
-  substitute for retention limits or operator secrecy. No real PasarGuard
-  payloads may be imported into public synthetic Staging.
+  substitute for retention limits or operator secrecy. The 2026-11-20
+  exception permits **new authenticated live webhook intake only for bounded
+  Staging SHADOW classification**. It does not permit uploading the private
+  historical replay archive to public Staging, production billing, or
+  altering the old bot's webhook destination.
 - The present global Owner login throttle is a shared budget (10 attempts/minute,
   including successes), so an attacker may temporarily exhaust it. No
   per-source-IP user attribution is claimed. Any redesign requires a separate

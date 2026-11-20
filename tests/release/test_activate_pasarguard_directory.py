@@ -20,7 +20,21 @@ spec = importlib.util.spec_from_file_location(
 activation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(activation)
 
+# Historical one-time directory approval tests its *then-current* exact delta.
+# FP-005 adds an independent, later Owner-approved second receiver/config.
 PROPOSED = (REPO / 'docker/staging/compose.yml').read_bytes()
+PROPOSED = PROPOSED.replace(
+    b"      FAIR_SHADOW_ENABLED: 'true'\n      FAIR_SHADOW_CLOSE_TIME: '02:10'\n", b'',
+).replace(
+    b'      APP_ENCRYPTION_KEY_FILE: /run/secrets/seed_encryption_key\n'
+    b'      PASARGUARD_WEBHOOK_SECRET_FILE: /run/secrets/shadow_webhook_secret\n', b'',
+).replace(
+    b'    secrets:\n      [\n        runtime_database_url,\n        pasarguard_api_key,\n'
+    b'        seed_encryption_key,\n        shadow_webhook_secret,\n      ]\n',
+    b'    secrets: [runtime_database_url, pasarguard_api_key]\n',
+).replace(
+    b'  shadow_webhook_secret:\n    file: ${SECRETS_DIR:?}/shadow_webhook_secret\n', b'',
+)
 PREVIOUS = PROPOSED.replace(activation.ENV_ADDITION, b'').replace(
     activation.SERVICE_REPLACEMENT, activation.SERVICE_ANCHOR,
 ).replace(activation.SECRET_ADDITION, b'')

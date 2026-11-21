@@ -275,6 +275,16 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   ).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
+  await expect(page.locator('.inbox-progress')).toContainText(
+    'دسته‌های پردازش‌شده:',
+  );
+  await expect(page.locator('.inbox-progress progress')).toHaveAttribute(
+    'max',
+    '100',
+  );
+  await expect(page.locator('.range')).toContainText(
+    'رویدادهای تازه پردازش‌شده در ۲۴ ساعت اخیر',
+  );
   await page.getByLabel('بازهٔ زمانی').selectOption('1h');
   await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
   await page

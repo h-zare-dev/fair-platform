@@ -367,7 +367,7 @@ it('generic login failures and malformed JSON never disclose sensitive input', a
   expect(audit).not.toContain(password);
   expect(audit).not.toContain(hash);
 });
-it('synthetic seed is idempotent and summary counts respect source and half-open boundaries', async () => {
+it('historical dashboard counts use batch receipt, while processing throughput uses server time', async () => {
   await seedSynthetic(db, '11'.repeat(32));
   await seedSynthetic(db, '11'.repeat(32));
   expect(
@@ -388,21 +388,24 @@ it('synthetic seed is idempotent and summary counts respect source and half-open
     "UPDATE pasarguard_webhook_batches SET received_at='2026-10-02T00:00:00Z' WHERE id=1",
   );
   await db.query(
-    "UPDATE pasarguard_events SET created_at='2026-10-01T00:00:00Z',source_enqueued_at='2026-09-01T00:00:00Z'",
+    "UPDATE pasarguard_events SET created_at=now(),source_enqueued_at='2026-09-01T00:00:00Z'",
   );
-  await db.query(
-    "UPDATE pasarguard_ingestion_issues SET created_at='2026-10-01T00:00:00Z'",
-  );
+  await db.query('UPDATE pasarguard_ingestion_issues SET created_at=now()');
   const s = await reader.summary(operationFilter(range, 'summary'));
   expect(s).toMatchObject({
     receivedBatches: '11',
-    normalizedEvents: '11',
+    normalizedEvents: '10',
+    processedBatches: '0',
+    processedLast24h: '11',
     failedBatches: '11',
     openIngestionIssues: '2',
   });
   expect(
     (await reader.events(operationFilter(range, 'events'))).rows,
-  ).toHaveLength(0);
+  ).toHaveLength(10);
+  expect(
+    (await reader.issues(operationFilter(range, 'issues'))).rows,
+  ).toHaveLength(2);
   expect(
     await reader.summary(
       operationFilter({ ...range, source: 'other' }, 'summary'),
@@ -410,18 +413,23 @@ it('synthetic seed is idempotent and summary counts respect source and half-open
   ).toMatchObject({
     receivedBatches: '0',
     normalizedEvents: '0',
+    processedBatches: '0',
+    processedLast24h: '0',
     openIngestionIssues: '0',
   });
 });
-it('microsecond/tied timestamp cursors never skip rows and projections omit private fields', async () => {
+it('microsecond receipt-time cursors never skip events or issues, and projections omit private fields', async () => {
   await seedSynthetic(db, '11'.repeat(32));
   await store.bootstrap(hash);
   const cookie = cookieOf(await login());
   await db.query(
-    "UPDATE pasarguard_events SET source_enqueued_at='2026-10-01T00:00:00.000123Z'",
+    "UPDATE pasarguard_webhook_batches SET received_at='2026-10-01T00:00:00.000123Z'",
   );
   await db.query(
-    "UPDATE pasarguard_events SET source_enqueued_at='2026-10-01T00:00:00.000124Z' WHERE id=1",
+    "UPDATE pasarguard_webhook_batches SET received_at='2026-10-01T00:00:00.000124Z' WHERE id=1",
+  );
+  await db.query(
+    "UPDATE pasarguard_events SET source_enqueued_at='2026-09-01T00:00:00Z'",
   );
   const query = {
     start: '2026-10-01T00:00:00Z',
@@ -440,6 +448,22 @@ it('microsecond/tied timestamp cursors never skip rows and projections omit priv
     cursor = p.nextCursor;
   } while (cursor);
   expect(ids.size).toBe(11);
+  const issueIds = new Set<string>();
+  let issueCursor: string | null = null;
+  do {
+    const page = await reader.issues(
+      operationFilter(
+        { ...query, ...(issueCursor ? { cursor: issueCursor } : {}) },
+        'issues',
+      ),
+    );
+    for (const issue of page.rows) {
+      expect(issueIds.has(issue.id)).toBe(false);
+      issueIds.add(issue.id);
+    }
+    issueCursor = page.nextCursor;
+  } while (issueCursor);
+  expect(issueIds.size).toBe(2);
   const response = await app.inject({
     url:
       '/api/v1/owner/operations/events?' +

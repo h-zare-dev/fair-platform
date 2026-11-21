@@ -39,6 +39,20 @@ export class PostgresOwnerOperations implements OperationsReader {
     if (f.source) q.andWhere(`${sourceColumn}=:source`, { source: f.source });
     return q;
   }
+  private batchEvents(m: EntityManager, f: OperationFilter) {
+    // Count and page events by the historical receipt window of their inbox
+    // batch. `e.created_at` is the *new server's* normalization time, which
+    // would incorrectly put an entire 30-day replay into today's totals.
+    return this.scope(
+      m
+        .getRepository(EventEntity)
+        .createQueryBuilder('e')
+        .innerJoin('pasarguard_webhook_batches', 'b', 'b.id=e.batch_id'),
+      f,
+      'b.received_at',
+      'b.source_instance_id',
+    );
+  }
   async summary(f: OperationFilter) {
     return this.db.transaction('REPEATABLE READ', async (m) => {
       const batch = () =>
@@ -55,14 +69,16 @@ export class PostgresOwnerOperations implements OperationsReader {
             .getRawOne<{ count: string }>()
         )?.count ?? '0';
       const receivedBatches = await count(batch());
-      const normalizedEvents = await count(
-        this.scope(
-          m.getRepository(EventEntity).createQueryBuilder('e'),
-          f,
-          'e.created_at',
-          'e.source_instance_id',
-        ),
-      );
+      const normalizedEvents = await count(this.batchEvents(m, f));
+      const recent = m
+        .getRepository(EventEntity)
+        .createQueryBuilder('e')
+        .where("e.created_at >= now() - interval '24 hours'")
+        .andWhere('e.created_at < now()');
+      if (f.source)
+        recent.andWhere('e.source_instance_id=:source', { source: f.source });
+      // Independent throughput metric: processing *now*, not event history.
+      const processedLast24h = await count(recent);
       const openIngestionIssues = await count(
         this.issueQuery(m, f).andWhere('i.resolved_at IS NULL'),
       );
@@ -75,8 +91,13 @@ export class PostgresOwnerOperations implements OperationsReader {
       const pendingBatches = await count(
         batch().andWhere("b.processing_status IN ('RECEIVED','NORMALIZING')"),
       );
+      const processedBatches = await count(
+        batch().andWhere("b.processing_status='NORMALIZED'"),
+      );
       return {
         pendingBatches,
+        processedBatches,
+        processedLast24h,
         start: f.start,
         end: f.end,
         source: f.source,
@@ -99,20 +120,15 @@ export class PostgresOwnerOperations implements OperationsReader {
         .createQueryBuilder('i')
         .innerJoin('pasarguard_webhook_batches', 'b', 'b.id=i.batch_id'),
       f,
-      'i.created_at',
+      'b.received_at',
       'b.source_instance_id',
     );
   }
   async events(f: OperationFilter) {
-    const q = this.scope(
-      this.db.getRepository(EventEntity).createQueryBuilder('e'),
-      f,
-      'e.source_enqueued_at',
-      'e.source_instance_id',
-    );
+    const q = this.batchEvents(this.db.manager, f);
     if (f.cursor)
       q.andWhere(
-        '(e.source_enqueued_at,e.id)<(CAST(:time AS timestamptz),CAST(:id AS bigint))',
+        '(b.received_at,e.id)<(CAST(:time AS timestamptz),CAST(:id AS bigint))',
         f.cursor,
       );
     const rows = await q
@@ -121,6 +137,7 @@ export class PostgresOwnerOperations implements OperationsReader {
       .addSelect('e.external_user_id::text', 'externalUserId')
       .addSelect('e.user_status', 'userStatus')
       .addSelect('e.data_limit_bytes::text', 'dataLimitBytes')
+      .addSelect(timestamp('b.received_at'), 'receivedAt')
       .addSelect(timestamp('e.source_enqueued_at'), 'sourceTimestamp')
       .addSelect(timestamp('e.first_seen_at'), 'firstSeenAt')
       .addSelect('e.event_status', 'eventStatus')
@@ -130,7 +147,7 @@ export class PostgresOwnerOperations implements OperationsReader {
         'actorStatus',
       )
       .addSelect('e.occurrence_count', 'occurrenceCount')
-      .orderBy('e.source_enqueued_at', 'DESC')
+      .orderBy('b.received_at', 'DESC')
       .addOrderBy('e.id', 'DESC')
       .limit(f.limit + 1)
       .getRawMany<{
@@ -139,6 +156,7 @@ export class PostgresOwnerOperations implements OperationsReader {
         externalUserId: string;
         userStatus: string;
         dataLimitBytes: string;
+        receivedAt: string;
         sourceTimestamp: string;
         firstSeenAt: string;
         eventStatus: string;
@@ -154,7 +172,7 @@ export class PostgresOwnerOperations implements OperationsReader {
       rows: page,
       nextCursor:
         rows.length > f.limit && last
-          ? nextCursor(f, 'events', last.sourceTimestamp, last.id)
+          ? nextCursor(f, 'events', last.receivedAt, last.id)
           : null,
     };
   }
@@ -162,22 +180,24 @@ export class PostgresOwnerOperations implements OperationsReader {
     const q = this.issueQuery(this.db.manager, f);
     if (f.cursor)
       q.andWhere(
-        '(i.created_at,i.id)<(CAST(:time AS timestamptz),CAST(:id AS bigint))',
+        '(b.received_at,i.id)<(CAST(:time AS timestamptz),CAST(:id AS bigint))',
         f.cursor,
       );
     const rows = await q
       .select('i.id::text', 'id')
       .addSelect('i.issue_code', 'code')
       .addSelect('i.batch_index', 'batchIndex')
+      .addSelect(timestamp('b.received_at'), 'receivedAt')
       .addSelect(timestamp('i.created_at'), 'createdAt')
       .addSelect('i.resolved_at IS NOT NULL', 'resolved')
-      .orderBy('i.created_at', 'DESC')
+      .orderBy('b.received_at', 'DESC')
       .addOrderBy('i.id', 'DESC')
       .limit(f.limit + 1)
       .getRawMany<{
         id: string;
         code: string;
         batchIndex: number | null;
+        receivedAt: string;
         createdAt: string;
         resolved: boolean;
       }>();
@@ -195,7 +215,7 @@ export class PostgresOwnerOperations implements OperationsReader {
       rows: page,
       nextCursor:
         rows.length > f.limit && last
-          ? nextCursor(f, 'issues', last.createdAt, last.id)
+          ? nextCursor(f, 'issues', last.receivedAt, last.id)
           : null,
     };
   }

@@ -5,6 +5,8 @@ import { ReplayImport } from './replay-import';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 interface Summary {
   pendingBatches: string;
+  processedBatches: string;
+  processedLast24h: string;
   start: string;
   end: string;
   receivedBatches: string;
@@ -19,6 +21,7 @@ interface EventRow {
   userStatus: string;
   dataLimitBytes: string;
   sourceTimestamp: string;
+  receivedAt: string;
   firstSeenAt: string;
   eventStatus: string;
   billingAdminId: string;
@@ -31,6 +34,7 @@ interface IssueRow {
   message: string;
   batchIndex: number | null;
   createdAt: string;
+  receivedAt: string;
   resolved: boolean;
 }
 interface Page<T> {
@@ -73,6 +77,10 @@ const issueNames: Record<string, string> = {
 };
 const translation = (value: string, names: Record<string, string>) =>
   names[value] ?? `کد ${value}`;
+const progressPercent = (processed: string, received: string) =>
+  BigInt(received) === 0n
+    ? 0
+    : Number((BigInt(processed) * 100n) / BigInt(received));
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(`/api/v1/owner/${path}`, {
     cache: 'no-store',
@@ -213,7 +221,7 @@ export function Dashboard() {
     [
       'رویدادهای پردازش‌شده',
       summary?.normalizedEvents,
-      'رویدادهای یکتای این بازه',
+      'رویدادهای یکتای دسته‌های دریافتی در این بازه',
       '◈',
     ],
     ['خطاهای باز', summary?.openIngestionIssues, 'خطاهای منتظر بررسی', '!'],
@@ -329,6 +337,24 @@ export function Dashboard() {
         ) : (
           summary && (
             <>
+              <section
+                className="inbox-progress"
+                aria-label="پیشرفت پردازش رویدادها"
+              >
+                <span>
+                  دسته‌های پردازش‌شده:{' '}
+                  <strong>{formatInteger(summary.processedBatches)}</strong> از{' '}
+                  <strong>{formatInteger(summary.receivedBatches)}</strong>
+                </span>
+                <progress
+                  value={progressPercent(
+                    summary.processedBatches,
+                    summary.receivedBatches,
+                  )}
+                  max={100}
+                  aria-label="درصد تکمیل پردازش دسته‌های انتخاب‌شده"
+                />
+              </section>
               <p className="range">
                 <span>
                   دسته‌های در انتظار:{' '}
@@ -339,8 +365,12 @@ export function Dashboard() {
                   <strong>{formatInteger(summary.failedBatches)}</strong>
                 </span>
                 <span>
+                  رویدادهای تازه پردازش‌شده در ۲۴ ساعت اخیر (زمان سرور):{' '}
+                  <strong>{formatInteger(summary.processedLast24h)}</strong>
+                </span>
+                <span>
                   از {formatUtc(summary.start)} تا {formatUtc(summary.end)}{' '}
-                  (بدون احتساب زمان پایان)
+                  (زمان دریافت دسته‌ها؛ بدون احتساب زمان پایان)
                 </span>
               </p>
               <div id="events" className="anchor-section">
@@ -400,8 +430,9 @@ export function Dashboard() {
               </div>
               <div className="pagination">
                 <span>
-                  مرتب‌سازی بر اساس زمان رویداد در منبع؛ «آمادهٔ حسابداری» به
-                  معنی ثبت هزینه نیست.
+                  مرتب‌سازی بر اساس دریافت تاریخی دسته‌ها؛ زمان رویداد در منبع
+                  جداگانه نمایش داده می‌شود. «آمادهٔ حسابداری» به معنی ثبت هزینه
+                  نیست.
                 </span>
                 {events.nextCursor && (
                   <button
@@ -424,7 +455,7 @@ export function Dashboard() {
                     <thead>
                       <tr>
                         <th>نوع خطا</th>
-                        <th>زمان ثبت (UTC)</th>
+                        <th>زمان دریافت / ثبت خطا (UTC)</th>
                         <th>شمارهٔ دسته</th>
                         <th>وضعیت</th>
                       </tr>
@@ -438,7 +469,10 @@ export function Dashboard() {
                               کد فنی: <span dir="ltr">{i.code}</span>
                             </small>
                           </td>
-                          <td>{formatUtc(i.createdAt)}</td>
+                          <td>
+                            {formatUtc(i.receivedAt)}
+                            <small>ثبت خطا: {formatUtc(i.createdAt)}</small>
+                          </td>
                           <td>
                             {i.batchIndex === null
                               ? '—'

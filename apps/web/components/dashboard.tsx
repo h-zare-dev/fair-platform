@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { OwnerHeader } from './owner-header';
 import { ReplayImport } from './replay-import';
+import { ReplayAccountingPreview } from './replay-accounting-preview';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 interface Summary {
@@ -319,6 +320,7 @@ export function Dashboard() {
           </button>
         </form>
         <ReplayImport />
+        <ReplayAccountingPreview />
         {error && (
           <div className="error-banner" role="alert">
             {error}{' '}

@@ -335,6 +335,14 @@ export async function createOwnerApi(
       );
       return shadow.summary(q.source ?? null);
     }
+    @Get('operations/accounting/replay-preview') async accountingReplayPreview(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      input(z.object({}).strict(), req.query);
+      return shadow.replayPreview();
+    }
     @Get('operations/accounting/ambiguities') async accountingAmbiguities(
       @Req() req: FastifyRequest,
     ) {

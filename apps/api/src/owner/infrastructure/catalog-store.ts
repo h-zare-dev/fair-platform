@@ -4,6 +4,10 @@ import {
   jalaliValidityWindow,
   validateTimeZone,
 } from '@fair-platform/calendar';
+import {
+  staticCatalogWithVerifiedPrices,
+  type StaticCatalogPrice,
+} from '../application/static-catalog-bootstrap.js';
 
 export class CatalogError extends Error {
   constructor(
@@ -11,7 +15,8 @@ export class CatalogError extends Error {
       | 'INVALID_CATALOG_INPUT'
       | 'CATALOG_NOT_FOUND'
       | 'PACKAGE_ALREADY_ASSIGNED'
-      | 'GROUP_HAS_HISTORY',
+      | 'GROUP_HAS_HISTORY'
+      | 'CATALOG_BOOTSTRAP_NOT_EMPTY',
   ) {
     super(code);
   }
@@ -139,6 +144,104 @@ export class PostgresCatalogStore {
       packages,
       assignments,
     };
+  }
+
+  /** Atomic Owner-initiated one-time bootstrap. Refuses any pre-existing state. */
+  async bootstrapStaticCatalog(input: {
+    prices: readonly StaticCatalogPrice[];
+    adminIds: readonly string[];
+  }) {
+    let entries: ReturnType<typeof staticCatalogWithVerifiedPrices>;
+    try {
+      entries = staticCatalogWithVerifiedPrices(input.prices);
+    } catch {
+      throw new CatalogError('INVALID_CATALOG_INPUT');
+    }
+    if (
+      input.adminIds.length !== 153 ||
+      new Set(input.adminIds).size !== 153 ||
+      input.adminIds.some((v) => !/^(0|[1-9][0-9]{0,18})$/.test(v))
+    )
+      throw new CatalogError('INVALID_CATALOG_INPUT');
+    const admins = input.adminIds.map(adminId);
+    const s = 'primary';
+    const range = jalaliValidityWindow(this.zone, null, null);
+    return this.db.transaction('SERIALIZABLE', async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        `catalog-bootstrap:${s}`,
+      ]);
+      const [check] = await tx.query<{ occupied: boolean }[]>(
+        `SELECT (
+          EXISTS(SELECT 1 FROM fair_admin_groups WHERE source_instance_id=$1)
+          OR EXISTS(SELECT 1 FROM fair_atomic_packages WHERE source_instance_id=$1)
+          OR EXISTS(SELECT 1 FROM fair_admin_group_memberships WHERE source_instance_id=$1)
+          OR EXISTS(SELECT 1 FROM fair_tariff_assignments WHERE source_instance_id=$1)
+          OR EXISTS(SELECT 1 FROM fair_admin_group_membership_audit WHERE source_instance_id=$1)
+         ) AS occupied`,
+        [s],
+      );
+      if (check?.occupied)
+        throw new CatalogError('CATALOG_BOOTSTRAP_NOT_EMPTY');
+      const [group] = await tx.query<{ id: string }[]>(
+        'INSERT INTO fair_admin_groups(source_instance_id,name) VALUES($1,$2) RETURNING id::text',
+        [s, 'تمام مدیران پاسارگارد'],
+      );
+      const members = await tx.query<{ id: string }[]>(
+        `WITH new_members AS (
+          INSERT INTO fair_admin_group_memberships(source_instance_id,billing_admin_id,group_id)
+          SELECT $1,admins.admin_id,$2 FROM unnest($3::bigint[]) AS admins(admin_id)
+          RETURNING billing_admin_id
+         )
+         INSERT INTO fair_admin_group_membership_audit
+           (source_instance_id,billing_admin_id,old_group_id,new_group_id,action)
+         SELECT $1,billing_admin_id,NULL,$2,'ASSIGN' FROM new_members RETURNING id::text`,
+        [s, group!.id, admins],
+      );
+      if (members.length !== 153)
+        throw new CatalogError('INVALID_CATALOG_INPUT');
+      const assignments = await tx.query<{ id: string }[]>(
+        `WITH new_packages AS (
+          INSERT INTO fair_atomic_packages
+            (source_instance_id,name,package_bytes,duration_days,amount_toman,ever_assigned)
+          SELECT $1,entry.name,entry.package_bytes,entry.duration_days,
+            entry.amount_toman,true
+          FROM jsonb_to_recordset($3::jsonb) AS entry(
+            name text,package_bytes bigint,duration_days integer,amount_toman bigint)
+          RETURNING id,package_bytes,duration_days
+         )
+         INSERT INTO fair_tariff_assignments
+           (source_instance_id,target_kind,group_id,billing_admin_id,
+            package_id,rate_toman_per_gib,package_bytes,duration_days,
+            local_start_date,local_end_date,time_zone,effective_from,effective_until)
+         SELECT $1,'GROUP',$2,NULL,id,NULL,package_bytes,duration_days,
+           $4,NULL,$5,$6,NULL FROM new_packages RETURNING id::text`,
+        [
+          s,
+          group!.id,
+          JSON.stringify(
+            entries.map((v) => ({
+              name: v.name,
+              package_bytes: v.packageBytes,
+              duration_days: v.durationDays,
+              amount_toman: v.amountToman,
+            })),
+          ),
+          range.startDate,
+          range.zone,
+          range.fromUtc,
+        ],
+      );
+      if (assignments.length !== 25)
+        throw new CatalogError('INVALID_CATALOG_INPUT');
+      return {
+        sourceInstanceId: s,
+        packageCount: assignments.length,
+        groupCount: 1,
+        memberCount: members.length,
+        assignedPackageCount: assignments.length,
+        priceStatus: 'OWNER_PROVIDED' as const,
+      };
+    });
   }
 
   async createGroup(input: { sourceInstanceId: string; name: string }) {

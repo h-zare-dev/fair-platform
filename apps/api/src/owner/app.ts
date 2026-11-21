@@ -30,6 +30,7 @@ import {
 } from './infrastructure/catalog-store.js';
 import type { OwnerAuth } from './application/auth.js';
 import type { PostgresShadowReader } from './infrastructure/shadow-reader.js';
+import { STATIC_CATALOG_SHAPES } from './application/static-catalog-bootstrap.js';
 import {
   ReceiveWebhook,
   WebhookFailure,
@@ -395,6 +396,70 @@ export async function createOwnerApi(
       if (!catalog) throw new HttpException('Unavailable', 503);
       const q = input(z.object({ source }).strict(), req.query);
       return catalog.list(q.source);
+    }
+    @Get('catalog/bootstrap/requirements') async catalogBootstrapRequirements(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!catalog || !directory) throw new HttpException('Unavailable', 503);
+      input(z.object({}).strict(), req.query);
+      return {
+        sourceInstanceId: 'primary',
+        expectedAdmins: 153,
+        packages: STATIC_CATALOG_SHAPES,
+        pricesRequired: true,
+        postingScope: 'NONE',
+      };
+    }
+    @Post('catalog/bootstrap') catalogBootstrap(@Req() req: FastifyRequest) {
+      return priceWrite(
+        req,
+        z
+          .object({
+            confirmation: z.literal('CONFIRM_25_PACKAGES_153_ADMINS'),
+            prices: z
+              .array(
+                z
+                  .object({
+                    name: z.string().trim().min(1).max(100),
+                    amountToman: positive,
+                  })
+                  .strict(),
+              )
+              .length(25),
+          })
+          .strict(),
+        async (v) => {
+          if (!catalog || !directory)
+            throw new HttpException('Unavailable', 503);
+          const admins: string[] = [];
+          try {
+            for (const offset of [0, 50, 100, 150]) {
+              const page = await directory.list({
+                search: '',
+                offset,
+                limit: 50,
+              });
+              if (
+                page.total !== 153 ||
+                page.offset !== offset ||
+                page.limit !== 50 ||
+                page.admins.length !== Math.min(50, 153 - offset)
+              )
+                throw new DirectoryUnavailable();
+              admins.push(...page.admins.map(({ id }) => id));
+            }
+          } catch {
+            throw new HttpException('DIRECTORY_UNAVAILABLE_OR_CHANGED', 503);
+          }
+          if (new Set(admins).size !== 153)
+            throw new HttpException('DIRECTORY_UNAVAILABLE_OR_CHANGED', 503);
+          return catalog.bootstrapStaticCatalog({
+            prices: v.prices,
+            adminIds: admins,
+          });
+        },
+      );
     }
     @Post('catalog/groups') catalogGroup(@Req() req: FastifyRequest) {
       return priceWrite(

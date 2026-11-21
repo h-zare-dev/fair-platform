@@ -300,6 +300,30 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
 });
+test('selected historical source survives dashboard to packages and groups navigation', async ({
+  page,
+}) => {
+  await page.goto('/login');
+  await page
+    .getByLabel('گذرواژهٔ مدیر اصلی')
+    .fill('synthetic-browser-test-password');
+  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByLabel('بازهٔ زمانی').selectOption('replay-fixed');
+  await expect(page.getByLabel('شناسهٔ منبع', { exact: true })).toHaveValue(
+    'replay-30d',
+  );
+  await page.getByRole('link', { name: 'تنظیمات', exact: true }).click();
+  await expect(page.getByTestId('active-catalog-dataset')).toContainText(
+    'آرشیو تاریخی ۳۰روزه',
+  );
+  await page.locator('a[href="/settings/groups"]').click();
+  await expect(page.getByTestId('active-catalog-dataset')).toContainText(
+    'آرشیو تاریخی ۳۰روزه',
+  );
+  await page.goto('/dashboard');
+  await expect(page.getByLabel('بازهٔ زمانی')).toHaveValue('replay-fixed');
+});
 test('wrong password and failed operations show safe errors, never zero substitutes', async ({
   page,
 }) => {

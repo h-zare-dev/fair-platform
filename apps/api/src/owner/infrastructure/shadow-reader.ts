@@ -1,4 +1,12 @@
 import type { DataSource } from 'typeorm';
+import {
+  evaluateReplayStaticCatalog,
+  type PreviewAssignment,
+  type PreviewEvent,
+  type PreviewIngestion,
+  type PreviewMembership,
+  type PreviewPackage,
+} from './replay-preview.js';
 
 export interface ShadowFilter {
   source: string | null;
@@ -11,7 +19,75 @@ export interface ShadowFilter {
 
 /** Owner-only projections; never expose usernames, raw JSON, or authentication data. */
 export class PostgresShadowReader {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly timeZone: string = 'Asia/Tehran',
+  ) {}
+
+  /** Explicit Owner-only, read-only historical pricing experiment. */
+  async replayPreview() {
+    // Replayed webhook events use a segregated source. Pricing and group
+    // membership are configured on the actual PasarGuard source, `primary`.
+    const source = 'replay-30d';
+    const catalogSource = 'primary';
+    const [packages, memberships, assignments, ingestionRows, events] =
+      await Promise.all([
+        this.db.query<PreviewPackage[]>(
+          `SELECT id::text,package_bytes::text AS "packageBytes",
+             duration_days AS "durationDays",amount_toman::text AS "amountToman"
+           FROM fair_atomic_packages WHERE source_instance_id=$1 ORDER BY id LIMIT 501`,
+          [catalogSource],
+        ),
+        this.db.query<PreviewMembership[]>(
+          `SELECT billing_admin_id::text AS "billingAdminId",group_id::text AS "groupId"
+           FROM fair_admin_group_memberships WHERE source_instance_id=$1
+           ORDER BY billing_admin_id LIMIT 2001`,
+          [catalogSource],
+        ),
+        this.db.query<PreviewAssignment[]>(
+          `SELECT id::text,target_kind AS "targetKind",group_id::text AS "groupId",
+             billing_admin_id::text AS "billingAdminId",package_id::text AS "packageId",
+             rate_toman_per_gib::text AS "rateTomanPerGiB"
+           FROM fair_tariff_assignments WHERE source_instance_id=$1 ORDER BY id LIMIT 501`,
+          [catalogSource],
+        ),
+        this.db.query<PreviewIngestion[]>(
+          `SELECT COUNT(*)::text AS "batchCount",
+             COALESCE(SUM(event_count),0)::text AS "childCount",
+             COUNT(*) FILTER (WHERE processing_status <> 'NORMALIZED')::text AS "unfinishedBatches"
+           FROM pasarguard_webhook_batches WHERE source_instance_id=$1`,
+          [source],
+        ),
+        this.db.query<PreviewEvent[]>(
+          `SELECT action,billing_admin_id::text AS "billingAdminId",username,
+             source_enqueued_at AS "sourceTimestamp",data_limit_bytes::text AS "dataLimitBytes",
+             on_hold_expire_duration_seconds::text AS "onHoldDurationSeconds",
+             event_status AS "eventStatus"
+           FROM pasarguard_events WHERE source_instance_id=$1
+           ORDER BY source_enqueued_at,id LIMIT 70001`,
+          [source],
+        ),
+      ]);
+    if (
+      events.length > 70000 ||
+      packages.length > 500 ||
+      memberships.length > 2000 ||
+      assignments.length > 500
+    )
+      throw new Error('REPLAY_PREVIEW_BOUNDS_EXCEEDED');
+    return evaluateReplayStaticCatalog(
+      packages,
+      memberships,
+      assignments,
+      events,
+      this.timeZone,
+      ingestionRows[0] ?? {
+        batchCount: '0',
+        childCount: '0',
+        unfinishedBatches: '0',
+      },
+    );
+  }
 
   async summary(source: string | null) {
     const [row] = await this.db.query<

@@ -106,7 +106,7 @@ async function main() {
             config.PASARGUARD_API_KEY_FILE,
           )
         : undefined,
-      new PostgresShadowReader(db),
+      new PostgresShadowReader(db, config.FAIR_TIME_ZONE),
       ingest?.receiver,
       ingest?.replayInbox,
     );

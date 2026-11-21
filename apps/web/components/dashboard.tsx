@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { OwnerHeader } from './owner-header';
 import { ReplayImport } from './replay-import';
 import { ReplayAccountingPreview } from './replay-accounting-preview';
+import { CatalogBootstrap } from './catalog-bootstrap';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 interface Summary {
@@ -321,6 +322,7 @@ export function Dashboard() {
         </form>
         <ReplayImport />
         <ReplayAccountingPreview />
+        <CatalogBootstrap />
         {error && (
           <div className="error-banner" role="alert">
             {error}{' '}

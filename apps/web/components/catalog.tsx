@@ -18,6 +18,7 @@ import {
   assignmentExpired,
   partitionAssignments,
 } from '../lib/assignment-visibility';
+import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 import {
   AdminDirectoryPicker,
   type DirectoryStatus,
@@ -163,6 +164,7 @@ export function CatalogManagement({
 }) {
   const [source, setSource] = useState('synthetic');
   const [sourceDraft, setSourceDraft] = useState('synthetic');
+  const [sourceReady, setSourceReady] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -190,6 +192,14 @@ export function CatalogManagement({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   useEffect(() => {
+    const previous = readOwnerSource();
+    if (previous) {
+      setSource(previous);
+      setSourceDraft(previous);
+    }
+    setSourceReady(true);
+  }, []);
+  useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
   useEffect(() => {
@@ -206,6 +216,7 @@ export function CatalogManagement({
     setConfig(await api<Config>(`config?source=${encodeURIComponent(source)}`));
   }, [source]);
   useEffect(() => {
+    if (!sourceReady) return;
     let current = true;
     setLoading(true);
     void api<Config>(`config?source=${encodeURIComponent(source)}`)
@@ -224,7 +235,7 @@ export function CatalogManagement({
     return () => {
       current = false;
     };
-  }, [source]);
+  }, [source, sourceReady]);
   useEffect(() => {
     if (!popup) return;
     const previous = document.body.style.overflow;
@@ -428,6 +439,18 @@ export function CatalogManagement({
       <div className="stage" data-staging-billing-mode="no-live-billing">
         محیط آزمایشی · بدون صدور صورت‌حساب یا دریافت وجه
       </div>
+      {sourceReady && (
+        <p className="field-hint" data-testid="active-catalog-dataset">
+          مجموعهٔ فعال:{' '}
+          <strong>
+            {source === 'replay-30d'
+              ? 'آرشیو تاریخی ۳۰روزه (آزمایشی)'
+              : source === 'synthetic'
+                ? 'دادهٔ ساختگی (آزمایشی)'
+                : `شناسهٔ ${source}`}
+          </strong>
+        </p>
+      )}
       <div className="settings-heading">
         <div>
           <p className="eyebrow">پنل مدیریت / تنظیمات</p>
@@ -705,6 +728,7 @@ export function CatalogManagement({
           onSubmit={(e) => {
             e.preventDefault();
             const nextSource = sourceDraft.trim();
+            rememberOwnerSource(nextSource);
             if (nextSource === source) void refresh();
             else {
               setConfig(null);

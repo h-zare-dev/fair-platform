@@ -52,6 +52,25 @@ describe('nightly-only SHADOW create classification', () => {
       'UNEXPECTED_UNLIMITED',
     );
   });
+  it('reconciles a 30-day synthetic Create-only price matrix using integer math', () => {
+    // Arithmetic stress/regression only: not an imported historical-data audit,
+    // nightly PostgreSQL close, Update, Reset or financial ledger acceptance.
+    let quoted = 0n;
+    let expected = 0n;
+    const gib = 1073741824n;
+    for (let day = 0; day < 30; day++) {
+      for (let admin = 0; admin < 153; admin++) {
+        const bytes = (BigInt((day + admin) % 100) * gib + gib / 4n).toString();
+        const result = classifyCreate(bytes, null, [perGiB], false, false);
+        expect(result.reason).toBeNull();
+        quoted += BigInt(result.amount!);
+        // 0.25 GiB × 1001 Toman = 250.25, rounded only once to 251.
+        expected += BigInt((day + admin) % 100) * 1001n + 251n;
+      }
+    }
+    expect(quoted).toBe(expected);
+    expect(quoted).toBeGreaterThan(0n);
+  });
   it('blocks corrections, unverified next plans and conflicting pricing', () => {
     expect(
       classifyCreate('53687091200', '2592000', [fixed], true, false).reason,

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { OwnerHeader } from './owner-header';
 import { ReplayImport } from './replay-import';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
+import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 interface Summary {
   pendingBatches: string;
   processedBatches: string;
@@ -121,6 +122,7 @@ export function Dashboard() {
   const [windowRange, setWindowRange] = useState('24h');
   const [source, setSource] = useState('');
   const [sourceDraft, setSourceDraft] = useState('');
+  const [sourceReady, setSourceReady] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [events, setEvents] = useState<Page<EventRow>>({
     rows: [],
@@ -135,6 +137,16 @@ export function Dashboard() {
   const [refresh, setRefresh] = useState(0);
   const [pageBusy, setPageBusy] = useState(false);
   useEffect(() => {
+    const previous = readOwnerSource();
+    if (previous) {
+      setSource(previous);
+      setSourceDraft(previous);
+      if (previous === 'replay-30d') setWindowRange('replay-fixed');
+    }
+    setSourceReady(true);
+  }, []);
+  useEffect(() => {
+    if (!sourceReady) return;
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 10000);
     setBusy(true);
@@ -188,7 +200,7 @@ export function Dashboard() {
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [windowRange, source, refresh]);
+  }, [windowRange, source, refresh, sourceReady]);
   async function next(kind: 'events' | 'issues') {
     const cursor = kind === 'events' ? events.nextCursor : issues.nextCursor;
     if (!cursor || !summary) return;
@@ -266,6 +278,7 @@ export function Dashboard() {
           id="overview"
           onSubmit={(e) => {
             e.preventDefault();
+            rememberOwnerSource(sourceDraft);
             setSource(sourceDraft);
           }}
         >
@@ -279,6 +292,7 @@ export function Dashboard() {
                 if (e.target.value === 'replay-fixed') {
                   setSourceDraft('replay-30d');
                   setSource('replay-30d');
+                  rememberOwnerSource('replay-30d');
                 }
               }}
             >

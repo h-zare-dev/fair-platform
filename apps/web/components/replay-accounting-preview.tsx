@@ -3,6 +3,14 @@
 import { useState } from 'react';
 import { formatGiB, formatInteger } from '../lib/traffic';
 
+interface PackageQuoteRow {
+  packageBytes: string;
+  durationDays: number;
+  amountToman: string;
+  pricedCreateCount: number;
+  subtotalToman: string;
+}
+
 interface ReplayAudit {
   mode: 'HISTORICAL_STATIC_PACKAGE_PREVIEW';
   postingScope: 'NONE';
@@ -22,13 +30,18 @@ interface ReplayAudit {
   unclassifiedEventCount: number;
   heldReasons: { code: string; count: number }[];
   actionCounts: { action: string; count: number }[];
-  packageBreakdown: {
-    packageBytes: string;
-    durationDays: number;
-    amountToman: string;
+  packageBreakdown: PackageQuoteRow[];
+  ownerAttestedWhatIf: {
+    assumption: 'ALL_REPLAY_ADMINS_USE_SINGLE_CONFIGURED_GROUP';
+    allCreateIdsMatchMemberships: boolean;
+    identityMatchedCreateCount: number;
+    identityUnmatchedCreateCount: number;
     pricedCreateCount: number;
-    subtotalToman: string;
-  }[];
+    heldCreateCount: number;
+    createOnlySubtotalToman: string | null;
+    packageBreakdown: PackageQuoteRow[];
+    heldReasons: { code: string; count: number }[];
+  };
 }
 
 export function ReplayAccountingPreview() {
@@ -74,9 +87,9 @@ export function ReplayAccountingPreview() {
       </div>
       <p className="muted">
         فرض این آزمایش: همان ۲۵ پکیج و قیمت‌های ثابت شش ماه اخیر برای همهٔ ۱۵۳
-        مدیر معتبر بوده‌اند. مبلغ قابل‌محاسبهٔ Create جدا از Update، Reset و سایر
-        عملیاتِ هنوز بررسی‌نشده نمایش داده می‌شود؛ این نتیجه صورت‌حساب نهایی
-        نیست.
+        مدیر معتبر بوده‌اند. نتیجهٔ سخت‌گیرانه با تطبیق شناسهٔ مدیر جدا از برآورد
+        فرضیِ بدون تطبیق شناسه نمایش داده می‌شود. فقط Create بررسی شده؛ Update،
+        Reset و سایر عملیات هنوز محاسبه نشده‌اند. هیچ‌یک صورت‌حساب نهایی نیست.
       </p>
       <button
         type="button"
@@ -113,11 +126,97 @@ export function ReplayAccountingPreview() {
             Create مبهم: <b>{formatInteger(result.heldCreateCount)}</b>
           </p>
           <p>
-            <strong>جمع موقت فقط Create:</strong>{' '}
+            <strong>جمع Create با تطبیق دقیق شناسهٔ مدیر:</strong>{' '}
             {result.createOnlySubtotalToman === null
               ? 'محاسبه متوقف است؛ ابتدا پوشش آرشیو و پکیج‌ها باید کامل باشد.'
               : `${formatInteger(result.createOnlySubtotalToman)} تومان (غیرنهایی)`}
           </p>
+          <div className="replay-what-if">
+            <h3>محاسبهٔ فرضی با نرخ‌های یکسان برای تمام مدیران آرشیو</h3>
+            <p>
+              این سناریو فقط بر فرض اعلام‌شدهٔ مالک تکیه می‌کند که همهٔ مدیران
+              آرشیو، همین گروه و ۲۵ پکیج را داشته‌اند. شناسهٔ مدیران آرشیو با
+              فهرست زنده به‌صورت خودکار معادل‌سازی نشده و هیچ رویدادی در
+              حسابداری ثبت نمی‌شود.
+            </p>
+            <p>
+              Create با شناسهٔ منطبق:{' '}
+              <b>
+                {formatInteger(
+                  result.ownerAttestedWhatIf.identityMatchedCreateCount,
+                )}
+              </b>
+              {' · '}Create با شناسهٔ تطبیق‌نیافته:{' '}
+              <b>
+                {formatInteger(
+                  result.ownerAttestedWhatIf.identityUnmatchedCreateCount,
+                )}
+              </b>
+            </p>
+            <p>
+              Create دارای قیمت تحت این فرض:{' '}
+              <b>
+                {formatInteger(result.ownerAttestedWhatIf.pricedCreateCount)}
+              </b>
+              {' · '}Create نیازمند بررسی:{' '}
+              <b>{formatInteger(result.ownerAttestedWhatIf.heldCreateCount)}</b>
+            </p>
+            <p>
+              <strong>جمع صرفاً فرضی Create:</strong>{' '}
+              {result.ownerAttestedWhatIf.createOnlySubtotalToman === null
+                ? 'محاسبه متوقف است؛ پوشش پکیج/گروه یا آرشیو ناقص است.'
+                : `${formatInteger(result.ownerAttestedWhatIf.createOnlySubtotalToman)} تومان`}
+            </p>
+            {!result.ownerAttestedWhatIf.allCreateIdsMatchMemberships && (
+              <p>
+                ⚠ این جمع تأیید بدهی یا صحت تطبیق مدیران نیست؛ برای صدور
+                صورتحساب، تطبیق معتبر هویت و بررسی سایر عملیات لازم است.
+              </p>
+            )}
+            {result.ownerAttestedWhatIf.packageBreakdown.length > 0 && (
+              <details>
+                <summary>مبلغ و تعداد Create فرضی برای هر ۲۵ پکیج</summary>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>حجم</th>
+                        <th>مدت</th>
+                        <th>قیمت پکیج (تومان)</th>
+                        <th>Create فرضی</th>
+                        <th>جمع فرضی (تومان)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.ownerAttestedWhatIf.packageBreakdown.map(
+                        (row) => (
+                          <tr key={`${row.packageBytes}:${row.durationDays}`}>
+                            <td>{formatGiB(row.packageBytes)}</td>
+                            <td>{formatInteger(row.durationDays)} روز</td>
+                            <td>{formatInteger(row.amountToman)}</td>
+                            <td>{formatInteger(row.pricedCreateCount)}</td>
+                            <td>{formatInteger(row.subtotalToman)}</td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+            {result.ownerAttestedWhatIf.heldReasons.length > 0 && (
+              <details>
+                <summary>دلایل توقف در سناریوی فرضی</summary>
+                <ul>
+                  {result.ownerAttestedWhatIf.heldReasons.map((row) => (
+                    <li key={row.code}>
+                      <code>{row.code}</code>: {formatInteger(row.count)}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
           <p>
             <strong>رویدادهای خارج از محاسبهٔ Create:</strong>{' '}
             {formatInteger(result.unclassifiedEventCount)} مورد؛ هیچ‌کدام به‌طور

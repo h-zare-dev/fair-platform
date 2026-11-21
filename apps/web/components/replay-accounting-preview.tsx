@@ -49,7 +49,8 @@ export function ReplayAccountingPreview() {
         window.location.assign('/login');
         return;
       }
-      if (!response.ok) throw new Error('بررسی آرشیو انجام نشد.');
+      if (!response.ok)
+        throw new Error(`بررسی آرشیو انجام نشد (HTTP ${response.status}).`);
       const data = (await response.json()) as ReplayAudit;
       if (
         data.mode !== 'HISTORICAL_STATIC_PACKAGE_PREVIEW' ||

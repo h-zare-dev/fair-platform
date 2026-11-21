@@ -45,6 +45,22 @@ posting, reports, Telegram delivery, production deployment, or new integrations.
    Keep selection bounded. Read-only data may be incomplete until the Staging
    deploy and catalog/153-membership setup are verified by the Owner.
 
+## Staging regression follow-up (Owner screenshot, 2026-11-21)
+
+After PR #93 merged, the UI rendered but the first button press returned a
+non-OK HTTP response. The actual server-side status/log has not yet been
+obtained. One plausible cause is an unbounded 64,135-row SELECT facing the
+existing 5-second PostgreSQL statement timeout. Preserve the same pricing
+semantics while moving Create shape/status/count and same-local-day
+create/delete correlation aggregation into read-only PostgreSQL queries.
+Read only bounded aggregate result sets; never materialize the entire replay
+in the Owner API. A local Gregorian date after `AT TIME ZONE` has exactly
+the same daily boundaries as the local Jalali date for same-day correlation.
+Report HTTP status for future failures without exposing backend exceptions.
+Test both synthetic parity and the actual PostgreSQL grouping query. If this
+does not resolve Staging, obtain sanitized Owner-only diagnostics before
+assuming a different root cause. No posting or permission expansion.
+
 ## Test and acceptance
 
 - Synthetic 25-package/153-admin matrix with exact amount, invalid size,

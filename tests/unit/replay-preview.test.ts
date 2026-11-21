@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { localJalaliDate } from '@fair-platform/calendar';
 import { createOwnerApi, COOKIE } from '../../apps/api/dist/owner/app.js';
 import {
   evaluateReplayStaticCatalog,
   type PreviewAssignment,
-  type PreviewEvent,
+  type PreviewActionAggregate,
+  type PreviewCreateAggregate,
   type PreviewIngestion,
 } from '../../apps/api/dist/owner/infrastructure/replay-preview.js';
 import { PostgresShadowReader } from '../../apps/api/dist/owner/infrastructure/shadow-reader.js';
@@ -33,7 +35,16 @@ const ingestion: PreviewIngestion = {
   unfinishedBatches: '0',
 };
 
-function event(overrides: Partial<PreviewEvent> = {}): PreviewEvent {
+interface SyntheticEvent {
+  action: string;
+  billingAdminId: string;
+  username: string;
+  sourceTimestamp: Date;
+  dataLimitBytes: string;
+  onHoldDurationSeconds: string | null;
+  eventStatus: string;
+}
+function event(overrides: Partial<SyntheticEvent> = {}): SyntheticEvent {
   return {
     action: 'user_created',
     billingAdminId: '1',
@@ -46,8 +57,46 @@ function event(overrides: Partial<PreviewEvent> = {}): PreviewEvent {
   };
 }
 
+function aggregateEvents(events: readonly SyntheticEvent[]): {
+  creates: PreviewCreateAggregate[];
+  actions: PreviewActionAggregate[];
+} {
+  const actionCounts = new Map<string, number>();
+  const correctionCounts = new Map<string, number>();
+  for (const row of events) {
+    actionCounts.set(row.action, (actionCounts.get(row.action) ?? 0) + 1);
+    if (row.action === 'user_created' || row.action === 'user_deleted') {
+      const key = `${row.username}\0${localJalaliDate(row.sourceTimestamp, 'Asia/Tehran')}`;
+      correctionCounts.set(key, (correctionCounts.get(key) ?? 0) + 1);
+    }
+  }
+  const shapes = new Map<string, PreviewCreateAggregate>();
+  for (const row of events.filter((v) => v.action === 'user_created')) {
+    const key = `${row.username}\0${localJalaliDate(row.sourceTimestamp, 'Asia/Tehran')}`;
+    const group: PreviewCreateAggregate = {
+      billingAdminId: row.billingAdminId,
+      dataLimitBytes: row.dataLimitBytes,
+      onHoldDurationSeconds: row.onHoldDurationSeconds,
+      eventStatus: row.eventStatus,
+      isCorrection: (correctionCounts.get(key) ?? 0) > 1,
+      eventCount: 1,
+    };
+    const shape = JSON.stringify(group);
+    const existing = shapes.get(shape);
+    if (existing) existing.eventCount++;
+    else shapes.set(shape, group);
+  }
+  return {
+    creates: [...shapes.values()],
+    actions: [...actionCounts.entries()].map(([action, eventCount]) => ({
+      action,
+      eventCount,
+    })),
+  };
+}
+
 function preview(
-  events: PreviewEvent[],
+  events: SyntheticEvent[],
   overrides: {
     catalog?: typeof packages;
     members?: typeof memberships;
@@ -55,11 +104,13 @@ function preview(
     inbox?: PreviewIngestion;
   } = {},
 ) {
+  const { creates, actions } = aggregateEvents(events);
   return evaluateReplayStaticCatalog(
     overrides.catalog ?? packages,
     overrides.members ?? memberships,
     overrides.rules ?? assignments,
-    events,
+    creates,
+    actions,
     'Asia/Tehran',
     overrides.inbox ?? ingestion,
   );
@@ -182,12 +233,28 @@ describe('30-day fixed catalog historical preview (never posting)', () => {
 
   it('preserves an exact integer quote above JS safe integer limits', () => {
     const exact = '9007199254740993';
-    const result = preview([event()], {
+    const result = preview([event(), event({ username: 'other-one' })], {
       catalog: packages.map((pkg, i) =>
         i === 0 ? { ...pkg, amountToman: exact } : pkg,
       ),
     });
-    expect(result.createOnlySubtotalToman).toBe(exact);
+    expect(result.createOnlySubtotalToman).toBe('18014398509481986');
+    expect(result.packageBreakdown[0]?.pricedCreateCount).toBe(2);
+  });
+
+  it('rejects inconsistent action totals and Create aggregate counts', () => {
+    const { creates, actions } = aggregateEvents([event()]);
+    const result = evaluateReplayStaticCatalog(
+      packages,
+      memberships,
+      assignments,
+      creates.map((row) => ({ ...row, eventCount: 2 })),
+      actions,
+      'Asia/Tehran',
+      ingestion,
+    );
+    expect(result.ingestionReady).toBe(false);
+    expect(result.createOnlySubtotalToman).toBeNull();
   });
 
   it('never prices a Create outside the 153 admin memberships', () => {
@@ -213,17 +280,27 @@ describe('read-only replay preview query boundary', () => {
         return Promise.resolve(assignments);
       if (sql.includes('FROM pasarguard_webhook_batches'))
         return Promise.resolve([ingestion]);
+      if (sql.includes('WITH corrected'))
+        return Promise.resolve(aggregateEvents([event()]).creates);
       if (sql.includes('FROM pasarguard_events'))
-        return Promise.resolve([event()]);
+        return Promise.resolve(aggregateEvents([event()]).actions);
       throw new Error('UNEXPECTED_SQL');
     });
     const reader = new PostgresShadowReader({ query } as never, 'Asia/Tehran');
     const result = await reader.replayPreview();
     expect(result.createOnlySubtotalToman).toBe('250000');
-    expect(query).toHaveBeenCalledTimes(5);
+    expect(query).toHaveBeenCalledTimes(6);
     for (const [sql, params] of query.mock.calls) {
-      expect(sql.trimStart().startsWith('SELECT')).toBe(true);
-      expect(sql).toMatch(/LIMIT (501|2001|70001)|COUNT\(\*\)/);
+      expect(sql.trimStart()).toMatch(/^(SELECT|WITH corrected)/);
+      expect(sql).toMatch(/LIMIT (501|2001|70001|101)|COUNT\(\*\)/);
+      // Individual usernames/timestamps must be processed by SQL grouping,
+      // never transferred to the API process for a 64K-event replay.
+      if (sql.includes('WITH corrected')) {
+        expect(sql).toContain('HAVING COUNT(*)>1');
+        expect(sql).toContain('AT TIME ZONE $2::text');
+        expect(params).toEqual(['replay-30d', 'Asia/Tehran']);
+        continue;
+      }
       expect(params).toEqual([
         /FROM fair_(atomic_packages|admin_group_memberships|tariff_assignments)/.test(
           sql,

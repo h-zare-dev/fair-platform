@@ -1,4 +1,4 @@
-import { localJalaliDate, validateTimeZone } from '@fair-platform/calendar';
+import { validateTimeZone } from '@fair-platform/calendar';
 import { classifyCreate } from './nightly-shadow.js';
 
 export interface PreviewPackage {
@@ -19,14 +19,18 @@ export interface PreviewAssignment {
   packageId: string | null;
   rateTomanPerGiB: string | null;
 }
-export interface PreviewEvent {
-  action: string;
+/** One count per shape/status/correction; no usernames or individual events leave SQL. */
+export interface PreviewCreateAggregate {
   billingAdminId: string;
-  username: string;
-  sourceTimestamp: Date;
   dataLimitBytes: string;
   onHoldDurationSeconds: string | null;
   eventStatus: string;
+  isCorrection: boolean;
+  eventCount: number;
+}
+export interface PreviewActionAggregate {
+  action: string;
+  eventCount: number;
 }
 export interface PreviewIngestion {
   batchCount: string;
@@ -43,11 +47,12 @@ export function evaluateReplayStaticCatalog(
   packages: readonly PreviewPackage[],
   memberships: readonly PreviewMembership[],
   assignments: readonly PreviewAssignment[],
-  events: readonly PreviewEvent[],
+  createGroups: readonly PreviewCreateAggregate[],
+  actionGroups: readonly PreviewActionAggregate[],
   zone: string,
   ingestion: PreviewIngestion,
 ) {
-  const timeZone = validateTimeZone(zone);
+  validateTimeZone(zone);
   const groupIds = new Set(memberships.map((item) => item.groupId));
   const onlyGroup = groupIds.size === 1 ? [...groupIds][0]! : null;
   const packageMap = new Map(packages.map((item) => [item.id, item]));
@@ -85,10 +90,31 @@ export function evaluateReplayStaticCatalog(
     assignments.length === 25 &&
     groupAssignments.length === 25 &&
     assignedPackageIds.size === 25;
+  const actions = new Map<string, number>();
+  const actionCountsValid = actionGroups.every(
+    (row) => Number.isSafeInteger(row.eventCount) && row.eventCount > 0,
+  );
+  for (const row of actionGroups)
+    actions.set(row.action, (actions.get(row.action) ?? 0) + row.eventCount);
+  const normalizedEvents = [...actions.values()].reduce((a, b) => a + b, 0);
+  const createEvents = actions.get('user_created') ?? 0;
+  const groupedCreateEvents = createGroups.reduce(
+    (a, row) => a + row.eventCount,
+    0,
+  );
+  const aggregatesValid =
+    actionCountsValid &&
+    normalizedEvents <= 70000 &&
+    createGroups.length <= 70000 &&
+    createGroups.every(
+      (row) => Number.isSafeInteger(row.eventCount) && row.eventCount > 0,
+    ) &&
+    createEvents === groupedCreateEvents;
   const ingestionReady =
     ingestion.batchCount === '15914' &&
     ingestion.childCount === '64135' &&
-    ingestion.unfinishedBatches === '0';
+    ingestion.unfinishedBatches === '0' &&
+    aggregatesValid;
   const previewReady = configurationReady && ingestionReady;
 
   const memberIds = new Set(memberships.map((v) => v.billingAdminId));
@@ -105,66 +131,52 @@ export function evaluateReplayStaticCatalog(
     };
   });
 
-  const actions = new Map<string, number>();
-  const corrections = new Map<string, number>();
-  for (const event of events) {
-    actions.set(event.action, (actions.get(event.action) ?? 0) + 1);
-    if (event.action === 'user_created' || event.action === 'user_deleted') {
-      const day = localJalaliDate(event.sourceTimestamp, timeZone);
-      const key = `${event.username}\0${day}`;
-      corrections.set(key, (corrections.get(key) ?? 0) + 1);
-    }
-  }
-
   const reasons = new Map<string, number>();
-  const held = (reason: string) =>
-    reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+  const held = (reason: string, count: number) =>
+    reasons.set(reason, (reasons.get(reason) ?? 0) + count);
   const packageTotals = new Map<string, { count: number; sum: bigint }>(
     packages.map((pkg) => [pkg.id, { count: 0, sum: 0n }]),
   );
   let pricedCreates = 0;
   let subtotal = 0n;
-  for (const event of events) {
-    if (event.action !== 'user_created') continue;
+  for (const event of createGroups) {
     if (!previewReady) {
       held(
         !ingestionReady
           ? 'REPLAY_INGESTION_INCOMPLETE'
           : 'CATALOG_COVERAGE_INCOMPLETE',
+        event.eventCount,
       );
       continue;
     }
     if (!memberIds.has(event.billingAdminId)) {
-      held('ADMIN_MEMBERSHIP_MISSING');
+      held('ADMIN_MEMBERSHIP_MISSING', event.eventCount);
       continue;
     }
     try {
-      const day = localJalaliDate(event.sourceTimestamp, timeZone);
-      const correction =
-        (corrections.get(`${event.username}\0${day}`) ?? 0) > 1;
       const price = classifyCreate(
         event.dataLimitBytes,
         event.onHoldDurationSeconds,
         rules,
-        correction,
+        event.isCorrection,
         event.eventStatus !== 'READY_FOR_ACCOUNTING',
       );
       if (price.reason !== null || price.amount === null) {
-        held(price.reason ?? 'PRICING_CONFIG_CONFLICT');
+        held(price.reason ?? 'PRICING_CONFIG_CONFLICT', event.eventCount);
       } else {
-        subtotal += BigInt(price.amount);
-        pricedCreates++;
+        const amount = BigInt(price.amount) * BigInt(event.eventCount);
+        subtotal += amount;
+        pricedCreates += event.eventCount;
         const total = packageTotals.get(price.packageId!);
         if (total) {
-          total.count++;
-          total.sum += BigInt(price.amount);
+          total.count += event.eventCount;
+          total.sum += amount;
         }
       }
     } catch {
-      held('SOURCE_PROJECTION_INVALID');
+      held('SOURCE_PROJECTION_INVALID', event.eventCount);
     }
   }
-  const createEvents = actions.get('user_created') ?? 0;
   return {
     mode: 'HISTORICAL_STATIC_PACKAGE_PREVIEW' as const,
     source: 'replay-30d' as const,
@@ -184,7 +196,7 @@ export function evaluateReplayStaticCatalog(
     memberCount: memberships.length,
     assignedPackageCount: assignedPackageIds.size,
     configurationReady,
-    normalizedEventCount: events.length,
+    normalizedEventCount: normalizedEvents,
     createEventCount: createEvents,
     pricedCreateCount: pricedCreates,
     heldCreateCount: createEvents - pricedCreates,
@@ -202,7 +214,7 @@ export function evaluateReplayStaticCatalog(
           subtotalToman: packageTotals.get(pkg.id)!.sum.toString(),
         }))
       : [],
-    unclassifiedEventCount: events.length - createEvents,
+    unclassifiedEventCount: normalizedEvents - createEvents,
     actionCounts: [...actions.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([action, count]) => ({ action, count })),

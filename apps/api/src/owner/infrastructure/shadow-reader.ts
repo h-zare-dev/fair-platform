@@ -2,7 +2,8 @@ import type { DataSource } from 'typeorm';
 import {
   evaluateReplayStaticCatalog,
   type PreviewAssignment,
-  type PreviewEvent,
+  type PreviewActionAggregate,
+  type PreviewCreateAggregate,
   type PreviewIngestion,
   type PreviewMembership,
   type PreviewPackage,
@@ -30,46 +31,72 @@ export class PostgresShadowReader {
     // membership are configured on the actual PasarGuard source, `primary`.
     const source = 'replay-30d';
     const catalogSource = 'primary';
-    const [packages, memberships, assignments, ingestionRows, events] =
-      await Promise.all([
-        this.db.query<PreviewPackage[]>(
-          `SELECT id::text,package_bytes::text AS "packageBytes",
+    const [
+      packages,
+      memberships,
+      assignments,
+      ingestionRows,
+      actions,
+      creates,
+    ] = await Promise.all([
+      this.db.query<PreviewPackage[]>(
+        `SELECT id::text,package_bytes::text AS "packageBytes",
              duration_days AS "durationDays",amount_toman::text AS "amountToman"
            FROM fair_atomic_packages WHERE source_instance_id=$1 ORDER BY id LIMIT 501`,
-          [catalogSource],
-        ),
-        this.db.query<PreviewMembership[]>(
-          `SELECT billing_admin_id::text AS "billingAdminId",group_id::text AS "groupId"
+        [catalogSource],
+      ),
+      this.db.query<PreviewMembership[]>(
+        `SELECT billing_admin_id::text AS "billingAdminId",group_id::text AS "groupId"
            FROM fair_admin_group_memberships WHERE source_instance_id=$1
            ORDER BY billing_admin_id LIMIT 2001`,
-          [catalogSource],
-        ),
-        this.db.query<PreviewAssignment[]>(
-          `SELECT id::text,target_kind AS "targetKind",group_id::text AS "groupId",
+        [catalogSource],
+      ),
+      this.db.query<PreviewAssignment[]>(
+        `SELECT id::text,target_kind AS "targetKind",group_id::text AS "groupId",
              billing_admin_id::text AS "billingAdminId",package_id::text AS "packageId",
              rate_toman_per_gib::text AS "rateTomanPerGiB"
            FROM fair_tariff_assignments WHERE source_instance_id=$1 ORDER BY id LIMIT 501`,
-          [catalogSource],
-        ),
-        this.db.query<PreviewIngestion[]>(
-          `SELECT COUNT(*)::text AS "batchCount",
+        [catalogSource],
+      ),
+      this.db.query<PreviewIngestion[]>(
+        `SELECT COUNT(*)::text AS "batchCount",
              COALESCE(SUM(event_count),0)::text AS "childCount",
              COUNT(*) FILTER (WHERE processing_status <> 'NORMALIZED')::text AS "unfinishedBatches"
            FROM pasarguard_webhook_batches WHERE source_instance_id=$1`,
-          [source],
-        ),
-        this.db.query<PreviewEvent[]>(
-          `SELECT action,billing_admin_id::text AS "billingAdminId",username,
-             source_enqueued_at AS "sourceTimestamp",data_limit_bytes::text AS "dataLimitBytes",
-             on_hold_expire_duration_seconds::text AS "onHoldDurationSeconds",
-             event_status AS "eventStatus"
+        [source],
+      ),
+      this.db.query<PreviewActionAggregate[]>(
+        `SELECT action,COUNT(*)::integer AS "eventCount"
            FROM pasarguard_events WHERE source_instance_id=$1
-           ORDER BY source_enqueued_at,id LIMIT 70001`,
-          [source],
-        ),
-      ]);
+           GROUP BY action ORDER BY action LIMIT 101`,
+        [source],
+      ),
+      this.db.query<PreviewCreateAggregate[]>(
+        `WITH corrected AS (
+             SELECT username,(source_enqueued_at AT TIME ZONE $2::text)::date AS local_day
+             FROM pasarguard_events
+             WHERE source_instance_id=$1 AND action IN ('user_created','user_deleted')
+             GROUP BY username,local_day HAVING COUNT(*)>1
+           )
+           SELECT e.billing_admin_id::text AS "billingAdminId",
+             e.data_limit_bytes::text AS "dataLimitBytes",
+             e.on_hold_expire_duration_seconds::text AS "onHoldDurationSeconds",
+             e.event_status AS "eventStatus",
+             (corrected.username IS NOT NULL) AS "isCorrection",
+             COUNT(*)::integer AS "eventCount"
+           FROM pasarguard_events e
+           LEFT JOIN corrected ON corrected.username=e.username AND
+             corrected.local_day=(e.source_enqueued_at AT TIME ZONE $2::text)::date
+           WHERE e.source_instance_id=$1 AND e.action='user_created'
+           GROUP BY e.billing_admin_id,e.data_limit_bytes,e.on_hold_expire_duration_seconds,
+             e.event_status,(corrected.username IS NOT NULL)
+           LIMIT 70001`,
+        [source, this.timeZone],
+      ),
+    ]);
     if (
-      events.length > 70000 ||
+      creates.length > 70000 ||
+      actions.length > 100 ||
       packages.length > 500 ||
       memberships.length > 2000 ||
       assignments.length > 500
@@ -79,7 +106,8 @@ export class PostgresShadowReader {
       packages,
       memberships,
       assignments,
-      events,
+      creates,
+      actions,
       this.timeZone,
       ingestionRows[0] ?? {
         batchCount: '0',

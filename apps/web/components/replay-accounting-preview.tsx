@@ -38,6 +38,7 @@ interface ReplayAudit {
     identityUnmatchedCreateCount: number;
     pricedCreateCount: number;
     heldCreateCount: number;
+    activeTwoDayInferredPricedCreateCount: number;
     createOnlySubtotalToman: string | null;
     packageBreakdown: PackageQuoteRow[];
     heldReasons: { code: string; count: number }[];
@@ -161,6 +162,21 @@ export function ReplayAccountingPreview() {
               {' · '}Create نیازمند بررسی:{' '}
               <b>{formatInteger(result.ownerAttestedWhatIf.heldCreateCount)}</b>
             </p>
+            {result.ownerAttestedWhatIf.activeTwoDayInferredPricedCreateCount >
+              0 && (
+              <p>
+                از این تعداد،{' '}
+                <b>
+                  {formatInteger(
+                    result.ownerAttestedWhatIf
+                      .activeTwoDayInferredPricedCreateCount,
+                  )}
+                </b>{' '}
+                Create فعالِ ۰٫۵ گیگابایت فقط با فرض تأییدشدهٔ مالک دربارهٔ پکیج
+                دو‌روزه و انطباق نزدیک تاریخ ایجاد/انقضا قیمت‌گذاری شده‌اند؛ مدت
+                این موارد به‌صورت مستقیم در فیلد مدت ثبت نشده است.
+              </p>
+            )}
             <p>
               <strong>جمع صرفاً فرضی Create:</strong>{' '}
               {result.ownerAttestedWhatIf.createOnlySubtotalToman === null

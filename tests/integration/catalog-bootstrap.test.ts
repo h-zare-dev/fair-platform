@@ -89,6 +89,7 @@ describe('atomic one-time fixed catalog setup on real PostgreSQL 17', () => {
           onHoldDurationSeconds: '2592000',
           eventStatus: 'READY_FOR_ACCOUNTING',
           isCorrection: false,
+          activeTwoDayDateCandidate: false,
           eventCount: 3,
         },
       ],

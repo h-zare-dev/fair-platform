@@ -366,6 +366,7 @@ test('historical what-if quote is visibly distinct from identity-verified Create
             identityUnmatchedCreateCount: 13530,
             pricedCreateCount: 12000,
             heldCreateCount: 1530,
+            activeTwoDayInferredPricedCreateCount: 1361,
             createOnlySubtotalToman: '2400000000',
             packageBreakdown: [
               {
@@ -391,6 +392,8 @@ test('historical what-if quote is visibly distinct from identity-verified Create
     page.getByText('محاسبهٔ فرضی با نرخ‌های یکسان برای تمام مدیران آرشیو'),
   ).toBeVisible();
   await expect(page.getByText('۲٬۴۰۰٬۰۰۰٬۰۰۰ تومان')).toBeVisible();
+  await expect(page.getByText(/۱۳۶۱|۱٬۳۶۱/)).toBeVisible();
+  await expect(page.getByText(/فیلد مدت ثبت نشده است/)).toBeVisible();
   await expect(
     page.getByText(/این جمع تأیید بدهی یا صحت تطبیق مدیران نیست/),
   ).toBeVisible();

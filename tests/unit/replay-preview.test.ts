@@ -43,6 +43,7 @@ interface SyntheticEvent {
   dataLimitBytes: string;
   onHoldDurationSeconds: string | null;
   eventStatus: string;
+  activeTwoDayDateCandidate: boolean;
 }
 function event(overrides: Partial<SyntheticEvent> = {}): SyntheticEvent {
   return {
@@ -53,6 +54,7 @@ function event(overrides: Partial<SyntheticEvent> = {}): SyntheticEvent {
     dataLimitBytes: packages[0]!.packageBytes,
     onHoldDurationSeconds: '2592000',
     eventStatus: 'READY_FOR_ACCOUNTING',
+    activeTwoDayDateCandidate: false,
     ...overrides,
   };
 }
@@ -79,6 +81,7 @@ function aggregateEvents(events: readonly SyntheticEvent[]): {
       onHoldDurationSeconds: row.onHoldDurationSeconds,
       eventStatus: row.eventStatus,
       isCorrection: (correctionCounts.get(key) ?? 0) > 1,
+      activeTwoDayDateCandidate: row.activeTwoDayDateCandidate,
       eventCount: 1,
     };
     const shape = JSON.stringify(group);
@@ -304,6 +307,91 @@ describe('30-day fixed catalog historical preview (never posting)', () => {
       subtotalToman: '500000',
     });
     expect(JSON.stringify(result)).not.toContain('archive-only');
+  });
+
+  it('adds only Owner-attested active half-GiB two-day date candidates to the non-posting what-if', () => {
+    const trialCatalog = packages.map((pkg, i) =>
+      i === 24
+        ? {
+            ...pkg,
+            packageBytes: (GIB / 2n).toString(),
+            durationDays: 2,
+            amountToman: '1000',
+          }
+        : pkg,
+    );
+    const candidate = {
+      dataLimitBytes: (GIB / 2n).toString(),
+      onHoldDurationSeconds: null,
+      activeTwoDayDateCandidate: true,
+    };
+    const result = preview(
+      [
+        event({ ...candidate, username: 'one', billingAdminId: '999' }),
+        event({ ...candidate, username: 'two', billingAdminId: '998' }),
+        event({
+          ...candidate,
+          username: 'no-date',
+          activeTwoDayDateCandidate: false,
+        }),
+        event({
+          ...candidate,
+          username: 'wrong-size',
+          dataLimitBytes: GIB.toString(),
+        }),
+        event({
+          ...candidate,
+          username: 'needs-review',
+          eventStatus: 'NEEDS_REVIEW',
+        }),
+        event({ ...candidate, username: 'deleted-same-day' }),
+        event({ action: 'user_deleted', username: 'deleted-same-day' }),
+      ],
+      { catalog: trialCatalog },
+    );
+    expect(result).toMatchObject({
+      postingScope: 'NONE',
+      completeAccounting: false,
+      pricedCreateCount: 0,
+      heldCreateCount: 6,
+      createOnlySubtotalToman: '0',
+      ownerAttestedWhatIf: {
+        pricedCreateCount: 2,
+        heldCreateCount: 4,
+        activeTwoDayInferredPricedCreateCount: 2,
+        createOnlySubtotalToman: '2000',
+      },
+    });
+    expect(result.ownerAttestedWhatIf.packageBreakdown[24]).toMatchObject({
+      pricedCreateCount: 2,
+      subtotalToman: '2000',
+    });
+    expect(result.ownerAttestedWhatIf.heldReasons).toEqual(
+      expect.arrayContaining([
+        { code: 'MISSING_DURATION', count: 2 },
+        { code: 'AMBIGUOUS_CORRELATION', count: 1 },
+        { code: 'AMBIGUOUS_CORRECTION', count: 1 },
+      ]),
+    );
+  });
+
+  it('does not infer half-GiB without a matching exact package or complete catalog', () => {
+    const half = (GIB / 2n).toString();
+    const result = preview([
+      event({
+        dataLimitBytes: half,
+        onHoldDurationSeconds: null,
+        activeTwoDayDateCandidate: true,
+      }),
+    ]);
+    expect(result.ownerAttestedWhatIf.pricedCreateCount).toBe(0);
+    expect(
+      result.ownerAttestedWhatIf.activeTwoDayInferredPricedCreateCount,
+    ).toBe(0);
+    expect(result.ownerAttestedWhatIf.heldReasons).toContainEqual({
+      code: 'PRICING_MISSING',
+      count: 1,
+    });
   });
 
   it('never invents a what-if subtotal if catalog or replay coverage is incomplete', () => {

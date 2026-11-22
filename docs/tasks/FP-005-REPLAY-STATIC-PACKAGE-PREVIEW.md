@@ -97,3 +97,38 @@ remain null. Both modes remain Owner-only, read-only, non-posting and not a
 financial statement. Actual historical admin identity reconciliation is
 still unresolved until separately verified; do not silently label this new
 scenario as an authoritative accounting result.
+
+## Owner-authorized active two-day trial extension (2026-11-22)
+
+The Owner supplied the sanitized 30-day archive and explicitly confirmed the
+**0.5 GiB / 2-day package** for the `active` creates whose original
+`on_hold_expire_duration` is null, using their creation and expiry dates as
+evidence. A private aggregate-only inspection identified matching candidates;
+their counts and identities are not written to the public repository. The
+actual server remains authoritative for subsequent read-only evaluation.
+
+Extend **only the already conditional, non-posting all-admin what-if** with a
+deliberately narrow date-inference rule:
+
+1. The event must be `user_created`, `active`, `READY_FOR_ACCOUNTING`, with
+   exactly 536,870,912 source bytes (0.5 GiB), no explicit hold duration, and
+   non-null source `created_at` and `expire` timestamps. Its source enqueue
+   must be between creation time and at most 1 second after it; the expiry
+   interval must be 172,800 seconds (2 days) within ±1 second. These tolerances
+   accommodate API request/DB timing, **not** rounding arbitrary durations.
+2. The existing unique fixed catalog must include the exact `(0.5 GiB, 2 days)`
+   package and its positive Owner-entered price. Never hardcode a charge, infer
+   a package from bytes alone, or substitute a guessed generic 2-day rule.
+3. Keep same-local-day create/delete corrections, source-needs-review records,
+   invalid intervals, and missing expiry **held**. The strict identity-matched
+   result and its duration classification are unchanged, even for matched IDs.
+4. Report the number of successfully date-inferred Create operations
+   separately inside the Owner-attested what-if, clearly explain that the
+   duration was inferred from source dates under the Owner's assumption, and
+   retain `postingScope: NONE`, `completeAccounting: false`, no ledger, no
+   settlement and no report. All raw/private records stay outside Git and
+   the API response. FP-006/FP-007 remain excluded.
+5. Regression tests must cover successful 2-day active candidates, invalid
+   size/status, off-by-seconds or longer intervals, missing expiry, correction,
+   missing price, incomplete archive, strict-vs-hypothetical segregation, and
+   actual PostgreSQL grouping. No new table, backfill or state mutation.

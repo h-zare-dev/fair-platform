@@ -25,6 +25,12 @@ async function main() {
       DATABASE_URL: z.string().min(1),
       OWNER_ORIGIN: z.literal('https://panel.fairisfair.ir'),
       FAIR_TIME_ZONE: z.string().default('Asia/Tehran'),
+      FAIR_CORRELATION_WINDOW_SECONDS: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(600)
+        .default(120),
       PASARGUARD_BASE_URL: z.string().optional(),
       PASARGUARD_API_KEY_FILE: z.string().optional(),
       APP_ENCRYPTION_KEY_FILE: z.string().optional(),
@@ -106,7 +112,11 @@ async function main() {
             config.PASARGUARD_API_KEY_FILE,
           )
         : undefined,
-      new PostgresShadowReader(db, config.FAIR_TIME_ZONE),
+      new PostgresShadowReader(
+        db,
+        config.FAIR_TIME_ZONE,
+        config.FAIR_CORRELATION_WINDOW_SECONDS,
+      ),
       ingest?.receiver,
       ingest?.replayInbox,
     );

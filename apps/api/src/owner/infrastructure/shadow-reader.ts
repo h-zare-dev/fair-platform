@@ -8,6 +8,10 @@ import {
   type PreviewMembership,
   type PreviewPackage,
 } from './replay-preview.js';
+import {
+  evaluateReplayUpdateResetPreview,
+  type PreviewOperationAggregate,
+} from './replay-update-reset-preview.js';
 
 export interface ShadowFilter {
   source: string | null;
@@ -23,7 +27,15 @@ export class PostgresShadowReader {
   constructor(
     private readonly db: DataSource,
     private readonly timeZone: string = 'Asia/Tehran',
-  ) {}
+    private readonly correlationWindowSeconds: number = 120,
+  ) {
+    if (
+      !Number.isInteger(correlationWindowSeconds) ||
+      correlationWindowSeconds < 1 ||
+      correlationWindowSeconds > 600
+    )
+      throw new RangeError('INVALID_CORRELATION_WINDOW');
+  }
 
   /** Explicit Owner-only, read-only historical pricing experiment. */
   async replayPreview() {
@@ -130,6 +142,116 @@ export class PostgresShadowReader {
         childCount: '0',
         unfinishedBatches: '0',
       },
+    );
+  }
+
+  /**
+   * Owner-only FP-006/007 aggregate-only replay. No source identities or
+   * individual historical events are returned from SQL, and no writes occur.
+   */
+  async replayUpdateResetPreview() {
+    const source = 'replay-30d';
+    const [createPreview, operationGroups] = await Promise.all([
+      this.replayPreview(),
+      this.db.query<PreviewOperationAggregate[]>(
+        `WITH timeline AS MATERIALIZED (
+           SELECT e.id,e.action,e.billing_admin_id,e.external_user_id,
+             e.source_enqueued_at,e.data_limit_bytes,
+             e.on_hold_expire_duration_seconds,e.event_status,
+             LAG(e.data_limit_bytes) OVER prev AS previous_bytes,
+             LAG(e.event_status) OVER prev AS previous_event_status,
+             LAG(e.source_enqueued_at) OVER prev AS previous_at
+           FROM pasarguard_events e
+           WHERE e.source_instance_id=$1
+           WINDOW prev AS (PARTITION BY e.billing_admin_id,e.external_user_id
+             ORDER BY e.source_enqueued_at,e.id)
+         ), updates AS MATERIALIZED (
+           SELECT * FROM timeline WHERE action='user_updated'
+         ), resets AS MATERIALIZED (
+           SELECT * FROM timeline WHERE action='data_usage_reset'
+         ), candidate_edges AS MATERIALIZED (
+           SELECT u.id AS update_id,r.id AS reset_id,
+             (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL
+               AND u.previous_bytes=u.data_limit_bytes
+               AND r.previous_bytes=r.data_limit_bytes) AS generic_zero_delta,
+             (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL)
+               AS prior_state_known
+           FROM updates u JOIN resets r
+             ON r.billing_admin_id=u.billing_admin_id
+             AND r.external_user_id=u.external_user_id
+             AND r.source_enqueued_at BETWEEN
+               u.source_enqueued_at-($2::integer*INTERVAL '1 second') AND
+               u.source_enqueued_at+($2::integer*INTERVAL '1 second')
+         ), edges AS MATERIALIZED (
+           -- A generic no-change Update is not evidence of a package renewal.
+           -- A nearby pair with unproven prior state is held, not priced twice.
+           SELECT update_id,reset_id,prior_state_known
+           FROM candidate_edges WHERE NOT generic_zero_delta
+         ), edge_counts AS (
+           SELECT update_id,reset_id,
+             COUNT(*) OVER (PARTITION BY update_id) AS resets_for_update,
+             COUNT(*) OVER (PARTITION BY reset_id) AS updates_for_reset,
+             prior_state_known
+           FROM edges
+         ), pairs AS MATERIALIZED (
+           SELECT update_id,reset_id FROM edge_counts
+           WHERE resets_for_update=1 AND updates_for_reset=1
+             AND prior_state_known
+         ), operation_rows AS (
+           SELECT 'RENEWAL'::text AS kind,
+             (CASE WHEN r.source_enqueued_at>u.source_enqueued_at
+               THEN r.data_limit_bytes ELSE u.data_limit_bytes END) AS bytes,
+             NULL::numeric AS previous_bytes,
+             (CASE WHEN r.source_enqueued_at>u.source_enqueued_at
+               THEN r.on_hold_expire_duration_seconds
+               ELSE u.on_hold_expire_duration_seconds END) AS duration,
+             u.event_status,r.event_status AS counterpart_status,
+             NULL::text AS previous_event_status,
+             (r.source_enqueued_at<>u.source_enqueued_at) AS ordered_previous,
+             false AS ambiguous_counterpart
+           FROM pairs p JOIN updates u ON u.id=p.update_id
+             JOIN resets r ON r.id=p.reset_id
+           UNION ALL
+           SELECT 'UPDATE_ONLY',u.data_limit_bytes,u.previous_bytes,
+             u.on_hold_expire_duration_seconds,u.event_status,NULL::text,
+             u.previous_event_status,
+             COALESCE(u.previous_at<u.source_enqueued_at,false),
+             EXISTS(SELECT 1 FROM edges e WHERE e.update_id=u.id)
+           FROM updates u WHERE NOT EXISTS
+             (SELECT 1 FROM pairs p WHERE p.update_id=u.id)
+           UNION ALL
+           SELECT 'RESET_ONLY',r.data_limit_bytes,NULL::numeric,
+             r.on_hold_expire_duration_seconds,r.event_status,NULL::text,
+             NULL::text,false,
+             EXISTS(SELECT 1 FROM edges e WHERE e.reset_id=r.id)
+           FROM resets r WHERE NOT EXISTS
+             (SELECT 1 FROM pairs p WHERE p.reset_id=r.id)
+         )
+         SELECT kind,data_limit_bytes::text AS "dataLimitBytes",
+           previous_bytes::text AS "previousBytes",
+           duration::text AS "onHoldDurationSeconds",
+           event_status AS "eventStatus",
+           counterpart_status AS "counterpartStatus",
+           previous_event_status AS "previousEventStatus",
+           ordered_previous AS "orderedPrevious",
+           ambiguous_counterpart AS "ambiguousCounterpart",
+           COUNT(*)::integer AS "eventCount"
+         FROM (SELECT kind,bytes AS data_limit_bytes,previous_bytes,
+           duration,event_status,counterpart_status,previous_event_status,
+           ordered_previous,ambiguous_counterpart FROM operation_rows) grouped
+         GROUP BY kind,data_limit_bytes,previous_bytes,duration,event_status,
+           counterpart_status,previous_event_status,ordered_previous,
+           ambiguous_counterpart
+         LIMIT 70001`,
+        [source, this.correlationWindowSeconds],
+      ),
+    ]);
+    if (operationGroups.length > 70000)
+      throw new Error('REPLAY_PREVIEW_BOUNDS_EXCEEDED');
+    return evaluateReplayUpdateResetPreview(
+      createPreview,
+      operationGroups,
+      this.correlationWindowSeconds,
     );
   }
 

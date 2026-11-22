@@ -174,6 +174,7 @@ export class PostgresShadowReader {
              (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL
                AND u.previous_bytes=u.data_limit_bytes
                AND r.previous_bytes=r.data_limit_bytes) AS generic_zero_delta,
+             (u.data_limit_bytes=r.data_limit_bytes) AS same_package,
              (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL)
                AS prior_state_known
            FROM updates u JOIN resets r
@@ -182,33 +183,42 @@ export class PostgresShadowReader {
              AND r.source_enqueued_at BETWEEN
                u.source_enqueued_at-($2::integer*INTERVAL '1 second') AND
                u.source_enqueued_at+($2::integer*INTERVAL '1 second')
-         ), edges AS MATERIALIZED (
-           -- A generic no-change Update is not evidence of a package renewal.
-           -- A nearby pair with unproven prior state is held, not priced twice.
-           SELECT update_id,reset_id,prior_state_known
-           FROM candidate_edges WHERE NOT generic_zero_delta
          ), edge_counts AS (
            SELECT update_id,reset_id,
              COUNT(*) OVER (PARTITION BY update_id) AS resets_for_update,
              COUNT(*) OVER (PARTITION BY reset_id) AS updates_for_reset,
-             prior_state_known
-           FROM edges
+             prior_state_known,generic_zero_delta,same_package
+           FROM candidate_edges
          ), pairs AS MATERIALIZED (
-           SELECT update_id,reset_id FROM edge_counts
+           -- Only mutually unique candidates may pair. A zero-delta Update
+           -- proves no package change, but can corroborate Reset duration
+           -- when its source snapshot has the exact same package bytes.
+           SELECT update_id,reset_id,generic_zero_delta FROM edge_counts
            WHERE resets_for_update=1 AND updates_for_reset=1
              AND prior_state_known
+             AND (NOT generic_zero_delta OR same_package)
          ), operation_rows AS (
-           SELECT 'RENEWAL'::text AS kind,
-             (CASE WHEN r.source_enqueued_at>u.source_enqueued_at
+           SELECT (CASE WHEN p.generic_zero_delta
+               THEN 'RESET_WITH_UPDATE_CONTEXT' ELSE 'RENEWAL' END)::text AS kind,
+             (CASE WHEN p.generic_zero_delta THEN r.data_limit_bytes
+               WHEN r.source_enqueued_at>u.source_enqueued_at
                THEN r.data_limit_bytes ELSE u.data_limit_bytes END) AS bytes,
              NULL::numeric AS previous_bytes,
-             (CASE WHEN r.source_enqueued_at>u.source_enqueued_at
+             (CASE WHEN p.generic_zero_delta THEN
+                 COALESCE(r.on_hold_expire_duration_seconds,
+                   u.on_hold_expire_duration_seconds)
+               WHEN r.source_enqueued_at>u.source_enqueued_at
                THEN r.on_hold_expire_duration_seconds
                ELSE u.on_hold_expire_duration_seconds END) AS duration,
              u.event_status,r.event_status AS counterpart_status,
              NULL::text AS previous_event_status,
              (r.source_enqueued_at<>u.source_enqueued_at) AS ordered_previous,
-             false AS ambiguous_counterpart
+             false AS ambiguous_counterpart,
+             (p.generic_zero_delta AND
+               r.on_hold_expire_duration_seconds IS NOT NULL AND
+               u.on_hold_expire_duration_seconds IS NOT NULL AND
+               r.on_hold_expire_duration_seconds<>
+                 u.on_hold_expire_duration_seconds) AS duration_conflict
            FROM pairs p JOIN updates u ON u.id=p.update_id
              JOIN resets r ON r.id=p.reset_id
            UNION ALL
@@ -216,14 +226,16 @@ export class PostgresShadowReader {
              u.on_hold_expire_duration_seconds,u.event_status,NULL::text,
              u.previous_event_status,
              COALESCE(u.previous_at<u.source_enqueued_at,false),
-             EXISTS(SELECT 1 FROM edges e WHERE e.update_id=u.id)
+             EXISTS(SELECT 1 FROM candidate_edges e WHERE e.update_id=u.id),
+             false
            FROM updates u WHERE NOT EXISTS
              (SELECT 1 FROM pairs p WHERE p.update_id=u.id)
            UNION ALL
            SELECT 'RESET_ONLY',r.data_limit_bytes,NULL::numeric,
              r.on_hold_expire_duration_seconds,r.event_status,NULL::text,
              NULL::text,false,
-             EXISTS(SELECT 1 FROM edges e WHERE e.reset_id=r.id)
+             EXISTS(SELECT 1 FROM candidate_edges e WHERE e.reset_id=r.id),
+             false
            FROM resets r WHERE NOT EXISTS
              (SELECT 1 FROM pairs p WHERE p.reset_id=r.id)
          )
@@ -235,13 +247,15 @@ export class PostgresShadowReader {
            previous_event_status AS "previousEventStatus",
            ordered_previous AS "orderedPrevious",
            ambiguous_counterpart AS "ambiguousCounterpart",
+           duration_conflict AS "durationConflict",
            COUNT(*)::integer AS "eventCount"
          FROM (SELECT kind,bytes AS data_limit_bytes,previous_bytes,
            duration,event_status,counterpart_status,previous_event_status,
-           ordered_previous,ambiguous_counterpart FROM operation_rows) grouped
+           ordered_previous,ambiguous_counterpart,duration_conflict
+           FROM operation_rows) grouped
          GROUP BY kind,data_limit_bytes,previous_bytes,duration,event_status,
            counterpart_status,previous_event_status,ordered_previous,
-           ambiguous_counterpart
+           ambiguous_counterpart,duration_conflict
          LIMIT 70001`,
         [source, this.correlationWindowSeconds],
       ),

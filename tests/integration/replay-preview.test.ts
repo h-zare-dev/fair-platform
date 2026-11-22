@@ -231,7 +231,7 @@ describe('real PostgreSQL 17 replay grouping', () => {
     const [batch] = await db.query<{ id: string }[]>(
       `INSERT INTO pasarguard_webhook_batches
         (source_instance_id,received_at,payload_hash,event_count,processing_status)
-       VALUES('replay-30d',now(),$1,25,'NORMALIZED') RETURNING id::text`,
+       VALUES('replay-30d',now(),$1,32,'NORMALIZED') RETURNING id::text`,
       ['c'.repeat(64)],
     );
     const gb = (value: number) => (BigInt(value) * GIB).toString();
@@ -241,6 +241,7 @@ describe('real PostgreSQL 17 replay grouping', () => {
       action: string;
       bytes: string;
       at: string;
+      duration: string | null;
     }[] = [];
     const add = (
       user: number,
@@ -248,14 +249,16 @@ describe('real PostgreSQL 17 replay grouping', () => {
       bytes: number,
       at: string,
       admin = 1,
-    ) => events.push({ user, admin, action, bytes: gb(bytes), at });
+      duration: string | null = '2592000',
+    ) => events.push({ user, admin, action, bytes: gb(bytes), at, duration });
 
     add(1, 'user_created', 50, '2026-10-10T09:00:00Z');
     add(1, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
     add(1, 'user_updated', 100, '2026-10-10T10:00:01Z');
     add(2, 'user_created', 50, '2026-10-10T09:00:00Z');
     add(2, 'user_updated', 50, '2026-10-10T10:00:00Z');
-    add(2, 'data_usage_reset', 50, '2026-10-10T10:00:01Z');
+    // The Reset does not carry a duration; the one unchanged Update does.
+    add(2, 'data_usage_reset', 50, '2026-10-10T10:00:01Z', 1, null);
     add(3, 'user_created', 50, '2026-10-10T09:00:00Z');
     add(3, 'user_updated', 100, '2026-10-10T10:00:00Z');
     add(4, 'user_created', 50, '2026-10-10T09:00:00Z');
@@ -276,6 +279,15 @@ describe('real PostgreSQL 17 replay grouping', () => {
     add(9, 'user_created', 50, '2026-10-10T09:00:00Z');
     add(9, 'user_updated', 100, '2026-10-10T10:00:00Z');
     add(9, 'data_usage_reset', 100, '2026-10-10T10:00:01Z');
+    // Competing explicit durations must be held, never silently preferred.
+    add(10, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(10, 'user_updated', 50, '2026-10-10T10:00:00Z');
+    add(10, 'data_usage_reset', 50, '2026-10-10T10:00:01Z', 1, '5184000');
+    // Multiple unchanged Updates cannot prove a unique Reset duration.
+    add(11, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(11, 'user_updated', 50, '2026-10-10T10:00:00Z');
+    add(11, 'data_usage_reset', 50, '2026-10-10T10:00:01Z', 1, null);
+    add(11, 'user_updated', 50, '2026-10-10T10:00:02Z');
 
     for (const [index, row] of events.entries()) {
       await db.query(
@@ -286,7 +298,7 @@ describe('real PostgreSQL 17 replay grouping', () => {
           billing_admin_username,source_enqueued_at,event_status,
           first_seen_at,last_seen_at,on_hold_expire_duration_seconds
         ) VALUES ($1,$2,'replay-30d',$3,$4,$5,$6,'active',$7,
-          0,0,$8,'synthetic-admin',$9,'READY_FOR_ACCOUNTING',now(),now(),2592000)`,
+          0,0,$8,'synthetic-admin',$9,'READY_FOR_ACCOUNTING',now(),now(),$10)`,
         [
           batch!.id,
           index,
@@ -297,6 +309,7 @@ describe('real PostgreSQL 17 replay grouping', () => {
           row.bytes,
           String(row.admin),
           row.at,
+          row.duration,
         ],
       );
     }
@@ -327,20 +340,26 @@ describe('real PostgreSQL 17 replay grouping', () => {
     expect(result).toMatchObject({
       postingScope: 'NONE',
       completeAccounting: false,
-      updateEventCount: 9,
-      resetEventCount: 7,
+      updateEventCount: 12,
+      resetEventCount: 9,
       pairedRenewalCount: 2,
+      pairedResetContextCount: 2,
       pricedRenewalCount: 2,
+      pricedResetContextCount: 1,
       pricedUpdateOnlyCount: 2,
-      pricedStandaloneResetCount: 3,
+      pricedStandaloneResetCount: 2,
       decreaseUpdateCount: 1,
-      unchangedUpdateCount: 1,
-      heldOperationCount: 5,
+      unchangedUpdateCount: 0,
+      heldOperationCount: 9,
       updateResetSubtotalToman: '1950000',
     });
     expect(result.heldReasons).toContainEqual({
       code: 'AMBIGUOUS_CORRELATION',
-      count: 5,
+      count: 8,
+    });
+    expect(result.heldReasons).toContainEqual({
+      code: 'DURATION_CONFLICT',
+      count: 1,
     });
     expect(JSON.stringify(result)).not.toContain('synthetic-user-');
     expect(JSON.stringify(result)).not.toContain('synthetic-admin');

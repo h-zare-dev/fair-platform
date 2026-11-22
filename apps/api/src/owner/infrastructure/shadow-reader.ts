@@ -77,19 +77,35 @@ export class PostgresShadowReader {
              FROM pasarguard_events
              WHERE source_instance_id=$1 AND action IN ('user_created','user_deleted')
              GROUP BY username,local_day HAVING COUNT(*)>1
+           ), create_shapes AS (
+             SELECT e.billing_admin_id,e.data_limit_bytes,
+               e.on_hold_expire_duration_seconds,e.event_status,
+               (corrected.username IS NOT NULL) AS is_correction,
+               (e.user_status='active'
+                 AND e.data_limit_bytes=536870912
+                 AND e.on_hold_expire_duration_seconds IS NULL
+                 AND e.source_user_created_at IS NOT NULL
+                 AND e.source_user_expire_at IS NOT NULL
+                 AND e.source_enqueued_at-e.source_user_created_at
+                   BETWEEN INTERVAL '0 seconds' AND INTERVAL '1 second'
+                 AND EXTRACT(EPOCH FROM
+                   (e.source_user_expire_at-e.source_user_created_at))
+                   BETWEEN 172799 AND 172801
+               ) AS active_two_day_date_candidate
+             FROM pasarguard_events e
+             LEFT JOIN corrected ON corrected.username=e.username AND
+               corrected.local_day=(e.source_enqueued_at AT TIME ZONE $2::text)::date
+             WHERE e.source_instance_id=$1 AND e.action='user_created'
            )
-           SELECT e.billing_admin_id::text AS "billingAdminId",
-             e.data_limit_bytes::text AS "dataLimitBytes",
-             e.on_hold_expire_duration_seconds::text AS "onHoldDurationSeconds",
-             e.event_status AS "eventStatus",
-             (corrected.username IS NOT NULL) AS "isCorrection",
+           SELECT billing_admin_id::text AS "billingAdminId",
+             data_limit_bytes::text AS "dataLimitBytes",
+             on_hold_expire_duration_seconds::text AS "onHoldDurationSeconds",
+             event_status AS "eventStatus",is_correction AS "isCorrection",
+             active_two_day_date_candidate AS "activeTwoDayDateCandidate",
              COUNT(*)::integer AS "eventCount"
-           FROM pasarguard_events e
-           LEFT JOIN corrected ON corrected.username=e.username AND
-             corrected.local_day=(e.source_enqueued_at AT TIME ZONE $2::text)::date
-           WHERE e.source_instance_id=$1 AND e.action='user_created'
-           GROUP BY e.billing_admin_id,e.data_limit_bytes,e.on_hold_expire_duration_seconds,
-             e.event_status,(corrected.username IS NOT NULL)
+           FROM create_shapes
+           GROUP BY billing_admin_id,data_limit_bytes,on_hold_expire_duration_seconds,
+             event_status,is_correction,active_two_day_date_candidate
            LIMIT 70001`,
         [source, this.timeZone],
       ),

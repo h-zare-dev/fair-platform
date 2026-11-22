@@ -26,6 +26,8 @@ export interface PreviewCreateAggregate {
   onHoldDurationSeconds: string | null;
   eventStatus: string;
   isCorrection: boolean;
+  /** SQL-only evidence for the Owner-approved, non-posting 0.5 GiB / 2-day assumption. */
+  activeTwoDayDateCandidate: boolean;
   eventCount: number;
 }
 export interface PreviewActionAggregate {
@@ -135,7 +137,10 @@ export function evaluateReplayStaticCatalog(
   // quote still fails closed. The Owner's *hypothetical* all-admin scenario
   // may evaluate the same price shapes without asserting that an archive ID
   // belongs to today's PasarGuard directory. Never combine the totals.
-  const quote = (requireIdentityMatch: boolean) => {
+  const quote = (
+    requireIdentityMatch: boolean,
+    allowOwnerAttestedActiveTwoDay: boolean,
+  ) => {
     const reasons = new Map<string, number>();
     const held = (reason: string, count: number) =>
       reasons.set(reason, (reasons.get(reason) ?? 0) + count);
@@ -144,6 +149,7 @@ export function evaluateReplayStaticCatalog(
     );
     let pricedCreates = 0;
     let subtotal = 0n;
+    let inferredActiveTwoDayCreates = 0;
     for (const event of createGroups) {
       if (!previewReady) {
         held(
@@ -159,9 +165,14 @@ export function evaluateReplayStaticCatalog(
         continue;
       }
       try {
+        const inferActiveTwoDay =
+          allowOwnerAttestedActiveTwoDay &&
+          event.activeTwoDayDateCandidate === true &&
+          event.dataLimitBytes === '536870912' &&
+          event.onHoldDurationSeconds === null;
         const price = classifyCreate(
           event.dataLimitBytes,
-          event.onHoldDurationSeconds,
+          inferActiveTwoDay ? '172800' : event.onHoldDurationSeconds,
           rules,
           event.isCorrection,
           event.eventStatus !== 'READY_FOR_ACCOUNTING',
@@ -172,6 +183,8 @@ export function evaluateReplayStaticCatalog(
           const amount = BigInt(price.amount) * BigInt(event.eventCount);
           subtotal += amount;
           pricedCreates += event.eventCount;
+          if (inferActiveTwoDay)
+            inferredActiveTwoDayCreates += event.eventCount;
           const total = packageTotals.get(price.packageId!);
           if (total) {
             total.count += event.eventCount;
@@ -185,6 +198,7 @@ export function evaluateReplayStaticCatalog(
     return {
       pricedCreates,
       subtotal,
+      inferredActiveTwoDayCreates,
       packageBreakdown: previewReady
         ? packages.map((pkg) => ({
             packageBytes: pkg.packageBytes,
@@ -199,8 +213,8 @@ export function evaluateReplayStaticCatalog(
         .map(([code, count]) => ({ code, count })),
     };
   };
-  const strict = quote(true);
-  const hypothetical = quote(false);
+  const strict = quote(true, false);
+  const hypothetical = quote(false, true);
   const identityMatchedCreateCount = createGroups.reduce(
     (count, event) =>
       count + (memberIds.has(event.billingAdminId) ? event.eventCount : 0),
@@ -254,6 +268,8 @@ export function evaluateReplayStaticCatalog(
       identityUnmatchedCreateCount,
       pricedCreateCount: hypothetical.pricedCreates,
       heldCreateCount: createEvents - hypothetical.pricedCreates,
+      activeTwoDayInferredPricedCreateCount:
+        hypothetical.inferredActiveTwoDayCreates,
       createOnlySubtotalToman: previewReady
         ? hypothetical.subtotal.toString()
         : null,

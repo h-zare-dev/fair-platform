@@ -93,6 +93,54 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(
     page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
   ).toBeVisible();
+  await expect(
+    page.getByRole('heading', {
+      name: 'تست ترکیبی FP-006 / FP-007: Update و Reset',
+    }),
+  ).toBeVisible();
+  await page.route(
+    '**/api/v1/owner/operations/accounting/replay-update-reset-preview',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          mode: 'HISTORICAL_UPDATE_RESET_PREVIEW',
+          postingScope: 'NONE',
+          completeAccounting: false,
+          configurationReady: true,
+          ingestionReady: true,
+          correlationWindowSeconds: 120,
+          updateEventCount: 5,
+          resetEventCount: 3,
+          pairedRenewalCount: 2,
+          updateOnlyEventCount: 3,
+          resetOnlyEventCount: 1,
+          ambiguousUpdateCount: 0,
+          ambiguousResetCount: 0,
+          priorSnapshotMissingCount: 1,
+          pricedUpdateOnlyCount: 1,
+          pricedRenewalCount: 2,
+          pricedStandaloneResetCount: 1,
+          decreaseUpdateCount: 1,
+          unchangedUpdateCount: 0,
+          heldOperationCount: 1,
+          updateResetSubtotalToman: '400000',
+          packageBreakdown: [],
+          heldReasons: [{ code: 'PREVIOUS_STATE_MISSING', count: 1 }],
+        }),
+      }),
+  );
+  await page
+    .getByRole('button', { name: 'اجرای بررسی ترکیبی Update و Reset' })
+    .click();
+  await expect(page.getByText('۴۰۰٬۰۰۰ تومان (غیرنهایی)')).toBeVisible();
+  await expect(
+    page.getByText('این عدد بدهی یا کردیت واقعی نیست', { exact: false }),
+  ).toBeVisible();
+  await page.unroute(
+    '**/api/v1/owner/operations/accounting/replay-update-reset-preview',
+  );
   await expect(page.locator('.quick-nav a')).toHaveCount(4);
   await expect(
     page.getByRole('link', { name: 'ابهامات حسابداری' }),

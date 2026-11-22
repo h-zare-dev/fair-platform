@@ -131,52 +131,86 @@ export function evaluateReplayStaticCatalog(
     };
   });
 
-  const reasons = new Map<string, number>();
-  const held = (reason: string, count: number) =>
-    reasons.set(reason, (reasons.get(reason) ?? 0) + count);
-  const packageTotals = new Map<string, { count: number; sum: bigint }>(
-    packages.map((pkg) => [pkg.id, { count: 0, sum: 0n }]),
-  );
-  let pricedCreates = 0;
-  let subtotal = 0n;
-  for (const event of createGroups) {
-    if (!previewReady) {
-      held(
-        !ingestionReady
-          ? 'REPLAY_INGESTION_INCOMPLETE'
-          : 'CATALOG_COVERAGE_INCOMPLETE',
-        event.eventCount,
-      );
-      continue;
-    }
-    if (!memberIds.has(event.billingAdminId)) {
-      held('ADMIN_MEMBERSHIP_MISSING', event.eventCount);
-      continue;
-    }
-    try {
-      const price = classifyCreate(
-        event.dataLimitBytes,
-        event.onHoldDurationSeconds,
-        rules,
-        event.isCorrection,
-        event.eventStatus !== 'READY_FOR_ACCOUNTING',
-      );
-      if (price.reason !== null || price.amount === null) {
-        held(price.reason ?? 'PRICING_CONFIG_CONFLICT', event.eventCount);
-      } else {
-        const amount = BigInt(price.amount) * BigInt(event.eventCount);
-        subtotal += amount;
-        pricedCreates += event.eventCount;
-        const total = packageTotals.get(price.packageId!);
-        if (total) {
-          total.count += event.eventCount;
-          total.sum += amount;
-        }
+  // Two deliberately separate calculations: the original identity-verified
+  // quote still fails closed. The Owner's *hypothetical* all-admin scenario
+  // may evaluate the same price shapes without asserting that an archive ID
+  // belongs to today's PasarGuard directory. Never combine the totals.
+  const quote = (requireIdentityMatch: boolean) => {
+    const reasons = new Map<string, number>();
+    const held = (reason: string, count: number) =>
+      reasons.set(reason, (reasons.get(reason) ?? 0) + count);
+    const packageTotals = new Map<string, { count: number; sum: bigint }>(
+      packages.map((pkg) => [pkg.id, { count: 0, sum: 0n }]),
+    );
+    let pricedCreates = 0;
+    let subtotal = 0n;
+    for (const event of createGroups) {
+      if (!previewReady) {
+        held(
+          !ingestionReady
+            ? 'REPLAY_INGESTION_INCOMPLETE'
+            : 'CATALOG_COVERAGE_INCOMPLETE',
+          event.eventCount,
+        );
+        continue;
       }
-    } catch {
-      held('SOURCE_PROJECTION_INVALID', event.eventCount);
+      if (requireIdentityMatch && !memberIds.has(event.billingAdminId)) {
+        held('ADMIN_MEMBERSHIP_MISSING', event.eventCount);
+        continue;
+      }
+      try {
+        const price = classifyCreate(
+          event.dataLimitBytes,
+          event.onHoldDurationSeconds,
+          rules,
+          event.isCorrection,
+          event.eventStatus !== 'READY_FOR_ACCOUNTING',
+        );
+        if (price.reason !== null || price.amount === null) {
+          held(price.reason ?? 'PRICING_CONFIG_CONFLICT', event.eventCount);
+        } else {
+          const amount = BigInt(price.amount) * BigInt(event.eventCount);
+          subtotal += amount;
+          pricedCreates += event.eventCount;
+          const total = packageTotals.get(price.packageId!);
+          if (total) {
+            total.count += event.eventCount;
+            total.sum += amount;
+          }
+        }
+      } catch {
+        held('SOURCE_PROJECTION_INVALID', event.eventCount);
+      }
     }
-  }
+    return {
+      pricedCreates,
+      subtotal,
+      packageBreakdown: previewReady
+        ? packages.map((pkg) => ({
+            packageBytes: pkg.packageBytes,
+            durationDays: pkg.durationDays,
+            amountToman: pkg.amountToman,
+            pricedCreateCount: packageTotals.get(pkg.id)!.count,
+            subtotalToman: packageTotals.get(pkg.id)!.sum.toString(),
+          }))
+        : [],
+      heldReasons: [...reasons.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([code, count]) => ({ code, count })),
+    };
+  };
+  const strict = quote(true);
+  const hypothetical = quote(false);
+  const identityMatchedCreateCount = createGroups.reduce(
+    (count, event) =>
+      count + (memberIds.has(event.billingAdminId) ? event.eventCount : 0),
+    0,
+  );
+  const identityUnmatchedCreateCount = createGroups.reduce(
+    (count, event) =>
+      count + (!memberIds.has(event.billingAdminId) ? event.eventCount : 0),
+    0,
+  );
   return {
     mode: 'HISTORICAL_STATIC_PACKAGE_PREVIEW' as const,
     source: 'replay-30d' as const,
@@ -198,28 +232,33 @@ export function evaluateReplayStaticCatalog(
     configurationReady,
     normalizedEventCount: normalizedEvents,
     createEventCount: createEvents,
-    pricedCreateCount: pricedCreates,
-    heldCreateCount: createEvents - pricedCreates,
+    pricedCreateCount: strict.pricedCreates,
+    heldCreateCount: createEvents - strict.pricedCreates,
     // Null means the catalog/membership preflight failed. Even when present,
     // this is a PARTIAL Create-only quote, NEVER a daily or monthly balance.
-    createOnlySubtotalToman: previewReady ? subtotal.toString() : null,
+    createOnlySubtotalToman: previewReady ? strict.subtotal.toString() : null,
     // Package-level aggregates support cross-checking the legacy price table
     // without ever returning an account, user or event identity.
-    packageBreakdown: previewReady
-      ? packages.map((pkg) => ({
-          packageBytes: pkg.packageBytes,
-          durationDays: pkg.durationDays,
-          amountToman: pkg.amountToman,
-          pricedCreateCount: packageTotals.get(pkg.id)!.count,
-          subtotalToman: packageTotals.get(pkg.id)!.sum.toString(),
-        }))
-      : [],
+    packageBreakdown: strict.packageBreakdown,
     unclassifiedEventCount: normalizedEvents - createEvents,
     actionCounts: [...actions.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([action, count]) => ({ action, count })),
-    heldReasons: [...reasons.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([code, count]) => ({ code, count })),
+    heldReasons: strict.heldReasons,
+    ownerAttestedWhatIf: {
+      assumption: 'ALL_REPLAY_ADMINS_USE_SINGLE_CONFIGURED_GROUP' as const,
+      // This checks numeric ID inclusion, not historical identity provenance.
+      allCreateIdsMatchMemberships:
+        previewReady && createEvents > 0 && identityUnmatchedCreateCount === 0,
+      identityMatchedCreateCount,
+      identityUnmatchedCreateCount,
+      pricedCreateCount: hypothetical.pricedCreates,
+      heldCreateCount: createEvents - hypothetical.pricedCreates,
+      createOnlySubtotalToman: previewReady
+        ? hypothetical.subtotal.toString()
+        : null,
+      packageBreakdown: hypothetical.packageBreakdown,
+      heldReasons: hypothetical.heldReasons,
+    },
   };
 }

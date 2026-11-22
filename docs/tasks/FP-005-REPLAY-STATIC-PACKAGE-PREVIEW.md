@@ -74,3 +74,26 @@ assuming a different root cause. No posting or permission expansion.
   the dashboard preview. Compare the resulting held counts and amounts with
   the trusted legacy-bot baseline. **Do not certify full accounting** until
   FP-006/FP-007 and independent reconciliation have been implemented.
+
+## Staging identity mismatch follow-up (Owner request, 2026-11-22)
+
+After the Owner entered 25 positive fixed prices at 2,000 Toman/GiB and
+bootstrapped all 153 current PasarGuard administrators through one group,
+Staging reported complete catalog and archive coverage but held **all 13,530
+Create events** as `ADMIN_MEMBERSHIP_MISSING`. The historical `replay-30d`
+source and present-day `primary` admin directory are separate identity datasets;
+the observed mismatch is **not proof** that any specific replay admin belongs
+to the group. No automatic username mapping or identity rewrite is permitted.
+
+The Owner requested a corrective Draft PR and a dashboard accounting test.
+Preserve the existing fail-closed **identity-verified** quote unchanged, and
+present a **second, explicitly conditional** calculation assuming that every
+historical replay admin had the one common group and those 25 unchanged prices.
+This is for numerical testing of exact Create package shape/duration only;
+never mix its totals with verified totals. Reveal aggregate matched/unmatched
+Create counts (not identities), separate held reasons and per-package sums.
+When catalog or archive coverage is incomplete, the conditional subtotal must
+remain null. Both modes remain Owner-only, read-only, non-posting and not a
+financial statement. Actual historical admin identity reconciliation is
+still unresolved until separately verified; do not silently label this new
+scenario as an authoritative accounting result.

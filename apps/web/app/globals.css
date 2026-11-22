@@ -805,6 +805,22 @@ tbody tr:hover {
 .catalog-source-panel summary b {
   color: var(--ink);
 }
+.replay-what-if {
+  margin: 17px 0;
+  padding: 12px 17px;
+  border: 1px solid var(--amber-line);
+  border-radius: 12px;
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+}
+.replay-what-if h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.replay-what-if b,
+.replay-what-if strong {
+  color: inherit;
+}
 .catalog-source-panel form {
   display: flex;
   flex-wrap: wrap;

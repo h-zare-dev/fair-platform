@@ -324,6 +324,79 @@ test('selected historical source survives dashboard to packages and groups navig
   await page.goto('/dashboard');
   await expect(page.getByLabel('بازهٔ زمانی')).toHaveValue('replay-fixed');
 });
+test('historical what-if quote is visibly distinct from identity-verified Create', async ({
+  page,
+}) => {
+  await page.goto('/login');
+  await page
+    .getByLabel('گذرواژهٔ مدیر اصلی')
+    .fill('synthetic-browser-test-password');
+  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.route(
+    '**/api/v1/owner/operations/accounting/replay-preview',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          mode: 'HISTORICAL_STATIC_PACKAGE_PREVIEW',
+          postingScope: 'NONE',
+          completeAccounting: false,
+          packageCount: 25,
+          assignedPackageCount: 25,
+          memberCount: 153,
+          ingestionReady: true,
+          configurationReady: true,
+          ingestedBatchCount: '15914',
+          unfinishedBatchCount: '0',
+          normalizedEventCount: 64135,
+          createEventCount: 13530,
+          pricedCreateCount: 0,
+          heldCreateCount: 13530,
+          createOnlySubtotalToman: '0',
+          unclassifiedEventCount: 50605,
+          packageBreakdown: [],
+          heldReasons: [{ code: 'ADMIN_MEMBERSHIP_MISSING', count: 13530 }],
+          actionCounts: [],
+          ownerAttestedWhatIf: {
+            assumption: 'ALL_REPLAY_ADMINS_USE_SINGLE_CONFIGURED_GROUP',
+            allCreateIdsMatchMemberships: false,
+            identityMatchedCreateCount: 0,
+            identityUnmatchedCreateCount: 13530,
+            pricedCreateCount: 12000,
+            heldCreateCount: 1530,
+            createOnlySubtotalToman: '2400000000',
+            packageBreakdown: [
+              {
+                packageBytes: '107374182400',
+                durationDays: 30,
+                amountToman: '200000',
+                pricedCreateCount: 12000,
+                subtotalToman: '2400000000',
+              },
+            ],
+            heldReasons: [{ code: 'MISSING_DURATION', count: 1530 }],
+          },
+        }),
+      }),
+  );
+  await page
+    .getByRole('button', { name: 'اجرای بررسی آزمایشی ۳۰روزه' })
+    .click();
+  await expect(
+    page.getByText('جمع Create با تطبیق دقیق شناسهٔ مدیر:'),
+  ).toBeVisible();
+  await expect(
+    page.getByText('محاسبهٔ فرضی با نرخ‌های یکسان برای تمام مدیران آرشیو'),
+  ).toBeVisible();
+  await expect(page.getByText('۲٬۴۰۰٬۰۰۰٬۰۰۰ تومان')).toBeVisible();
+  await expect(
+    page.getByText(/این جمع تأیید بدهی یا صحت تطبیق مدیران نیست/),
+  ).toBeVisible();
+  await page.getByText('مبلغ و تعداد Create فرضی برای هر ۲۵ پکیج').click();
+  await expect(page.getByRole('cell', { name: '۱۲٬۰۰۰' })).toBeVisible();
+});
 test('wrong password and failed operations show safe errors, never zero substitutes', async ({
   page,
 }) => {

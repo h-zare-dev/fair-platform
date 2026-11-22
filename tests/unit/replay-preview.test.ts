@@ -266,6 +266,69 @@ describe('30-day fixed catalog historical preview (never posting)', () => {
     });
     expect(result.createOnlySubtotalToman).toBe('0');
   });
+
+  it('separates an Owner-attested all-admin what-if quote from unmatched replay identities', () => {
+    const result = preview([
+      event({ username: 'matched' }),
+      event({ username: 'archive-only', billingAdminId: '999' }),
+      event({
+        username: 'no-duration',
+        billingAdminId: '998',
+        onHoldDurationSeconds: null,
+      }),
+      event({
+        username: 'other-action',
+        action: 'user_updated',
+        billingAdminId: '997',
+      }),
+    ]);
+    expect(result).toMatchObject({
+      postingScope: 'NONE',
+      completeAccounting: false,
+      pricedCreateCount: 1,
+      heldCreateCount: 2,
+      createOnlySubtotalToman: '250000',
+      ownerAttestedWhatIf: {
+        assumption: 'ALL_REPLAY_ADMINS_USE_SINGLE_CONFIGURED_GROUP',
+        allCreateIdsMatchMemberships: false,
+        identityMatchedCreateCount: 1,
+        identityUnmatchedCreateCount: 2,
+        pricedCreateCount: 2,
+        heldCreateCount: 1,
+        createOnlySubtotalToman: '500000',
+        heldReasons: [{ code: 'MISSING_DURATION', count: 1 }],
+      },
+    });
+    expect(result.ownerAttestedWhatIf.packageBreakdown[0]).toMatchObject({
+      pricedCreateCount: 2,
+      subtotalToman: '500000',
+    });
+    expect(JSON.stringify(result)).not.toContain('archive-only');
+  });
+
+  it('never invents a what-if subtotal if catalog or replay coverage is incomplete', () => {
+    const result = preview([event({ billingAdminId: '999' })], {
+      members: memberships.slice(0, 152),
+    });
+    expect(result.ownerAttestedWhatIf.createOnlySubtotalToman).toBeNull();
+    expect(result.ownerAttestedWhatIf.pricedCreateCount).toBe(0);
+    expect(result.ownerAttestedWhatIf.packageBreakdown).toEqual([]);
+  });
+
+  it('keeps verified and hypothetical sums identical when every replay admin matches', () => {
+    const result = preview([
+      event(),
+      event({ username: 'other', billingAdminId: '153' }),
+    ]);
+    expect(result.ownerAttestedWhatIf.allCreateIdsMatchMemberships).toBe(true);
+    expect(result.ownerAttestedWhatIf.identityUnmatchedCreateCount).toBe(0);
+    expect(result.ownerAttestedWhatIf.createOnlySubtotalToman).toBe(
+      result.createOnlySubtotalToman,
+    );
+    expect(result.ownerAttestedWhatIf.pricedCreateCount).toBe(
+      result.pricedCreateCount,
+    );
+  });
 });
 
 describe('read-only replay preview query boundary', () => {

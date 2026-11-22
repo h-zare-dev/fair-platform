@@ -5,7 +5,7 @@ type CreatePreview = ReturnType<typeof evaluateReplayStaticCatalog>;
 
 /** Aggregated in SQL: no source user, admin or event identifiers leave PostgreSQL. */
 export interface PreviewOperationAggregate {
-  kind: 'UPDATE_ONLY' | 'RESET_ONLY' | 'RENEWAL';
+  kind: 'UPDATE_ONLY' | 'RESET_ONLY' | 'RENEWAL' | 'RESET_WITH_UPDATE_CONTEXT';
   dataLimitBytes: string;
   previousBytes: string | null;
   onHoldDurationSeconds: string | null;
@@ -14,14 +14,16 @@ export interface PreviewOperationAggregate {
   previousEventStatus: string | null;
   orderedPrevious: boolean;
   ambiguousCounterpart: boolean;
+  durationConflict: boolean;
   eventCount: number;
 }
 
 /**
  * FP-006/007 Owner-attested, non-posting replay. A unique Reset+Update is
- * one renewal at the final package. Independent increases price only the
- * positive exact-package delta; decreases do not refund. Unproven state or
- * correlation always fails closed. No historical identity is asserted.
+ * one renewal at the final package. An otherwise unchanged Update can only
+ * corroborate the duration of a unique same-package Reset, not create a
+ * second charge. Independent increases price only the positive exact-package
+ * delta; decreases do not refund. Unproven state or correlation fails closed.
  */
 export function evaluateReplayUpdateResetPreview(
   create: CreatePreview,
@@ -39,6 +41,7 @@ export function evaluateReplayUpdateResetPreview(
       .filter((row) => row.kind === kind)
       .reduce((n, row) => n + row.eventCount, 0);
   const pairedRenewalCount = count('RENEWAL');
+  const pairedResetContextCount = count('RESET_WITH_UPDATE_CONTEXT');
   const updateOnlyEventCount = count('UPDATE_ONLY');
   const resetOnlyEventCount = count('RESET_ONLY');
   const updateEventCount =
@@ -51,14 +54,22 @@ export function evaluateReplayUpdateResetPreview(
     operations.length <= 70000 &&
     operations.every(
       (row) =>
-        ['UPDATE_ONLY', 'RESET_ONLY', 'RENEWAL'].includes(row.kind) &&
+        [
+          'UPDATE_ONLY',
+          'RESET_ONLY',
+          'RENEWAL',
+          'RESET_WITH_UPDATE_CONTEXT',
+        ].includes(row.kind) &&
         Number.isSafeInteger(row.eventCount) &&
         row.eventCount > 0 &&
         typeof row.orderedPrevious === 'boolean' &&
-        typeof row.ambiguousCounterpart === 'boolean',
+        typeof row.ambiguousCounterpart === 'boolean' &&
+        typeof row.durationConflict === 'boolean',
     ) &&
-    pairedRenewalCount + updateOnlyEventCount === updateEventCount &&
-    pairedRenewalCount + resetOnlyEventCount === resetEventCount;
+    pairedRenewalCount + pairedResetContextCount + updateOnlyEventCount ===
+      updateEventCount &&
+    pairedRenewalCount + pairedResetContextCount + resetOnlyEventCount ===
+      resetEventCount;
   const ready =
     create.configurationReady && create.ingestionReady && groupedValid;
   const packageBreakdown = create.ownerAttestedWhatIf.packageBreakdown.map(
@@ -81,6 +92,7 @@ export function evaluateReplayUpdateResetPreview(
     reasons.set(reason, (reasons.get(reason) ?? 0) + n);
   let pricedUpdateOnlyCount = 0;
   let pricedRenewalCount = 0;
+  let pricedResetContextCount = 0;
   let pricedStandaloneResetCount = 0;
   let decreaseUpdateCount = 0;
   let unchangedUpdateCount = 0;
@@ -112,14 +124,21 @@ export function evaluateReplayUpdateResetPreview(
     }
     if (
       row.eventStatus !== 'READY_FOR_ACCOUNTING' ||
-      (row.kind === 'RENEWAL' &&
+      ((row.kind === 'RENEWAL' || row.kind === 'RESET_WITH_UPDATE_CONTEXT') &&
         row.counterpartStatus !== 'READY_FOR_ACCOUNTING')
     ) {
       hold('SOURCE_NEEDS_REVIEW', n);
       continue;
     }
-    if (row.kind === 'RENEWAL' && !row.orderedPrevious) {
+    if (
+      (row.kind === 'RENEWAL' || row.kind === 'RESET_WITH_UPDATE_CONTEXT') &&
+      !row.orderedPrevious
+    ) {
       hold('AMBIGUOUS_STATE_ORDER', n);
+      continue;
+    }
+    if (row.durationConflict) {
+      hold('DURATION_CONFLICT', n);
       continue;
     }
     let billableBytes = row.dataLimitBytes;
@@ -190,6 +209,8 @@ export function evaluateReplayUpdateResetPreview(
     pkg.subtotalToman = (BigInt(pkg.subtotalToman) + amount).toString();
     subtotal += amount;
     if (row.kind === 'RENEWAL') pricedRenewalCount += n;
+    else if (row.kind === 'RESET_WITH_UPDATE_CONTEXT')
+      pricedResetContextCount += n;
     else if (row.kind === 'RESET_ONLY') pricedStandaloneResetCount += n;
     else pricedUpdateOnlyCount += n;
   }
@@ -206,6 +227,7 @@ export function evaluateReplayUpdateResetPreview(
     updateEventCount,
     resetEventCount,
     pairedRenewalCount,
+    pairedResetContextCount,
     updateOnlyEventCount,
     resetOnlyEventCount,
     ambiguousUpdateCount,
@@ -213,6 +235,7 @@ export function evaluateReplayUpdateResetPreview(
     priorSnapshotMissingCount,
     pricedUpdateOnlyCount,
     pricedRenewalCount,
+    pricedResetContextCount,
     pricedStandaloneResetCount,
     decreaseUpdateCount,
     unchangedUpdateCount,

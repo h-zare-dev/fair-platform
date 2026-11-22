@@ -68,3 +68,36 @@ posting. The approved target nightly accounting remains a subsequent milestone.
   preview, verify config/archive coverage and compare per-package sums and
   held reasons against Owner-only aggregates. A successful preview **does not
   approve live financial posting** or certify production accounting correctness.
+
+## Owner Staging follow-up: Reset duration supported by unchanged Update
+
+After Owner merge of Draft PR #108, the Owner supplied a live Staging screenshot:
+catalog and replay coverage were complete, but many Reset events still lacked
+their own duration although a nearby unchanged Update carried a source-derived
+duration. Holding every such Reset as `MISSING_DURATION` loses verifiable source
+evidence. The Owner's ongoing request is to test/fix the non-posting preview.
+
+For **this read-only what-if only**, permit exactly one unchanged Update to
+support the duration of one Reset if and only if:
+
+1. They have the same stable Billing Admin and source user IDs, lie within the
+   configured source-time window, and are each other's **only** candidate
+   Update/Reset. Neither action can be confused with another nearby operation.
+2. Both source snapshots have a known preceding snapshot, both show unchanged
+   byte limits, and the Update and Reset show **the exact same nonzero bytes**.
+   Their timestamps must be distinct and both normalized source statuses ready.
+3. The Reset's own duration takes precedence when present; when missing, the
+   unchanged Update's known duration supplies the **same Reset operation**.
+   If both durations exist but disagree, hold `DURATION_CONFLICT`. Missing,
+   non-integral days or missing exact `(bytes,days)` fixed price remain held.
+4. Label this as `RESET_WITH_UPDATE_CONTEXT`, not as a changed-package renewal.
+   Count both input actions in one operation, charge the Reset package **once**,
+   never charge the unchanged Update. Output its paired/priced counts separately.
+5. Do not relax unique-pair correlation for changed Update renewals; count all
+   nearby candidates when checking uniqueness. Multiple generic Updates,
+   conflicting packages, absent source history, or tied source timestamps
+   fail closed with existing ambiguity/status reasons. No ledger/posting.
+
+Regression includes real PostgreSQL grouping for a missing-duration Reset and
+one supporting Update, explicitly conflicting durations, and multiple nearby
+unchanged Updates. Report aggregate-only results without archiving raw IDs.

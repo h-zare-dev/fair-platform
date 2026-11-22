@@ -40,10 +40,14 @@ function operation(
     previousBytes: kind === 'UPDATE_ONLY' ? (50n * GIB).toString() : null,
     onHoldDurationSeconds: '2592000',
     eventStatus: 'READY_FOR_ACCOUNTING',
-    counterpartStatus: kind === 'RENEWAL' ? 'READY_FOR_ACCOUNTING' : null,
+    counterpartStatus:
+      kind === 'RENEWAL' || kind === 'RESET_WITH_UPDATE_CONTEXT'
+        ? 'READY_FOR_ACCOUNTING'
+        : null,
     previousEventStatus: kind === 'UPDATE_ONLY' ? 'READY_FOR_ACCOUNTING' : null,
     orderedPrevious: true,
     ambiguousCounterpart: false,
+    durationConflict: false,
     eventCount: 1,
     ...overrides,
   };
@@ -52,12 +56,15 @@ function quote(operations: PreviewOperationAggregate[], catalog = packages) {
   const renewals = operations
     .filter((row) => row.kind === 'RENEWAL')
     .reduce((sum, row) => sum + row.eventCount, 0);
+  const documentedResets = operations
+    .filter((row) => row.kind === 'RESET_WITH_UPDATE_CONTEXT')
+    .reduce((sum, row) => sum + row.eventCount, 0);
   const updates = operations
     .filter((row) => row.kind === 'UPDATE_ONLY')
-    .reduce((sum, row) => sum + row.eventCount, renewals);
+    .reduce((sum, row) => sum + row.eventCount, renewals + documentedResets);
   const resets = operations
     .filter((row) => row.kind === 'RESET_ONLY')
-    .reduce((sum, row) => sum + row.eventCount, renewals);
+    .reduce((sum, row) => sum + row.eventCount, renewals + documentedResets);
   const base = evaluateReplayStaticCatalog(
     catalog,
     memberships,
@@ -74,6 +81,41 @@ function quote(operations: PreviewOperationAggregate[], catalog = packages) {
 }
 
 describe('FP-006/007 combined read-only accounting preview', () => {
+  it('prices a uniquely evidenced unchanged-Update Reset once and holds contradictory duration', () => {
+    const result = quote([
+      operation('RESET_WITH_UPDATE_CONTEXT'),
+      operation('RESET_WITH_UPDATE_CONTEXT', { durationConflict: true }),
+      operation('RESET_WITH_UPDATE_CONTEXT', {
+        counterpartStatus: 'NEEDS_REVIEW',
+      }),
+      operation('RESET_WITH_UPDATE_CONTEXT', { orderedPrevious: false }),
+      operation('RESET_WITH_UPDATE_CONTEXT', {
+        onHoldDurationSeconds: null,
+      }),
+    ]);
+    expect(result).toMatchObject({
+      updateEventCount: 5,
+      resetEventCount: 5,
+      pairedResetContextCount: 5,
+      pricedResetContextCount: 1,
+      pricedRenewalCount: 0,
+      pricedStandaloneResetCount: 0,
+      pricedUpdateOnlyCount: 0,
+      heldOperationCount: 4,
+      updateResetSubtotalToman: '100000',
+    });
+    expect(
+      Object.fromEntries(
+        result.heldReasons.map((row) => [row.code, row.count]),
+      ),
+    ).toEqual({
+      AMBIGUOUS_STATE_ORDER: 1,
+      DURATION_CONFLICT: 1,
+      MISSING_DURATION: 1,
+      SOURCE_NEEDS_REVIEW: 1,
+    });
+  });
+
   it('prices one renewal, one positive delta and one standalone reset exactly once', () => {
     const operations = [
       operation('RENEWAL'),

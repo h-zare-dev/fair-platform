@@ -13,6 +13,7 @@ interface UpdateResetPreview {
   updateEventCount: number;
   resetEventCount: number;
   pairedRenewalCount: number;
+  pairedResetContextCount: number;
   updateOnlyEventCount: number;
   resetOnlyEventCount: number;
   ambiguousUpdateCount: number;
@@ -20,6 +21,7 @@ interface UpdateResetPreview {
   priorSnapshotMissingCount: number;
   pricedUpdateOnlyCount: number;
   pricedRenewalCount: number;
+  pricedResetContextCount: number;
   pricedStandaloneResetCount: number;
   decreaseUpdateCount: number;
   unchangedUpdateCount: number;
@@ -81,9 +83,11 @@ export function ReplayUpdateResetPreview() {
       <p className="muted">
         یک Reset به‌همراه Update معتبر، فقط یک تمدید با پکیج نهایی است؛ Update
         مستقل فقط افزایش مثبت حجم را محاسبه می‌کند. کاهش حجم بازپرداخت ندارد.
-        همان ۲۵ نرخ ثابت اعلام‌شدهٔ مالک برای همهٔ مدیران آرشیو فرض شده‌اند.
-        شناسه‌های آرشیو هنوز با مدیران واقعی تطبیق قطعی ندارند. Next Plan و
-        تسویهٔ شبانه در این آزمایش محاسبه یا ثبت نمی‌شوند.
+        Update بدون تغییر حجم هزینهٔ جدا ندارد؛ تنها اگر ارتباط یک‌به‌یک و حجم
+        یکسان اثبات شود، می‌تواند مدت پکیج Reset را تأیید کند. همان ۲۵ نرخ ثابت
+        اعلام‌شدهٔ مالک برای همهٔ مدیران آرشیو فرض شده‌اند. شناسه‌های آرشیو هنوز
+        با مدیران واقعی تطبیق قطعی ندارند. Next Plan و تسویهٔ شبانه در این آزمایش
+        محاسبه یا ثبت نمی‌شوند.
       </p>
       <button
         className="secondary"
@@ -109,6 +113,8 @@ export function ReplayUpdateResetPreview() {
             Update: <b>{formatInteger(result.updateEventCount)}</b> · Reset:{' '}
             <b>{formatInteger(result.resetEventCount)}</b> · جفت‌های تمدید یکتای
             بدون تکرار: <b>{formatInteger(result.pairedRenewalCount)}</b>
+            {' · '}Reset با مدت مستند از Update:{' '}
+            <b>{formatInteger(result.pairedResetContextCount)}</b>
           </p>
           <p>
             Update مستقل یا حل‌نشده:{' '}
@@ -121,6 +127,8 @@ export function ReplayUpdateResetPreview() {
           </p>
           <p>
             تمدید دارای قیمت: <b>{formatInteger(result.pricedRenewalCount)}</b>
+            {' · '}Reset با مدت تأییدشده و دارای قیمت:{' '}
+            <b>{formatInteger(result.pricedResetContextCount)}</b>
             {' · '}Reset مستقل دارای قیمت:{' '}
             <b>{formatInteger(result.pricedStandaloneResetCount)}</b>
             {' · '}افزایش مستقل دارای قیمت:{' '}
@@ -143,7 +151,8 @@ export function ReplayUpdateResetPreview() {
           <p className="muted">
             این عدد بدهی یا کردیت واقعی نیست؛ نتیجهٔ FP-005 Create جدا می‌ماند.
             فیلد مدت نامعتبر، رویداد نامطمئن یا ارتباط چندبه‌چند هرگز با قیمت
-            پیش‌فرض محاسبه نمی‌شود.
+            پیش‌فرض محاسبه نمی‌شود. اگر مدت دو رویداد مرتبط تناقض داشته باشد،
+            محاسبه تا بررسی متوقف می‌ماند.
           </p>
           {result.heldReasons.length > 0 && (
             <details>

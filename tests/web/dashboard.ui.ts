@@ -114,14 +114,16 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
           updateEventCount: 5,
           resetEventCount: 3,
           pairedRenewalCount: 2,
-          updateOnlyEventCount: 3,
-          resetOnlyEventCount: 1,
+          pairedResetContextCount: 1,
+          updateOnlyEventCount: 2,
+          resetOnlyEventCount: 0,
           ambiguousUpdateCount: 0,
           ambiguousResetCount: 0,
           priorSnapshotMissingCount: 1,
           pricedUpdateOnlyCount: 1,
           pricedRenewalCount: 2,
-          pricedStandaloneResetCount: 1,
+          pricedResetContextCount: 1,
+          pricedStandaloneResetCount: 0,
           decreaseUpdateCount: 1,
           unchangedUpdateCount: 0,
           heldOperationCount: 1,
@@ -135,6 +137,9 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .getByRole('button', { name: 'اجرای بررسی ترکیبی Update و Reset' })
     .click();
   await expect(page.getByText('۴۰۰٬۰۰۰ تومان (غیرنهایی)')).toBeVisible();
+  await expect(
+    page.getByText('Reset با مدت تأییدشده و دارای قیمت', { exact: false }),
+  ).toBeVisible();
   await expect(
     page.getByText('این عدد بدهی یا کردیت واقعی نیست', { exact: false }),
   ).toBeVisible();

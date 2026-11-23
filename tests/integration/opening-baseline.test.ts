@@ -113,9 +113,13 @@ describe('FP-006 opening baseline transaction and recovery', () => {
         unknownExactDuration: 4,
       },
     });
+    // Owner's baseline database has no accounting ledger migration at all.
+    // Import must not create a ledger or introduce any posting side effect.
     expect(
-      await db.query('SELECT * FROM accounting_transactions'),
-    ).toHaveLength(0);
+      await db.query(
+        "SELECT to_regclass('accounting_transactions')::text AS name",
+      ),
+    ).toEqual([{ name: null }]);
     await expect(
       db.query(`DELETE FROM fair_opening_baseline_users WHERE run_id=$1`, [
         run.id,

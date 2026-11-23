@@ -15,6 +15,7 @@ export interface PreviewOperationAggregate {
   orderedPrevious: boolean;
   ambiguousCounterpart: boolean;
   durationConflict: boolean;
+  boundaryFirstPair: boolean;
   eventCount: number;
 }
 
@@ -64,7 +65,11 @@ export function evaluateReplayUpdateResetPreview(
         row.eventCount > 0 &&
         typeof row.orderedPrevious === 'boolean' &&
         typeof row.ambiguousCounterpart === 'boolean' &&
-        typeof row.durationConflict === 'boolean',
+        typeof row.durationConflict === 'boolean' &&
+        typeof row.boundaryFirstPair === 'boolean' &&
+        (!row.boundaryFirstPair ||
+          row.kind === 'RENEWAL' ||
+          row.kind === 'RESET_WITH_UPDATE_CONTEXT'),
     ) &&
     pairedRenewalCount + pairedResetContextCount + updateOnlyEventCount ===
       updateEventCount &&
@@ -100,6 +105,11 @@ export function evaluateReplayUpdateResetPreview(
   let ambiguousUpdateCount = 0;
   let ambiguousResetCount = 0;
   let priorSnapshotMissingCount = 0;
+  let pricedBoundaryFirstPairCount = 0;
+  const boundaryFirstPairCount = operations.reduce(
+    (sum, row) => sum + (row.boundaryFirstPair ? row.eventCount : 0),
+    0,
+  );
 
   for (const row of operations) {
     const n = row.eventCount;
@@ -208,6 +218,7 @@ export function evaluateReplayUpdateResetPreview(
     pkg.pricedOperationCount += n;
     pkg.subtotalToman = (BigInt(pkg.subtotalToman) + amount).toString();
     subtotal += amount;
+    if (row.boundaryFirstPair) pricedBoundaryFirstPairCount += n;
     if (row.kind === 'RENEWAL') pricedRenewalCount += n;
     else if (row.kind === 'RESET_WITH_UPDATE_CONTEXT')
       pricedResetContextCount += n;
@@ -233,6 +244,8 @@ export function evaluateReplayUpdateResetPreview(
     ambiguousUpdateCount,
     ambiguousResetCount,
     priorSnapshotMissingCount,
+    boundaryFirstPairCount,
+    pricedBoundaryFirstPairCount,
     pricedUpdateOnlyCount,
     pricedRenewalCount,
     pricedResetContextCount,

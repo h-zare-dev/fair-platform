@@ -120,6 +120,8 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
           ambiguousUpdateCount: 0,
           ambiguousResetCount: 0,
           priorSnapshotMissingCount: 1,
+          boundaryFirstPairCount: 1,
+          pricedBoundaryFirstPairCount: 1,
           pricedUpdateOnlyCount: 1,
           pricedRenewalCount: 2,
           pricedResetContextCount: 1,
@@ -139,6 +141,11 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(page.getByText('۴۰۰٬۰۰۰ تومان (غیرنهایی)')).toBeVisible();
   await expect(
     page.getByText('Reset با مدت تأییدشده و دارای قیمت', { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('تطبیق یکتای Reset ابتدای آرشیو با Update بعدی', {
+      exact: false,
+    }),
   ).toBeVisible();
   await expect(
     page.getByText('این عدد بدهی یا کردیت واقعی نیست', { exact: false }),

@@ -342,20 +342,22 @@ describe('real PostgreSQL 17 replay grouping', () => {
       completeAccounting: false,
       updateEventCount: 12,
       resetEventCount: 9,
-      pairedRenewalCount: 2,
+      pairedRenewalCount: 3,
       pairedResetContextCount: 2,
-      pricedRenewalCount: 2,
+      pricedRenewalCount: 3,
       pricedResetContextCount: 1,
+      boundaryFirstPairCount: 1,
+      pricedBoundaryFirstPairCount: 1,
       pricedUpdateOnlyCount: 2,
       pricedStandaloneResetCount: 2,
       decreaseUpdateCount: 1,
       unchangedUpdateCount: 0,
-      heldOperationCount: 9,
-      updateResetSubtotalToman: '1950000',
+      heldOperationCount: 7,
+      updateResetSubtotalToman: '2300000',
     });
     expect(result.heldReasons).toContainEqual({
       code: 'AMBIGUOUS_CORRELATION',
-      count: 8,
+      count: 6,
     });
     expect(result.heldReasons).toContainEqual({
       code: 'DURATION_CONFLICT',
@@ -364,5 +366,143 @@ describe('real PostgreSQL 17 replay grouping', () => {
     expect(JSON.stringify(result)).not.toContain('synthetic-user-');
     expect(JSON.stringify(result)).not.toContain('synthetic-admin');
     expect(query.toString()).not.toContain('DELETE FROM fair_shadow');
+  }, 120000);
+
+  it('reconciles only proven boundary-first Reset/Update pairs and preserves all competing holds', async () => {
+    await db.query(
+      "DELETE FROM pasarguard_events WHERE source_instance_id='replay-30d'",
+    );
+    const [batch] = await db.query<{ id: string }[]>(
+      `INSERT INTO pasarguard_webhook_batches
+        (source_instance_id,received_at,payload_hash,event_count,processing_status)
+       VALUES('replay-30d',now(),$1,20,'NORMALIZED') RETURNING id::text`,
+      ['d'.repeat(64)],
+    );
+    const gb = (n: number) => (BigInt(n) * GIB).toString();
+    const events: {
+      user: number;
+      admin: number;
+      action: string;
+      bytes: number;
+      second: number;
+      duration: string | null;
+      status?: string;
+    }[] = [];
+    const add = (
+      user: number,
+      action: string,
+      bytes: number,
+      second: number,
+      duration: string | null = null,
+      admin = 1,
+      status = 'READY_FOR_ACCOUNTING',
+    ) =>
+      events.push({
+        user,
+        admin,
+        action,
+        bytes,
+        second,
+        duration,
+        status,
+      });
+    // Exact one-to-one, strictly ordered, Reset is first in the archive.
+    add(20, 'data_usage_reset', 50, 0);
+    add(20, 'user_updated', 50, 1, '2592000');
+    add(21, 'data_usage_reset', 50, 0);
+    add(21, 'user_updated', 100, 1, '2592000');
+    // Same-package contradictory durations still fail closed.
+    add(22, 'data_usage_reset', 50, 0, '2592000');
+    add(22, 'user_updated', 50, 1, '5184000');
+    // Same source timestamp does not establish which came first.
+    add(23, 'data_usage_reset', 50, 0);
+    add(23, 'user_updated', 50, 0, '2592000');
+    // Any intervening source event prevents the archive-boundary exception.
+    add(24, 'data_usage_reset', 50, 0);
+    add(24, 'user_enabled', 50, 1);
+    add(24, 'user_updated', 50, 2, '2592000');
+    // Two candidate Updates prevent a greedy or nearest-neighbor match.
+    add(25, 'data_usage_reset', 50, 0);
+    add(25, 'user_updated', 50, 1, '2592000');
+    add(25, 'user_updated', 50, 2, '2592000');
+    // Same external user number under different admins must never correlate.
+    add(26, 'data_usage_reset', 50, 0, null, 2);
+    add(26, 'user_updated', 50, 1, '2592000', 3);
+    // Missing duration and source statuses retain their existing holds.
+    add(27, 'data_usage_reset', 50, 0);
+    add(27, 'user_updated', 50, 1);
+    add(28, 'data_usage_reset', 50, 0);
+    add(28, 'user_updated', 50, 1, '2592000', 1, 'NEEDS_REVIEW');
+
+    for (const [index, row] of events.entries()) {
+      await db.query(
+        `INSERT INTO pasarguard_events (
+          batch_id,batch_index,source_instance_id,semantic_fingerprint,
+          action,external_user_id,username,user_status,data_limit_bytes,
+          used_traffic_bytes,lifetime_used_bytes,billing_admin_id,
+          billing_admin_username,source_enqueued_at,event_status,
+          first_seen_at,last_seen_at,on_hold_expire_duration_seconds
+        ) VALUES ($1,$2,'replay-30d',$3,$4,$5,$6,'active',$7,
+          0,0,$8,'synthetic-admin',$9,$10,now(),now(),$11)`,
+        [
+          batch!.id,
+          index,
+          String(1000 + index).padStart(64, '0'),
+          row.action,
+          String(row.user),
+          `synthetic-boundary-${row.user}-${row.admin}`,
+          gb(row.bytes),
+          String(row.admin),
+          new Date(Date.UTC(2026, 9, 10, 10, 0, row.second)).toISOString(),
+          row.status,
+          row.duration,
+        ],
+      );
+    }
+    const testCatalog = packages.map((pkg, index) =>
+      index === 2
+        ? { ...pkg, packageBytes: gb(100), amountToman: '350000' }
+        : pkg,
+    );
+    const query = (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM fair_atomic_packages'))
+        return Promise.resolve(testCatalog);
+      if (sql.includes('FROM fair_admin_group_memberships'))
+        return Promise.resolve(memberships);
+      if (sql.includes('FROM fair_tariff_assignments'))
+        return Promise.resolve(assignments);
+      if (sql.includes('FROM pasarguard_webhook_batches'))
+        return Promise.resolve([
+          { batchCount: '15914', childCount: '64135', unfinishedBatches: '0' },
+        ]);
+      return db.query(sql, params);
+    };
+    const result = await new PostgresShadowReader(
+      { query } as never,
+      'Asia/Tehran',
+      120,
+    ).replayUpdateResetPreview();
+    expect(result).toMatchObject({
+      postingScope: 'NONE',
+      completeAccounting: false,
+      updateEventCount: 10,
+      resetEventCount: 9,
+      boundaryFirstPairCount: 5,
+      pricedBoundaryFirstPairCount: 2,
+      pricedResetContextCount: 1,
+      pricedRenewalCount: 1,
+      heldOperationCount: 12,
+      updateResetSubtotalToman: '600000',
+    });
+    expect(result.heldReasons).toEqual([
+      { code: 'AMBIGUOUS_CORRELATION', count: 7 },
+      { code: 'DURATION_CONFLICT', count: 1 },
+      { code: 'MISSING_DURATION', count: 2 },
+      { code: 'PREVIOUS_STATE_MISSING', count: 1 },
+      { code: 'SOURCE_NEEDS_REVIEW', count: 1 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('synthetic-boundary-');
+    expect(JSON.stringify(result)).not.toContain('synthetic-admin');
+    expect(query.toString()).not.toContain('UPDATE pasarguard_events');
   }, 120000);
 });

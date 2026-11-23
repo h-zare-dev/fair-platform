@@ -158,6 +158,7 @@ export class PostgresShadowReader {
            SELECT e.id,e.action,e.billing_admin_id,e.external_user_id,
              e.source_enqueued_at,e.data_limit_bytes,
              e.on_hold_expire_duration_seconds,e.event_status,
+             LAG(e.id) OVER prev AS previous_event_id,
              LAG(e.data_limit_bytes) OVER prev AS previous_bytes,
              LAG(e.event_status) OVER prev AS previous_event_status,
              LAG(e.source_enqueued_at) OVER prev AS previous_at
@@ -176,7 +177,12 @@ export class PostgresShadowReader {
                AND r.previous_bytes=r.data_limit_bytes) AS generic_zero_delta,
              (u.data_limit_bytes=r.data_limit_bytes) AS same_package,
              (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL)
-               AS prior_state_known
+               AS prior_state_known,
+             (r.previous_event_id IS NULL
+               AND u.previous_event_id=r.id
+               AND r.source_enqueued_at<u.source_enqueued_at
+               AND u.previous_bytes=r.data_limit_bytes)
+               AS boundary_first_reset_pair
            FROM updates u JOIN resets r
              ON r.billing_admin_id=u.billing_admin_id
              AND r.external_user_id=u.external_user_id
@@ -187,24 +193,31 @@ export class PostgresShadowReader {
            SELECT update_id,reset_id,
              COUNT(*) OVER (PARTITION BY update_id) AS resets_for_update,
              COUNT(*) OVER (PARTITION BY reset_id) AS updates_for_reset,
-             prior_state_known,generic_zero_delta,same_package
+             prior_state_known,generic_zero_delta,same_package,
+             boundary_first_reset_pair
            FROM candidate_edges
          ), pairs AS MATERIALIZED (
            -- Only mutually unique candidates may pair. A zero-delta Update
            -- proves no package change, but can corroborate Reset duration
            -- when its source snapshot has the exact same package bytes.
-           SELECT update_id,reset_id,generic_zero_delta FROM edge_counts
+           SELECT update_id,reset_id,generic_zero_delta,
+             boundary_first_reset_pair,same_package FROM edge_counts
            WHERE resets_for_update=1 AND updates_for_reset=1
-             AND prior_state_known
-             AND (NOT generic_zero_delta OR same_package)
+             AND ((prior_state_known
+                 AND (NOT generic_zero_delta OR same_package))
+               OR boundary_first_reset_pair)
          ), operation_rows AS (
            SELECT (CASE WHEN p.generic_zero_delta
+                 OR (p.boundary_first_reset_pair AND p.same_package)
                THEN 'RESET_WITH_UPDATE_CONTEXT' ELSE 'RENEWAL' END)::text AS kind,
-             (CASE WHEN p.generic_zero_delta THEN r.data_limit_bytes
+             (CASE WHEN p.generic_zero_delta
+                   OR (p.boundary_first_reset_pair AND p.same_package)
+               THEN r.data_limit_bytes
                WHEN r.source_enqueued_at>u.source_enqueued_at
                THEN r.data_limit_bytes ELSE u.data_limit_bytes END) AS bytes,
              NULL::numeric AS previous_bytes,
-             (CASE WHEN p.generic_zero_delta THEN
+             (CASE WHEN p.generic_zero_delta
+                   OR (p.boundary_first_reset_pair AND p.same_package) THEN
                  COALESCE(r.on_hold_expire_duration_seconds,
                    u.on_hold_expire_duration_seconds)
                WHEN r.source_enqueued_at>u.source_enqueued_at
@@ -214,11 +227,13 @@ export class PostgresShadowReader {
              NULL::text AS previous_event_status,
              (r.source_enqueued_at<>u.source_enqueued_at) AS ordered_previous,
              false AS ambiguous_counterpart,
-             (p.generic_zero_delta AND
+             (p.generic_zero_delta OR
+               (p.boundary_first_reset_pair AND p.same_package)) AND
                r.on_hold_expire_duration_seconds IS NOT NULL AND
                u.on_hold_expire_duration_seconds IS NOT NULL AND
                r.on_hold_expire_duration_seconds<>
-                 u.on_hold_expire_duration_seconds) AS duration_conflict
+                 u.on_hold_expire_duration_seconds AS duration_conflict,
+             p.boundary_first_reset_pair AS boundary_first_pair
            FROM pairs p JOIN updates u ON u.id=p.update_id
              JOIN resets r ON r.id=p.reset_id
            UNION ALL
@@ -227,7 +242,7 @@ export class PostgresShadowReader {
              u.previous_event_status,
              COALESCE(u.previous_at<u.source_enqueued_at,false),
              EXISTS(SELECT 1 FROM candidate_edges e WHERE e.update_id=u.id),
-             false
+             false,false
            FROM updates u WHERE NOT EXISTS
              (SELECT 1 FROM pairs p WHERE p.update_id=u.id)
            UNION ALL
@@ -235,7 +250,7 @@ export class PostgresShadowReader {
              r.on_hold_expire_duration_seconds,r.event_status,NULL::text,
              NULL::text,false,
              EXISTS(SELECT 1 FROM candidate_edges e WHERE e.reset_id=r.id),
-             false
+             false,false
            FROM resets r WHERE NOT EXISTS
              (SELECT 1 FROM pairs p WHERE p.reset_id=r.id)
          )
@@ -248,14 +263,16 @@ export class PostgresShadowReader {
            ordered_previous AS "orderedPrevious",
            ambiguous_counterpart AS "ambiguousCounterpart",
            duration_conflict AS "durationConflict",
+           boundary_first_pair AS "boundaryFirstPair",
            COUNT(*)::integer AS "eventCount"
          FROM (SELECT kind,bytes AS data_limit_bytes,previous_bytes,
            duration,event_status,counterpart_status,previous_event_status,
-           ordered_previous,ambiguous_counterpart,duration_conflict
+           ordered_previous,ambiguous_counterpart,duration_conflict,
+           boundary_first_pair
            FROM operation_rows) grouped
          GROUP BY kind,data_limit_bytes,previous_bytes,duration,event_status,
            counterpart_status,previous_event_status,ordered_previous,
-           ambiguous_counterpart,duration_conflict
+           ambiguous_counterpart,duration_conflict,boundary_first_pair
          LIMIT 70001`,
         [source, this.correlationWindowSeconds],
       ),

@@ -66,7 +66,7 @@ Store a deterministic batch payload hash for detecting repeat deliveries/storage
 Processing is designed for at-least-once delivery. Reprocessing the same logical financial event must not create duplicate accounting effects. Exact key implementation is chosen from stable source fields and canonical fingerprints and is covered by contract tests.
 
 ## Ordering and Correlation
-Event ordering cannot be assumed. Correlation is scoped to stable user identity, state semantics, and the Owner-configurable correlation window (default 120 seconds). The setting must not be hard-coded.
+Webhook arrival ordering cannot be assumed. Correlation is scoped to stable user identity, source-time ordering, state semantics, and the Owner-configurable correlation window (Owner-corrected default 600 seconds). Source-time window and HTTP delivery lateness are separate controls; this value must not be hard-coded into event logic.
 
 ## Actor vs Billing Admin
 `by`/actor may differ from `user.admin`. Use Billing Admin for financial ownership and Actor Admin for audit. Actor may be missing, null, or an object with an explicit null ID and valid username; preserve null identity and independent username attribution. Missing Actor alone does not require human approval for otherwise valid actual resets. Automatic accounting still requires separately verified reset occurrence, final package, correlation, pricing and financial idempotency; ingestion does not post money.

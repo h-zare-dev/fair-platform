@@ -108,9 +108,18 @@ Store both concepts separately when available. The actor may be Owner/operator w
 - Use stable user identity, not username alone.
 - Use source event timestamps (`enqueued_at` or equivalent), not HTTP receive time.
 - Correlation must be order-independent and state-aware.
-- Default correlation window: **120 seconds**.
+- Default correlation window: **600 seconds** (Owner correction 2026-11-23;
+  1–600 seconds configurable). This bounds source-event candidates, **not**
+  HTTP/webhook delivery latency or the nightly accounting cutoff.
 - The correlation window is an **Owner-configurable setting**, not a hard-coded constant.
-- `<=30s` may be treated as high-confidence operationally; `30s–configured-window` remains eligible when state semantics match.
+- Time proximity alone never proves one operation. For the approved read-only
+  FP-006/007 archive preview, use consecutive source-timeline alternating
+  Update/Reset chains and distinct adjacent pairs even when the same account
+  has multiple renewals that day; unmatched odd/non-alternating chains fail
+  closed. A Reset carrying the verified *old* duration may be followed by an
+  Update carrying the *new* duration: charge once at the final exact package
+  if that transition is proven. See the 2026-11-23 task spec; this is **not**
+  authorization to post financial charges or activate nightly settlement.
 - Beyond the configured window, do not auto-correlate; create `AMBIGUOUS_CORRELATION` if necessary.
 - A generic zero-delta update must not be paired as a package change merely because it is close in time to a reset.
 

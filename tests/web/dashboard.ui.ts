@@ -122,6 +122,9 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
           priorSnapshotMissingCount: 1,
           boundaryFirstPairCount: 1,
           pricedBoundaryFirstPairCount: 1,
+          provenDurationChangeCount: 1,
+          pricedProvenDurationChangeCount: 1,
+          multiCyclePairCount: 2,
           pricedUpdateOnlyCount: 1,
           pricedRenewalCount: 2,
           pricedResetContextCount: 1,
@@ -146,6 +149,9 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     page.getByText('تطبیق یکتای Reset ابتدای آرشیو با Update بعدی', {
       exact: false,
     }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('تمدیدهای تغییر مدت با سابقهٔ معتبر', { exact: false }),
   ).toBeVisible();
   await expect(
     page.getByText('این عدد بدهی یا کردیت واقعی نیست', { exact: false }),

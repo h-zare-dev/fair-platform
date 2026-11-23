@@ -49,6 +49,8 @@ function operation(
     ambiguousCounterpart: false,
     durationConflict: false,
     boundaryFirstPair: false,
+    provenDurationChange: false,
+    multiCyclePair: false,
     eventCount: 1,
     ...overrides,
   };
@@ -146,6 +148,31 @@ describe('FP-006/007 combined read-only accounting preview', () => {
     expect(result.packageBreakdown[0]).toMatchObject({
       pricedOperationCount: 3,
       subtotalToman: '300000',
+    });
+  });
+
+  it('counts proven duration change and independent paired cycles without doubling monetary operations', () => {
+    const result = quote([
+      operation('RENEWAL', {
+        provenDurationChange: true,
+        multiCyclePair: true,
+      }),
+      operation('RESET_WITH_UPDATE_CONTEXT', { multiCyclePair: true }),
+      operation('RENEWAL', {
+        provenDurationChange: true,
+        onHoldDurationSeconds: null,
+      }),
+    ]);
+    expect(result).toMatchObject({
+      postingScope: 'NONE',
+      completeAccounting: false,
+      multiCyclePairCount: 2,
+      provenDurationChangeCount: 2,
+      pricedProvenDurationChangeCount: 1,
+      pricedRenewalCount: 1,
+      pricedResetContextCount: 1,
+      heldOperationCount: 1,
+      updateResetSubtotalToman: '200000',
     });
   });
 
@@ -250,6 +277,13 @@ describe('FP-006/007 combined read-only accounting preview', () => {
     expect(
       quote([operation('UPDATE_ONLY', { boundaryFirstPair: true })])
         .ingestionReady,
+    ).toBe(false);
+    expect(
+      quote([operation('UPDATE_ONLY', { provenDurationChange: true })])
+        .ingestionReady,
+    ).toBe(false);
+    expect(
+      quote([operation('RESET_ONLY', { multiCyclePair: true })]).ingestionReady,
     ).toBe(false);
   });
 });

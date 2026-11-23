@@ -51,7 +51,13 @@ describe('FP-006 opening baseline transaction and recovery', () => {
     };
     const importer = new PostgresOpeningBaseline(db, directory);
     await importer.start();
-    await importer.runNext();
+    expect(await importer.runNext()).toBe(true);
+    expect((await importer.summary()).run).toMatchObject({
+      status: 'SCANNING',
+      sourceTotal: 53,
+      firstPassUsers: 50,
+      offset: 50,
+    });
     const recovered = new PostgresOpeningBaseline(db, directory);
     await recovered.runNext();
     await recovered.runNext();

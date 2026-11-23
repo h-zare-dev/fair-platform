@@ -145,16 +145,20 @@ export class PostgresOpeningBaseline {
 
   private async claim(): Promise<Run | null> {
     const token = randomUUID();
+    // TypeORM's raw PostgreSQL UPDATE query returns [rows, affectedCount],
+    // not the rows directly. A data-modifying CTE with a final SELECT returns
+    // a genuine row array, so the lease cannot be silently misinterpreted.
     const rows: Run[] = await this.db.query(
-      `
-      UPDATE fair_opening_baseline_runs SET
-        status=CASE WHEN status='PENDING' THEN 'SCANNING' ELSE status END,
-        lease_token=$1,lease_until=clock_timestamp()+interval '45 seconds'
-      WHERE id=(SELECT id FROM fair_opening_baseline_runs
-        WHERE source_instance_id=$2 AND status IN ('PENDING','SCANNING','VERIFYING')
-          AND (lease_until IS NULL OR lease_until<clock_timestamp())
-        ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
-      RETURNING id::text,status,phase,next_offset,source_total,verified_total,lease_token`,
+      `WITH claimed AS (
+        UPDATE fair_opening_baseline_runs SET
+          status=CASE WHEN status='PENDING' THEN 'SCANNING' ELSE status END,
+          lease_token=$1,lease_until=clock_timestamp()+interval '45 seconds'
+        WHERE id=(SELECT id FROM fair_opening_baseline_runs
+          WHERE source_instance_id=$2 AND status IN ('PENDING','SCANNING','VERIFYING')
+            AND (lease_until IS NULL OR lease_until<clock_timestamp())
+          ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
+        RETURNING id::text,status,phase,next_offset,source_total,verified_total,lease_token
+      ) SELECT * FROM claimed`,
       [token, SOURCE],
     );
     return rows[0] ?? null;

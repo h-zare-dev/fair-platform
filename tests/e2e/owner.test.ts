@@ -550,6 +550,18 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // FP-006 adds the opening-baseline snapshot after FP-005 Shadow tables.
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_opening_baseline_users')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_opening_baseline_runs')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
   // FP-005 adds immutable Shadow tables after the earlier group-delete guard.
   await db.undoLastMigration({ transaction: 'all' });
   expect(

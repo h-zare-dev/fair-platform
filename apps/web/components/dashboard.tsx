@@ -5,6 +5,7 @@ import { ReplayImport } from './replay-import';
 import { ReplayAccountingPreview } from './replay-accounting-preview';
 import { ReplayUpdateResetPreview } from './replay-update-reset-preview';
 import { CatalogBootstrap } from './catalog-bootstrap';
+import { OpeningBaseline } from './opening-baseline';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 interface Summary {
@@ -324,6 +325,7 @@ export function Dashboard() {
         <ReplayImport />
         <ReplayAccountingPreview />
         <ReplayUpdateResetPreview />
+        <OpeningBaseline />
         <CatalogBootstrap />
         {error && (
           <div className="error-banner" role="alert">

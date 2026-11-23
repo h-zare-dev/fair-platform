@@ -21,6 +21,7 @@ async function main() {
       'OwnerSafeGroupDelete1791400000000',
       'PasarguardBillingProjection1791500000000',
       'FairShadowCreate1791600000000',
+      'OpeningBaseline1791700000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -41,6 +42,7 @@ async function main() {
       'dist/owner/infrastructure/group-delete-migration.js',
       'node_modules/@fair-platform/pasarguard/dist/infrastructure/billing-projection-migration.js',
       'dist/owner/infrastructure/shadow-migration.js',
+      'dist/owner/infrastructure/opening-baseline-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

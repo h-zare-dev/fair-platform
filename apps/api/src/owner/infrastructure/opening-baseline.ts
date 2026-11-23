@@ -100,10 +100,12 @@ export class PostgresOpeningBaseline {
         count(*) FILTER (WHERE u.verification_status='ADDED')::text AS added,
         count(*) FILTER (WHERE u.verification_status='MISSING')::text AS missing,
         count(*) FILTER (WHERE u.verification_status='UNVERIFIED')::text AS unverified,
-        count(*) FILTER (WHERE u.billing_admin_id IS NULL)::text AS unknown_admin,
-        count(*) FILTER (WHERE u.data_limit_bytes IS NULL OR u.data_limit_bytes=0)::text AS unknown_volume,
-        count(*) FILTER (WHERE u.user_status <> 'on_hold' OR u.on_hold_duration_seconds IS NULL OR
-          u.on_hold_duration_seconds=0)::text AS unknown_duration
+        count(*) FILTER (WHERE u.external_user_id IS NOT NULL AND u.billing_admin_id IS NULL)::text AS unknown_admin,
+        count(*) FILTER (WHERE u.external_user_id IS NOT NULL AND
+          (u.data_limit_bytes IS NULL OR u.data_limit_bytes=0))::text AS unknown_volume,
+        count(*) FILTER (WHERE u.external_user_id IS NOT NULL AND
+          (u.user_status <> 'on_hold' OR u.on_hold_duration_seconds IS NULL OR
+           u.on_hold_duration_seconds=0))::text AS unknown_duration
       FROM fair_opening_baseline_runs r
       LEFT JOIN fair_opening_baseline_users u ON u.run_id=r.id
       WHERE r.id=(SELECT max(id) FROM fair_opening_baseline_runs WHERE source_instance_id=$1)

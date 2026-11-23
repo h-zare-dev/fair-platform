@@ -93,6 +93,12 @@ describe('FP-006 opening baseline transaction and recovery', () => {
     const importer = new PostgresOpeningBaseline(db, directory);
     const run = await importer.start();
     expect(run.status).toBe('PENDING');
+    expect((await importer.summary()).run).toMatchObject({
+      firstPassUsers: 0,
+      unknownAdmin: 0,
+      unknownVolume: 0,
+      unknownExactDuration: 0,
+    });
     await expect(importer.start()).rejects.toThrow(
       'OPENING_BASELINE_ALREADY_RUNNING',
     );

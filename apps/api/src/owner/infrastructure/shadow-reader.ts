@@ -27,7 +27,7 @@ export class PostgresShadowReader {
   constructor(
     private readonly db: DataSource,
     private readonly timeZone: string = 'Asia/Tehran',
-    private readonly correlationWindowSeconds: number = 120,
+    private readonly correlationWindowSeconds: number = 600,
   ) {
     if (
       !Number.isInteger(correlationWindowSeconds) ||
@@ -156,68 +156,115 @@ export class PostgresShadowReader {
       this.db.query<PreviewOperationAggregate[]>(
         `WITH timeline AS MATERIALIZED (
            SELECT e.id,e.action,e.billing_admin_id,e.external_user_id,
-             e.source_enqueued_at,e.data_limit_bytes,
+             e.source_enqueued_at,
+             (e.source_enqueued_at AT TIME ZONE $3::text)::date AS local_day,
+             e.data_limit_bytes,
              e.on_hold_expire_duration_seconds,e.event_status,
              LAG(e.id) OVER prev AS previous_event_id,
+             LAG(e.action) OVER prev AS previous_action,
              LAG(e.data_limit_bytes) OVER prev AS previous_bytes,
+             LAG(e.on_hold_expire_duration_seconds) OVER prev AS previous_duration,
              LAG(e.event_status) OVER prev AS previous_event_status,
              LAG(e.source_enqueued_at) OVER prev AS previous_at
            FROM pasarguard_events e
            WHERE e.source_instance_id=$1
            WINDOW prev AS (PARTITION BY e.billing_admin_id,e.external_user_id
              ORDER BY e.source_enqueued_at,e.id)
+         ), cycle_starts AS MATERIALIZED (
+           -- Only consecutive source-timeline Update/Reset actions can form
+           -- one chain; other actions, a local-day change, ties and gaps
+           -- beyond the Owner window terminate it. HTTP delivery is irrelevant.
+           SELECT *,CASE WHEN previous_action IN ('user_updated','data_usage_reset')
+             AND previous_at<source_enqueued_at
+             AND local_day=(previous_at AT TIME ZONE $3::text)::date
+             AND source_enqueued_at-previous_at <=
+               ($2::integer*INTERVAL '1 second')
+             THEN 0 ELSE 1 END AS cycle_start
+           FROM timeline WHERE action IN ('user_updated','data_usage_reset')
+         ), cycle_indices AS MATERIALIZED (
+           SELECT *,SUM(cycle_start) OVER (
+             PARTITION BY billing_admin_id,external_user_id
+             ORDER BY source_enqueued_at,id ROWS UNBOUNDED PRECEDING
+           ) AS cycle_id FROM cycle_starts
+         ), cycle_members AS MATERIALIZED (
+           SELECT *,
+             ROW_NUMBER() OVER cycle AS cycle_position,
+             COUNT(*) OVER cycle AS cycle_size,
+             BOOL_AND(cycle_start=1 OR action<>previous_action)
+               OVER cycle AS alternating,
+             COUNT(*) FILTER (WHERE action='data_usage_reset') OVER (
+               PARTITION BY billing_admin_id,external_user_id,local_day
+             ) AS same_day_resets,
+             COUNT(*) FILTER (WHERE action='user_updated') OVER (
+               PARTITION BY billing_admin_id,external_user_id,local_day
+             ) AS same_day_updates
+           FROM cycle_indices
+           WINDOW cycle AS (PARTITION BY billing_admin_id,external_user_id,cycle_id
+             ORDER BY source_enqueued_at,id
+             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+         ), cycle_pairs AS MATERIALIZED (
+           -- An even, fully alternating chain has one non-overlapping
+           -- complete adjacent pairing: (1,2), (3,4), etc. Odd, tied or
+           -- non-alternating chains stay unresolved; never pair by proximity.
+           SELECT CASE WHEN a.action='user_updated' THEN a.id ELSE b.id END AS update_id,
+             CASE WHEN a.action='data_usage_reset' THEN a.id ELSE b.id END AS reset_id,
+             (a.cycle_size>2) AS multi_cycle_pair
+           FROM cycle_members a JOIN cycle_members b
+             ON b.billing_admin_id=a.billing_admin_id
+             AND b.external_user_id=a.external_user_id
+             AND b.cycle_id=a.cycle_id
+             AND b.cycle_position=a.cycle_position+1
+           WHERE a.cycle_position%2=1 AND a.cycle_size%2=0
+             AND a.alternating AND b.alternating
          ), updates AS MATERIALIZED (
            SELECT * FROM timeline WHERE action='user_updated'
          ), resets AS MATERIALIZED (
            SELECT * FROM timeline WHERE action='data_usage_reset'
-         ), candidate_edges AS MATERIALIZED (
-           SELECT u.id AS update_id,r.id AS reset_id,
+         ), pairs AS MATERIALIZED (
+           SELECT cp.update_id,cp.reset_id,cp.multi_cycle_pair,
              (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL
                AND u.previous_bytes=u.data_limit_bytes
                AND r.previous_bytes=r.data_limit_bytes) AS generic_zero_delta,
              (u.data_limit_bytes=r.data_limit_bytes) AS same_package,
-             (u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL)
-               AS prior_state_known,
              (r.previous_event_id IS NULL
                AND u.previous_event_id=r.id
                AND r.source_enqueued_at<u.source_enqueued_at
                AND u.previous_bytes=r.data_limit_bytes)
-               AS boundary_first_reset_pair
-           FROM updates u JOIN resets r
-             ON r.billing_admin_id=u.billing_admin_id
-             AND r.external_user_id=u.external_user_id
-             AND r.source_enqueued_at BETWEEN
-               u.source_enqueued_at-($2::integer*INTERVAL '1 second') AND
-               u.source_enqueued_at+($2::integer*INTERVAL '1 second')
-         ), edge_counts AS (
-           SELECT update_id,reset_id,
-             COUNT(*) OVER (PARTITION BY update_id) AS resets_for_update,
-             COUNT(*) OVER (PARTITION BY reset_id) AS updates_for_reset,
-             prior_state_known,generic_zero_delta,same_package,
-             boundary_first_reset_pair
-           FROM candidate_edges
-         ), pairs AS MATERIALIZED (
-           -- Only mutually unique candidates may pair. A zero-delta Update
-           -- proves no package change, but can corroborate Reset duration
-           -- when its source snapshot has the exact same package bytes.
-           SELECT update_id,reset_id,generic_zero_delta,
-             boundary_first_reset_pair,same_package FROM edge_counts
-           WHERE resets_for_update=1 AND updates_for_reset=1
-             AND ((prior_state_known
-                 AND (NOT generic_zero_delta OR same_package))
-               OR boundary_first_reset_pair)
+               AS boundary_first_reset_pair,
+             COALESCE((r.source_enqueued_at<u.source_enqueued_at
+               AND u.previous_event_id=r.id
+               AND r.previous_at<r.source_enqueued_at
+               AND r.previous_event_status='READY_FOR_ACCOUNTING'
+               AND r.previous_bytes=r.data_limit_bytes
+               AND r.previous_duration=r.on_hold_expire_duration_seconds
+               AND r.on_hold_expire_duration_seconds IS NOT NULL
+               AND u.on_hold_expire_duration_seconds IS NOT NULL
+               AND r.on_hold_expire_duration_seconds<>u.on_hold_expire_duration_seconds
+               AND r.data_limit_bytes=u.data_limit_bytes),false) AS proven_duration_change
+           FROM cycle_pairs cp JOIN updates u ON u.id=cp.update_id
+             JOIN resets r ON r.id=cp.reset_id
+           WHERE ((u.previous_bytes IS NOT NULL AND r.previous_bytes IS NOT NULL
+                  AND (NOT (u.previous_bytes=u.data_limit_bytes AND
+                     r.previous_bytes=r.data_limit_bytes)
+                    OR u.data_limit_bytes=r.data_limit_bytes))
+             OR (r.previous_event_id IS NULL AND u.previous_event_id=r.id
+                AND r.source_enqueued_at<u.source_enqueued_at
+                AND u.previous_bytes=r.data_limit_bytes))
          ), operation_rows AS (
-           SELECT (CASE WHEN p.generic_zero_delta
-                 OR (p.boundary_first_reset_pair AND p.same_package)
+           SELECT (CASE WHEN (p.generic_zero_delta
+                 OR (p.boundary_first_reset_pair AND p.same_package))
+                 AND NOT p.proven_duration_change
                THEN 'RESET_WITH_UPDATE_CONTEXT' ELSE 'RENEWAL' END)::text AS kind,
-             (CASE WHEN p.generic_zero_delta
-                   OR (p.boundary_first_reset_pair AND p.same_package)
+             (CASE WHEN (p.generic_zero_delta
+                   OR (p.boundary_first_reset_pair AND p.same_package))
+                   AND NOT p.proven_duration_change
                THEN r.data_limit_bytes
                WHEN r.source_enqueued_at>u.source_enqueued_at
                THEN r.data_limit_bytes ELSE u.data_limit_bytes END) AS bytes,
              NULL::numeric AS previous_bytes,
-             (CASE WHEN p.generic_zero_delta
-                   OR (p.boundary_first_reset_pair AND p.same_package) THEN
+             (CASE WHEN (p.generic_zero_delta
+                   OR (p.boundary_first_reset_pair AND p.same_package))
+                   AND NOT p.proven_duration_change THEN
                  COALESCE(r.on_hold_expire_duration_seconds,
                    u.on_hold_expire_duration_seconds)
                WHEN r.source_enqueued_at>u.source_enqueued_at
@@ -227,13 +274,14 @@ export class PostgresShadowReader {
              NULL::text AS previous_event_status,
              (r.source_enqueued_at<>u.source_enqueued_at) AS ordered_previous,
              false AS ambiguous_counterpart,
-             (p.generic_zero_delta OR
-               (p.boundary_first_reset_pair AND p.same_package)) AND
+             p.same_package AND NOT p.proven_duration_change AND
                r.on_hold_expire_duration_seconds IS NOT NULL AND
                u.on_hold_expire_duration_seconds IS NOT NULL AND
                r.on_hold_expire_duration_seconds<>
                  u.on_hold_expire_duration_seconds AS duration_conflict,
              p.boundary_first_reset_pair AS boundary_first_pair
+             ,p.proven_duration_change AS proven_duration_change
+             ,p.multi_cycle_pair AS multi_cycle_pair
            FROM pairs p JOIN updates u ON u.id=p.update_id
              JOIN resets r ON r.id=p.reset_id
            UNION ALL
@@ -241,17 +289,17 @@ export class PostgresShadowReader {
              u.on_hold_expire_duration_seconds,u.event_status,NULL::text,
              u.previous_event_status,
              COALESCE(u.previous_at<u.source_enqueued_at,false),
-             EXISTS(SELECT 1 FROM candidate_edges e WHERE e.update_id=u.id),
-             false,false
-           FROM updates u WHERE NOT EXISTS
+             (u.same_day_resets>0),
+             false,false,false,false
+           FROM cycle_members u WHERE u.action='user_updated' AND NOT EXISTS
              (SELECT 1 FROM pairs p WHERE p.update_id=u.id)
            UNION ALL
            SELECT 'RESET_ONLY',r.data_limit_bytes,NULL::numeric,
              r.on_hold_expire_duration_seconds,r.event_status,NULL::text,
              NULL::text,false,
-             EXISTS(SELECT 1 FROM candidate_edges e WHERE e.reset_id=r.id),
-             false,false
-           FROM resets r WHERE NOT EXISTS
+             (r.same_day_updates>0),
+             false,false,false,false
+           FROM cycle_members r WHERE r.action='data_usage_reset' AND NOT EXISTS
              (SELECT 1 FROM pairs p WHERE p.reset_id=r.id)
          )
          SELECT kind,data_limit_bytes::text AS "dataLimitBytes",
@@ -264,17 +312,20 @@ export class PostgresShadowReader {
            ambiguous_counterpart AS "ambiguousCounterpart",
            duration_conflict AS "durationConflict",
            boundary_first_pair AS "boundaryFirstPair",
+           proven_duration_change AS "provenDurationChange",
+           multi_cycle_pair AS "multiCyclePair",
            COUNT(*)::integer AS "eventCount"
          FROM (SELECT kind,bytes AS data_limit_bytes,previous_bytes,
            duration,event_status,counterpart_status,previous_event_status,
            ordered_previous,ambiguous_counterpart,duration_conflict,
-           boundary_first_pair
+           boundary_first_pair,proven_duration_change,multi_cycle_pair
            FROM operation_rows) grouped
          GROUP BY kind,data_limit_bytes,previous_bytes,duration,event_status,
            counterpart_status,previous_event_status,ordered_previous,
-           ambiguous_counterpart,duration_conflict,boundary_first_pair
+           ambiguous_counterpart,duration_conflict,boundary_first_pair,
+           proven_duration_change,multi_cycle_pair
          LIMIT 70001`,
-        [source, this.correlationWindowSeconds],
+        [source, this.correlationWindowSeconds, this.timeZone],
       ),
     ]);
     if (operationGroups.length > 70000)

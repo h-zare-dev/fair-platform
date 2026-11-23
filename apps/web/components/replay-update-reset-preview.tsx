@@ -21,6 +21,9 @@ interface UpdateResetPreview {
   priorSnapshotMissingCount: number;
   boundaryFirstPairCount: number;
   pricedBoundaryFirstPairCount: number;
+  provenDurationChangeCount: number;
+  pricedProvenDurationChangeCount: number;
+  multiCyclePairCount: number;
   pricedUpdateOnlyCount: number;
   pricedRenewalCount: number;
   pricedResetContextCount: number;
@@ -85,11 +88,14 @@ export function ReplayUpdateResetPreview() {
       <p className="muted">
         یک Reset به‌همراه Update معتبر، فقط یک تمدید با پکیج نهایی است؛ Update
         مستقل فقط افزایش مثبت حجم را محاسبه می‌کند. کاهش حجم بازپرداخت ندارد.
-        Update بدون تغییر حجم هزینهٔ جدا ندارد؛ تنها اگر ارتباط یک‌به‌یک و حجم
-        یکسان اثبات شود، می‌تواند مدت پکیج Reset را تأیید کند. همان ۲۵ نرخ ثابت
-        اعلام‌شدهٔ مالک برای همهٔ مدیران آرشیو فرض شده‌اند. شناسه‌های آرشیو هنوز
-        با مدیران واقعی تطبیق قطعی ندارند. Next Plan و تسویهٔ شبانه در این آزمایش
-        محاسبه یا ثبت نمی‌شوند.
+        Update بدون تغییر حجم هزینهٔ جدا ندارد؛ یک زنجیرهٔ مرتب و بدون تداخل
+        Reset/Update می‌تواند دو تمدید مستقل را حتی در یک روز از هم جدا کند. مدت
+        قدیمی Reset فقط وقتی با مدت جدید Update جایگزین می‌شود که سابقهٔ قبلی
+        دقیقاً آن را تأیید کند. همان ۲۵ نرخ ثابت اعلام‌شدهٔ مالک برای همهٔ مدیران
+        آرشیو فرض شده‌اند. شناسه‌های آرشیو هنوز با مدیران واقعی تطبیق قطعی
+        ندارند. Next Plan و تسویهٔ شبانه در این آزمایش محاسبه یا ثبت نمی‌شوند.
+        تطبیق بر اساس زمان ثبت در مبدأ با سقف ۱۰ دقیقه انجام می‌شود، نه زمان
+        رسیدن وب‌هوک؛ محاسبهٔ شبانه هنوز پیاده‌سازی نشده است.
       </p>
       <button
         className="secondary"
@@ -134,6 +140,14 @@ export function ReplayUpdateResetPreview() {
             <b>{formatInteger(result.pricedBoundaryFirstPairCount)}</b>
           </p>
           <p>
+            جفت‌های زنجیرهٔ چندتمدیدی:{' '}
+            <b>{formatInteger(result.multiCyclePairCount)}</b>
+            {' · '}تمدیدهای تغییر مدت با سابقهٔ معتبر:{' '}
+            <b>{formatInteger(result.provenDurationChangeCount)}</b>
+            {' · '}از این موارد قیمت‌گذاری‌شده:{' '}
+            <b>{formatInteger(result.pricedProvenDurationChangeCount)}</b>
+          </p>
+          <p>
             تمدید دارای قیمت: <b>{formatInteger(result.pricedRenewalCount)}</b>
             {' · '}Reset با مدت تأییدشده و دارای قیمت:{' '}
             <b>{formatInteger(result.pricedResetContextCount)}</b>
@@ -158,11 +172,10 @@ export function ReplayUpdateResetPreview() {
           </p>
           <p className="muted">
             این عدد بدهی یا کردیت واقعی نیست؛ نتیجهٔ FP-005 Create جدا می‌ماند.
-            فیلد مدت نامعتبر، رویداد نامطمئن یا ارتباط چندبه‌چند هرگز با قیمت
-            پیش‌فرض محاسبه نمی‌شود. اگر مدت دو رویداد مرتبط تناقض داشته باشد،
-            محاسبه تا بررسی متوقف می‌ماند. Reset آغاز آرشیو فقط زمانی با Update
-            بعدی تطبیق داده می‌شود که یکتا، پشت‌سرهم و با زمان مرتب و دادهٔ منبع
-            سازگار باشد؛ سابقهٔ قبلی فرض نمی‌شود.
+            فیلد مدت نامعتبر، رویداد نامطمئن یا ارتباط نامطمئن هرگز با قیمت
+            پیش‌فرض محاسبه نمی‌شود. تغییر مدت ۳۰ به ۶۰ روز فقط وقتی پذیرفته است
+            که مدت قبلی Reset از تاریخچهٔ همان حساب اثبات شود. زنجیره‌های ناقص یا
+            غیرمتناوب متوقف می‌مانند؛ هم‌روز بودن به‌تنهایی مجوز تطبیق نیست.
           </p>
           {result.heldReasons.length > 0 && (
             <details>

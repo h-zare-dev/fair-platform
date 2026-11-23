@@ -16,6 +16,8 @@ export interface PreviewOperationAggregate {
   ambiguousCounterpart: boolean;
   durationConflict: boolean;
   boundaryFirstPair: boolean;
+  provenDurationChange: boolean;
+  multiCyclePair: boolean;
   eventCount: number;
 }
 
@@ -67,6 +69,12 @@ export function evaluateReplayUpdateResetPreview(
         typeof row.ambiguousCounterpart === 'boolean' &&
         typeof row.durationConflict === 'boolean' &&
         typeof row.boundaryFirstPair === 'boolean' &&
+        typeof row.provenDurationChange === 'boolean' &&
+        typeof row.multiCyclePair === 'boolean' &&
+        (!row.provenDurationChange || row.kind === 'RENEWAL') &&
+        (!row.multiCyclePair ||
+          row.kind === 'RENEWAL' ||
+          row.kind === 'RESET_WITH_UPDATE_CONTEXT') &&
         (!row.boundaryFirstPair ||
           row.kind === 'RENEWAL' ||
           row.kind === 'RESET_WITH_UPDATE_CONTEXT'),
@@ -106,8 +114,17 @@ export function evaluateReplayUpdateResetPreview(
   let ambiguousResetCount = 0;
   let priorSnapshotMissingCount = 0;
   let pricedBoundaryFirstPairCount = 0;
+  let pricedProvenDurationChangeCount = 0;
   const boundaryFirstPairCount = operations.reduce(
     (sum, row) => sum + (row.boundaryFirstPair ? row.eventCount : 0),
+    0,
+  );
+  const provenDurationChangeCount = operations.reduce(
+    (sum, row) => sum + (row.provenDurationChange ? row.eventCount : 0),
+    0,
+  );
+  const multiCyclePairCount = operations.reduce(
+    (sum, row) => sum + (row.multiCyclePair ? row.eventCount : 0),
     0,
   );
 
@@ -219,6 +236,7 @@ export function evaluateReplayUpdateResetPreview(
     pkg.subtotalToman = (BigInt(pkg.subtotalToman) + amount).toString();
     subtotal += amount;
     if (row.boundaryFirstPair) pricedBoundaryFirstPairCount += n;
+    if (row.provenDurationChange) pricedProvenDurationChangeCount += n;
     if (row.kind === 'RENEWAL') pricedRenewalCount += n;
     else if (row.kind === 'RESET_WITH_UPDATE_CONTEXT')
       pricedResetContextCount += n;
@@ -246,6 +264,9 @@ export function evaluateReplayUpdateResetPreview(
     priorSnapshotMissingCount,
     boundaryFirstPairCount,
     pricedBoundaryFirstPairCount,
+    provenDurationChangeCount,
+    pricedProvenDurationChangeCount,
+    multiCyclePairCount,
     pricedUpdateOnlyCount,
     pricedRenewalCount,
     pricedResetContextCount,

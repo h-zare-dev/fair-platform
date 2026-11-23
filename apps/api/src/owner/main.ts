@@ -30,7 +30,7 @@ async function main() {
         .int()
         .min(1)
         .max(600)
-        .default(120),
+        .default(600),
       PASARGUARD_BASE_URL: z.string().optional(),
       PASARGUARD_API_KEY_FILE: z.string().optional(),
       APP_ENCRYPTION_KEY_FILE: z.string().optional(),

@@ -505,4 +505,168 @@ describe('real PostgreSQL 17 replay grouping', () => {
     expect(JSON.stringify(result)).not.toContain('synthetic-admin');
     expect(query.toString()).not.toContain('UPDATE pasarguard_events');
   }, 120000);
+
+  it('pairs independent 10-minute source-time cycles, proves old-to-new duration, and holds competing local-day actions', async () => {
+    await db.query(
+      "DELETE FROM pasarguard_events WHERE source_instance_id='replay-30d'",
+    );
+    const [batch] = await db.query<{ id: string }[]>(
+      `INSERT INTO pasarguard_webhook_batches
+        (source_instance_id,received_at,payload_hash,event_count,processing_status)
+       VALUES('replay-30d',now(),$1,32,'NORMALIZED') RETURNING id::text`,
+      ['e'.repeat(64)],
+    );
+    const cases: {
+      user: number;
+      admin: number;
+      action: string;
+      bytes: number;
+      duration: string | null;
+      at: string;
+      status: string;
+    }[] = [];
+    const add = (
+      user: number,
+      action: string,
+      bytes: number,
+      at: string,
+      durationDays: number | null = 30,
+      admin = 1,
+      status = 'READY_FOR_ACCOUNTING',
+    ) =>
+      cases.push({
+        user,
+        action,
+        bytes,
+        at,
+        admin,
+        status,
+        duration: durationDays === null ? null : String(durationDays * 86400),
+      });
+
+    // All four actions form a single alternating chain despite each
+    // source-time gap being 5–10 minutes. Two renewals must be charged.
+    add(100, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(100, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
+    add(100, 'user_updated', 50, '2026-10-10T10:10:00Z', 60);
+    add(100, 'data_usage_reset', 50, '2026-10-10T10:15:00Z', 60);
+    add(100, 'user_updated', 50, '2026-10-10T10:23:00Z', 60);
+    // Same-day Update-first sequence: two independent operations.
+    add(101, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(101, 'user_updated', 100, '2026-10-10T10:00:00Z');
+    add(101, 'data_usage_reset', 100, '2026-10-10T10:09:00Z');
+    add(101, 'user_updated', 100, '2026-10-10T10:17:00Z');
+    add(101, 'data_usage_reset', 100, '2026-10-10T10:25:00Z');
+    // >10 minutes within the same billing day is held, not double billed.
+    add(102, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(102, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
+    add(102, 'user_updated', 50, '2026-10-10T10:10:01Z');
+    // Odd-length chain cannot choose which Reset belongs to the Update.
+    add(103, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(103, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
+    add(103, 'user_updated', 50, '2026-10-10T10:01:00Z');
+    add(103, 'data_usage_reset', 50, '2026-10-10T10:02:00Z');
+    // Different durations without a verified old Reset shape still conflict.
+    add(104, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(104, 'data_usage_reset', 50, '2026-10-10T10:00:00Z', 60);
+    add(104, 'user_updated', 50, '2026-10-10T10:01:00Z', 90);
+    // A Tehran-local midnight separates cycles even two seconds apart.
+    add(105, 'user_created', 50, '2026-10-10T19:00:00Z');
+    add(105, 'data_usage_reset', 50, '2026-10-10T20:29:59Z');
+    add(105, 'user_updated', 50, '2026-10-10T20:30:01Z');
+    // Equal source timestamps, not receipt order, are ambiguous.
+    add(106, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(106, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
+    add(106, 'user_updated', 50, '2026-10-10T10:00:00Z');
+    // Any intervening source event breaks the chain.
+    add(107, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(107, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
+    add(107, 'user_enabled', 50, '2026-10-10T10:00:30Z');
+    add(107, 'user_updated', 50, '2026-10-10T10:01:00Z');
+    // Identical source user IDs under different Billing Admins never pair.
+    add(108, 'data_usage_reset', 50, '2026-10-10T10:00:00Z', 30, 2);
+    add(108, 'user_updated', 50, '2026-10-10T10:00:01Z', 30, 3);
+    add(109, 'user_created', 50, '2026-10-10T09:00:00Z');
+    add(109, 'data_usage_reset', 50, '2026-10-10T10:00:00Z');
+    add(109, 'user_updated', 50, '2026-10-10T10:00:01Z', 30, 1, 'NEEDS_REVIEW');
+
+    // Reverse the actual insertion/HTTP reception order to prove source-time
+    // determinism; no private archive record or source username is involved.
+    for (const [index, row] of cases.reverse().entries()) {
+      await db.query(
+        `INSERT INTO pasarguard_events (
+          batch_id,batch_index,source_instance_id,semantic_fingerprint,
+          action,external_user_id,username,user_status,data_limit_bytes,
+          used_traffic_bytes,lifetime_used_bytes,billing_admin_id,
+          billing_admin_username,source_enqueued_at,event_status,
+          first_seen_at,last_seen_at,on_hold_expire_duration_seconds
+        ) VALUES ($1,$2,'replay-30d',$3,$4,$5,$6,'on_hold',$7,
+          0,0,$8,'synthetic-admin',$9,$10,now(),now(),$11)`,
+        [
+          batch!.id,
+          index,
+          String(3000 + index).padStart(64, '0'),
+          row.action,
+          String(row.user),
+          `synthetic-cycle-${row.user}-${row.admin}`,
+          (BigInt(row.bytes) * GIB).toString(),
+          String(row.admin),
+          row.at,
+          row.status,
+          row.duration,
+        ],
+      );
+    }
+    const testCatalog = packages.map((pkg, index) => {
+      if (index === 1)
+        return {
+          ...pkg,
+          packageBytes: (50n * GIB).toString(),
+          durationDays: 60,
+        };
+      if (index === 2) return { ...pkg, packageBytes: (100n * GIB).toString() };
+      return pkg;
+    });
+    const query = (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM fair_atomic_packages'))
+        return Promise.resolve(testCatalog);
+      if (sql.includes('FROM fair_admin_group_memberships'))
+        return Promise.resolve(memberships);
+      if (sql.includes('FROM fair_tariff_assignments'))
+        return Promise.resolve(assignments);
+      if (sql.includes('FROM pasarguard_webhook_batches'))
+        return Promise.resolve([
+          { batchCount: '15914', childCount: '64135', unfinishedBatches: '0' },
+        ]);
+      return db.query(sql, params);
+    };
+    const result = await new PostgresShadowReader(
+      { query } as never,
+      'Asia/Tehran',
+      600,
+    ).replayUpdateResetPreview();
+    expect(result).toMatchObject({
+      postingScope: 'NONE',
+      completeAccounting: false,
+      correlationWindowSeconds: 600,
+      pairedRenewalCount: 2,
+      pairedResetContextCount: 4,
+      pricedRenewalCount: 2,
+      pricedResetContextCount: 2,
+      multiCyclePairCount: 4,
+      provenDurationChangeCount: 1,
+      pricedProvenDurationChangeCount: 1,
+      pricedStandaloneResetCount: 2,
+      heldOperationCount: 12,
+      updateResetSubtotalToman: '1506000',
+    });
+    expect(result.heldReasons).toEqual([
+      { code: 'AMBIGUOUS_CORRELATION', count: 9 },
+      { code: 'DURATION_CONFLICT', count: 1 },
+      { code: 'PREVIOUS_STATE_MISSING', count: 1 },
+      { code: 'SOURCE_NEEDS_REVIEW', count: 1 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('synthetic-cycle-');
+    expect(JSON.stringify(result)).not.toContain('synthetic-admin');
+  }, 120000);
 });

@@ -137,7 +137,8 @@ activate LIVE billing or upstream Pasarguard connectivity under this specificati
    bill the final account state because independently valid same-day renewals
    must remain separate. Use stable identity, not names or timing alone.
 3. Reset+Update retains the established verified source-time correlation
-   contract (currently Owner-configurable 120 seconds). Mistaken
+   contract (Owner-corrected default 600 seconds on 2026-11-23, distinct from
+   nightly lateness grace; see the read-only FP-006/007 cycle replay task). Mistaken
    Create/Delete/Recreate or a larger-size correction is a *distinct business
    case*: only automatically supersede the earlier charge if verified stable
    source/user identity and event semantics **prove** a correction. A proposed

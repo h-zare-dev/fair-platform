@@ -37,7 +37,7 @@ FP-002's approved pricing/display unit is binary GiB (1,073,741,824 bytes). Pres
 Persist UTC timestamps. Upcoming business/report calculations use validated `FAIR_TIME_ZONE` (initially `Asia/Tehran`), a tested Jalali period library and half-open `[start, end)` UTC intervals. **Owner-facing package assignment date inputs are Jalali date-only with inclusive selected end**; convert the next Jalali midnight to the exclusive stored end. Never assume a business day is exactly 86,400 seconds in every timezone.
 
 ## Correlation Settings
-Do not hard-code the correlation window. Read the Owner-configured setting with a default of 120 seconds through an appropriate configuration/application boundary.
+Do not hard-code the correlation window. Read the Owner-configured setting with a default of 600 seconds through an appropriate configuration/application boundary. This is a source-time candidate window, never a network-delivery timeout.
 
 ## Errors
 Differentiate technical processing success from business resolution. Ambiguous financial state creates explicit exceptions.

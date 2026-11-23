@@ -19,6 +19,8 @@ interface UpdateResetPreview {
   ambiguousUpdateCount: number;
   ambiguousResetCount: number;
   priorSnapshotMissingCount: number;
+  boundaryFirstPairCount: number;
+  pricedBoundaryFirstPairCount: number;
   pricedUpdateOnlyCount: number;
   pricedRenewalCount: number;
   pricedResetContextCount: number;
@@ -126,6 +128,12 @@ export function ReplayUpdateResetPreview() {
             <b>{formatInteger(result.ambiguousResetCount)}</b>
           </p>
           <p>
+            تطبیق یکتای Reset ابتدای آرشیو با Update بعدی:{' '}
+            <b>{formatInteger(result.boundaryFirstPairCount)}</b>
+            {' · '}از این جفت‌ها، دارای قیمت ثابت تأییدشده:{' '}
+            <b>{formatInteger(result.pricedBoundaryFirstPairCount)}</b>
+          </p>
+          <p>
             تمدید دارای قیمت: <b>{formatInteger(result.pricedRenewalCount)}</b>
             {' · '}Reset با مدت تأییدشده و دارای قیمت:{' '}
             <b>{formatInteger(result.pricedResetContextCount)}</b>
@@ -152,7 +160,9 @@ export function ReplayUpdateResetPreview() {
             این عدد بدهی یا کردیت واقعی نیست؛ نتیجهٔ FP-005 Create جدا می‌ماند.
             فیلد مدت نامعتبر، رویداد نامطمئن یا ارتباط چندبه‌چند هرگز با قیمت
             پیش‌فرض محاسبه نمی‌شود. اگر مدت دو رویداد مرتبط تناقض داشته باشد،
-            محاسبه تا بررسی متوقف می‌ماند.
+            محاسبه تا بررسی متوقف می‌ماند. Reset آغاز آرشیو فقط زمانی با Update
+            بعدی تطبیق داده می‌شود که یکتا، پشت‌سرهم و با زمان مرتب و دادهٔ منبع
+            سازگار باشد؛ سابقهٔ قبلی فرض نمی‌شود.
           </p>
           {result.heldReasons.length > 0 && (
             <details>

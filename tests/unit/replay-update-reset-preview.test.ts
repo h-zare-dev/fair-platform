@@ -48,6 +48,7 @@ function operation(
     orderedPrevious: true,
     ambiguousCounterpart: false,
     durationConflict: false,
+    boundaryFirstPair: false,
     eventCount: 1,
     ...overrides,
   };
@@ -148,6 +149,38 @@ describe('FP-006/007 combined read-only accounting preview', () => {
     });
   });
 
+  it('counts boundary-first Reset pairs once and still holds uncertain source or duration', () => {
+    const result = quote([
+      operation('RESET_WITH_UPDATE_CONTEXT', { boundaryFirstPair: true }),
+      operation('RENEWAL', { boundaryFirstPair: true }),
+      operation('RESET_WITH_UPDATE_CONTEXT', {
+        boundaryFirstPair: true,
+        durationConflict: true,
+      }),
+      operation('RENEWAL', {
+        boundaryFirstPair: true,
+        counterpartStatus: 'NEEDS_REVIEW',
+      }),
+      operation('RENEWAL', {
+        boundaryFirstPair: true,
+        onHoldDurationSeconds: null,
+      }),
+    ]);
+    expect(result).toMatchObject({
+      boundaryFirstPairCount: 5,
+      pricedBoundaryFirstPairCount: 2,
+      pricedResetContextCount: 1,
+      pricedRenewalCount: 1,
+      heldOperationCount: 3,
+      updateResetSubtotalToman: '200000',
+    });
+    expect(result.heldReasons).toEqual([
+      { code: 'DURATION_CONFLICT', count: 1 },
+      { code: 'MISSING_DURATION', count: 1 },
+      { code: 'SOURCE_NEEDS_REVIEW', count: 1 },
+    ]);
+  });
+
   it('holds ambiguous 1-to-many correlation, unknown previous state and absent duration', () => {
     const result = quote([
       operation('RENEWAL', { onHoldDurationSeconds: null }),
@@ -214,6 +247,10 @@ describe('FP-006/007 combined read-only accounting preview', () => {
     expect(() => evaluateReplayUpdateResetPreview(base, rows, 0)).toThrow(
       'INVALID_CORRELATION_WINDOW',
     );
+    expect(
+      quote([operation('UPDATE_ONLY', { boundaryFirstPair: true })])
+        .ingestionReady,
+    ).toBe(false);
   });
 });
 

@@ -32,6 +32,10 @@ import type { OwnerAuth } from './application/auth.js';
 import type { PostgresShadowReader } from './infrastructure/shadow-reader.js';
 import { STATIC_CATALOG_SHAPES } from './application/static-catalog-bootstrap.js';
 import {
+  OpeningBaselineBusy,
+  type PostgresOpeningBaseline,
+} from './infrastructure/opening-baseline.js';
+import {
   ReceiveWebhook,
   WebhookFailure,
 } from '../modules/webhooks/application/receive-webhook.js';
@@ -198,6 +202,7 @@ export async function createOwnerApi(
   shadow?: PostgresShadowReader,
   webhook?: ReceiveWebhook,
   replayInbox?: DurableInbox,
+  openingBaseline?: PostgresOpeningBaseline,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -343,6 +348,31 @@ export async function createOwnerApi(
       if (!shadow) throw new HttpException('Unavailable', 503);
       input(z.object({}).strict(), req.query);
       return shadow.replayPreview();
+    }
+    @Get('operations/accounting/opening-baseline') async openingBaselineStatus(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      input(z.object({}).strict(), req.query);
+      if (!openingBaseline)
+        throw new HttpException('OPENING_BASELINE_UNAVAILABLE', 503);
+      return openingBaseline.summary();
+    }
+    @Post('operations/accounting/opening-baseline') async startOpeningBaseline(
+      @Req() req: FastifyRequest,
+    ) {
+      csrf(req);
+      await requireOwner(req);
+      input(z.object({}).strict(), req.body);
+      if (!openingBaseline)
+        throw new HttpException('OPENING_BASELINE_UNAVAILABLE', 503);
+      try {
+        return await openingBaseline.start();
+      } catch (error) {
+        if (error instanceof OpeningBaselineBusy)
+          throw new HttpException('OPENING_BASELINE_ALREADY_RUNNING', 409);
+        throw error;
+      }
     }
     @Get('operations/accounting/replay-update-reset-preview')
     async accountingReplayUpdateResetPreview(@Req() req: FastifyRequest) {

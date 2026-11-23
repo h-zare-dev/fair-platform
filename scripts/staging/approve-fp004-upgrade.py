@@ -23,6 +23,8 @@ NEW_MIGRATION = 'AtomicCatalog1791300000000'
 NEW_MIGRATION_FILE = 'dist/owner/infrastructure/catalog-migration.js'
 GROUP_MIGRATION = 'OwnerSafeGroupDelete1791400000000'
 GROUP_MIGRATION_FILE = 'dist/owner/infrastructure/group-delete-migration.js'
+OPENING_MIGRATION = 'OpeningBaseline1791700000000'
+OPENING_MIGRATION_FILE = 'dist/owner/infrastructure/opening-baseline-migration.js'
 IMAGE_RE = re.compile(r'ghcr\.io/h-zare-dev/fair-platform-owner-api@sha256:[0-9a-f]{64}')
 
 
@@ -32,7 +34,7 @@ class UpgradeError(Exception):
 
 def check_compose(previous, proposed, mode='initial'):
     """Only the one exact reviewed environment mapping may be added."""
-    if mode == 'group-delete':
+    if mode in ('group-delete', 'opening-baseline'):
         if proposed != previous:
             raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
         return
@@ -44,8 +46,12 @@ def check_compose(previous, proposed, mode='initial'):
 
 def check_proofs(approved, old, new, mode='initial'):
     """Exact additive migration: preserve every previously accepted code hash."""
-    added_name, added_file = ((GROUP_MIGRATION, GROUP_MIGRATION_FILE)
-                              if mode == 'group-delete' else (NEW_MIGRATION, NEW_MIGRATION_FILE))
+    additions = {
+        'initial': (NEW_MIGRATION, NEW_MIGRATION_FILE),
+        'group-delete': (GROUP_MIGRATION, GROUP_MIGRATION_FILE),
+        'opening-baseline': (OPENING_MIGRATION, OPENING_MIGRATION_FILE),
+    }
+    added_name, added_file = additions[mode]
     for proof in (old, new):
         if proof.get('schema') != 'fp003b-v1':
             raise UpgradeError('STAGING_MIGRATION_PROOF_INVALID')
@@ -181,8 +187,9 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
         atomic(root / 'current.json', original_manifest)
         atomic(settings / 'compatible-migrations.json', original_compat)
         raise
-    return ('STAGING_GROUP_DELETE_MIGRATION_APPROVED' if mode == 'group-delete'
-            else 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED')
+    return ({'group-delete': 'STAGING_GROUP_DELETE_MIGRATION_APPROVED',
+             'opening-baseline': 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED'}
+            .get(mode, 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED'))
 
 
 def main():
@@ -190,7 +197,7 @@ def main():
     if os.geteuid() != 0 or len(sys.argv) not in (2, 3):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
-    if mode not in ('initial', 'group-delete'):
+    if mode not in ('initial', 'group-delete', 'opening-baseline'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)
     if len(proposed) > 30000:

@@ -21,6 +21,9 @@ GRANT UPDATE (processing_status,processing_attempts,last_processing_at,last_erro
 GRANT UPDATE (occurrence_count,event_status,first_seen_at,last_seen_at,updated_at)
   ON pasarguard_events TO fair_owner_runtime;
 GRANT SELECT,INSERT ON fair_shadow_days,fair_shadow_items,fair_shadow_late_events TO fair_owner_runtime;
+-- Opening baseline is staging SHADOW evidence, not a financial ledger write.
+GRANT SELECT,INSERT,UPDATE ON fair_opening_baseline_runs,fair_opening_baseline_users TO fair_owner_runtime;
+GRANT USAGE ON SEQUENCE fair_opening_baseline_runs_id_seq TO fair_owner_runtime;
 GRANT USAGE ON SEQUENCE fair_shadow_days_id_seq,pasarguard_webhook_batches_id_seq,
   pasarguard_events_id_seq,pasarguard_ingestion_issues_id_seq TO fair_owner_runtime;
 GRANT SELECT ON fair_owner TO fair_owner_runtime;

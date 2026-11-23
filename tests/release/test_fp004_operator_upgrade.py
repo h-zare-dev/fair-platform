@@ -201,6 +201,39 @@ class UpgradeTests(unittest.TestCase):
         self.assertIn('APPROVE_FP004_GROUP_DELETE', workflow)
         self.assertIn('group-delete', workflow)
 
+    def test_opening_baseline_approves_only_one_additive_migration(self):
+        (self.root / 'compose.yml').write_bytes(self.proposed)
+        self.accepted['configHash'] = release.config_hash(self.root)
+        (self.root / 'current.json').write_text(json.dumps(self.accepted))
+        names = OLD + [upgrade.NEW_MIGRATION, upgrade.GROUP_MIGRATION]
+        hashes = {**NEW_HASHES, upgrade.GROUP_MIGRATION_FILE: 'd' * 64}
+        (self.settings / 'compatible-migrations.json').write_text(json.dumps({
+            'configuredMigrations': sorted(names), 'hashes': hashes,
+        }))
+        self.commands.old = report(names, hashes)
+        updated = {**hashes, upgrade.OPENING_MIGRATION_FILE: 'e' * 64}
+        self.commands.new = report(names + [upgrade.OPENING_MIGRATION], updated)
+        result = upgrade.review_and_approve(self.root, self.settings, self.proposed,
+                                            self.target_sha, self.commands, 'opening-baseline')
+        self.assertEqual(result, 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED')
+        self.assertEqual((self.root / 'compose.yml').read_bytes(), self.proposed)
+        self.assertEqual(json.loads((self.settings / 'compatible-migrations.json').read_text())['hashes'], updated)
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+            upgrade.check_compose(self.proposed, self.proposed + b'unsafe\n', 'opening-baseline')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'PREVIOUS_MIGRATION_HASH_CHANGED'):
+            upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
+                                 report(names, hashes), report(names + [upgrade.OPENING_MIGRATION],
+                                     {**updated, 'unexpected.js': 'a' * 64}), 'opening-baseline')
+
+    def test_opening_baseline_workflow_requires_owner_protected_branch(self):
+        workflow = (REPO / '.github/workflows/staging-fp006-opening-baseline-approval.yml').read_text()
+        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
+                         'github.ref_protected', 'group: fair-staging-deployment',
+                         'environment: staging-bootstrap', 'APPROVE_FP006_OPENING_BASELINE',
+                         'opening-baseline'):
+            self.assertIn(required, workflow)
+        self.assertNotIn('pull_request:', workflow)
+
     def test_workflow_is_manual_owner_only_protected_and_serialized(self):
         workflow = (REPO / '.github/workflows/staging-fp004-operator-upgrade.yml').read_text()
         self.assertIn('workflow_dispatch:', workflow)

@@ -19,6 +19,8 @@ import { PasarguardAdminDirectory } from './infrastructure/admin-directory.js';
 import { PasarguardSecretAuthenticator } from './infrastructure/webhook-secret.js';
 import { PostgresShadowReader } from './infrastructure/shadow-reader.js';
 import { NightlyShadow } from './infrastructure/nightly-shadow.js';
+import { PasarguardOpeningBaselineDirectory } from './infrastructure/opening-baseline-directory.js';
+import { PostgresOpeningBaseline } from './infrastructure/opening-baseline.js';
 async function main() {
   const config = z
     .object({
@@ -100,6 +102,21 @@ async function main() {
             config.FAIR_SHADOW_CLOSE_TIME,
           )
         : null;
+    // Owner-controlled, test-only import. Never activates billing or cutover.
+    // Requires both the read-only API and authenticated durable SHADOW inbox.
+    const openingBaseline =
+      ingest &&
+      config.FAIR_SHADOW_ENABLED === 'true' &&
+      config.PASARGUARD_BASE_URL &&
+      config.PASARGUARD_API_KEY_FILE
+        ? new PostgresOpeningBaseline(
+            db,
+            new PasarguardOpeningBaselineDirectory(
+              config.PASARGUARD_BASE_URL,
+              config.PASARGUARD_API_KEY_FILE,
+            ),
+          )
+        : undefined;
     const app = await createOwnerApi(
       auth,
       new PostgresOwnerOperations(db),
@@ -119,6 +136,7 @@ async function main() {
       ),
       ingest?.receiver,
       ingest?.replayInbox,
+      openingBaseline,
     );
     let processing = false;
     const ingestionLoop = setInterval(() => {
@@ -164,6 +182,18 @@ async function main() {
         });
     }, 60000);
     nightlyLoop.unref();
+    let baselineBusy = false;
+    const baselineLoop = setInterval(() => {
+      if (!openingBaseline || baselineBusy) return;
+      baselineBusy = true;
+      void openingBaseline
+        .runNext()
+        .catch(() => console.error('OPENING_BASELINE_STEP_FAILED'))
+        .finally(() => {
+          baselineBusy = false;
+        });
+    }, 750);
+    baselineLoop.unref();
     const cleanup = setInterval(() => {
       void store.cleanup().catch(() => console.error('OWNER_CLEANUP_FAILED'));
     }, 60000);
@@ -176,7 +206,8 @@ async function main() {
         clearInterval(ingestionLoop);
         clearInterval(rawCleanup);
         clearInterval(nightlyLoop);
-        while (processing || nightlyBusy)
+        clearInterval(baselineLoop);
+        while (processing || nightlyBusy || baselineBusy)
           await new Promise((r) => setTimeout(r, 50));
         if (db.isInitialized) await db.destroy();
       });

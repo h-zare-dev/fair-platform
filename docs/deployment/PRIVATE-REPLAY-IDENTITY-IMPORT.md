@@ -7,8 +7,16 @@ GitHub, ChatGPT, CI artifacts, the public panel or issue comments.
 
 ## Prerequisites / human gates
 
-1. Owner reviews, marks Ready and merges the Draft PR. Wait for the exact
-   `development` staging deployment and its forward-only migration to pass.
+1. Owner reviews, marks Ready and merges the Draft PR. The new migration
+   deliberately blocks ordinary Staging deployment until it is reviewed.
+   On protected `development`, manually dispatch GitHub Actions workflow
+   **Staging private historical identity migration approval (Owner only)**,
+   entering `APPROVE_PRIVATE_IDENTITY_STAGE`. The workflow verifies the
+   exact candidate migration hash against the accepted manifest and updates
+   only root-controlled compatibility metadata; it does not deploy, change
+   the database, copy private identities or enable webhook/LIVE accounting.
+   Wait for success, then rerun the protected `development` deployment and
+   verify its forward-only migration before importing the private sidecar.
 2. Verify the existing `replay-30d` still contains **64,135** events and
    the legacy export status is `VERIFIED_SOURCE_REPLAY_MATCH`.
 3. Private sidecar is currently on the **legacy** host in a protected

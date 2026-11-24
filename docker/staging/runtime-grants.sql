@@ -21,6 +21,10 @@ GRANT UPDATE (processing_status,processing_attempts,last_processing_at,last_erro
 GRANT UPDATE (occurrence_count,event_status,first_seen_at,last_seen_at,updated_at)
   ON pasarguard_events TO fair_owner_runtime;
 GRANT SELECT,INSERT ON fair_shadow_days,fair_shadow_items,fair_shadow_late_events TO fair_owner_runtime;
+-- A fresh bootstrap creates this role after migrations have run; the private
+-- identity migration grants SELECT itself when upgrading an existing staging.
+GRANT SELECT ON fair_replay_private_identity_imports,
+  fair_replay_private_identity_aliases TO fair_owner_runtime;
 -- Opening baseline is staging SHADOW evidence, not a financial ledger write.
 GRANT SELECT,INSERT,UPDATE ON fair_opening_baseline_runs,fair_opening_baseline_users TO fair_owner_runtime;
 GRANT USAGE ON SEQUENCE fair_opening_baseline_runs_id_seq TO fair_owner_runtime;

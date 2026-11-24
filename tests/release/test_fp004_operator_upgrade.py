@@ -326,6 +326,54 @@ class UpgradeTests(unittest.TestCase):
             self.assertIn(required, workflow)
         self.assertNotIn('pull_request:', workflow)
 
+    def test_private_identity_approves_one_additive_migration_without_compose_change(self):
+        (self.root / 'compose.yml').write_bytes(self.proposed)
+        self.accepted['configHash'] = release.config_hash(self.root)
+        (self.root / 'current.json').write_text(json.dumps(self.accepted))
+        names = OLD + [upgrade.NEW_MIGRATION, upgrade.GROUP_MIGRATION,
+                       upgrade.OPENING_MIGRATION, upgrade.BASELINE_CONTROL_MIGRATION,
+                       upgrade.REPLAY_JOURNAL_MIGRATION, upgrade.REPLAY_AUDIT_MIGRATION]
+        hashes = {**NEW_HASHES, upgrade.GROUP_MIGRATION_FILE: 'd' * 64,
+                  upgrade.OPENING_MIGRATION_FILE: 'e' * 64,
+                  upgrade.BASELINE_CONTROL_FILE: 'f' * 64,
+                  upgrade.REPLAY_JOURNAL_FILE: '1' * 64,
+                  upgrade.REPLAY_AUDIT_FILE: '2' * 64}
+        self.settings.joinpath('compatible-migrations.json').write_text(json.dumps({
+            'configuredMigrations': sorted(names), 'hashes': hashes,
+        }))
+        self.commands.old = report(names, hashes)
+        new_hashes = {**hashes, upgrade.PRIVATE_IDENTITY_FILE: '3' * 64}
+        self.commands.new = report(names + [upgrade.PRIVATE_IDENTITY_MIGRATION], new_hashes)
+        self.assertEqual(upgrade.review_and_approve(self.root, self.settings, self.proposed,
+                                                   self.target_sha, self.commands, 'private-identity'),
+                         'STAGING_PRIVATE_IDENTITY_MIGRATION_APPROVED')
+        self.assertEqual((self.root / 'compose.yml').read_bytes(), self.proposed)
+        self.assertEqual(json.loads((self.root / 'current.json').read_text()), self.accepted)
+        self.assertEqual(json.loads(self.settings.joinpath('compatible-migrations.json').read_text())['hashes'],
+                         new_hashes)
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+            upgrade.check_compose(self.proposed, self.proposed + b'unsafe\n', 'private-identity')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'UNEXPECTED_NEW_MIGRATIONS'):
+            upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
+                                 report(names, hashes),
+                                 report(names + [upgrade.PRIVATE_IDENTITY_MIGRATION, 'Unreviewed'],
+                                        new_hashes), 'private-identity')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'PREVIOUS_MIGRATION_HASH_CHANGED'):
+            upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
+                                 report(names, hashes),
+                                 report(names + [upgrade.PRIVATE_IDENTITY_MIGRATION],
+                                        {**new_hashes, upgrade.REPLAY_AUDIT_FILE: '9' * 64}),
+                                 'private-identity')
+
+    def test_private_identity_workflow_is_manual_owner_only(self):
+        workflow = (REPO / '.github/workflows/staging-private-identity-approval.yml').read_text()
+        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
+                         'github.ref_protected', 'group: fair-staging-deployment',
+                         'environment: staging-bootstrap', 'APPROVE_PRIVATE_IDENTITY_STAGE',
+                         'private-identity'):
+            self.assertIn(required, workflow)
+        self.assertNotIn('pull_request:', workflow)
+
     def test_workflow_is_manual_owner_only_protected_and_serialized(self):
         workflow = (REPO / '.github/workflows/staging-fp004-operator-upgrade.yml').read_text()
         self.assertIn('workflow_dispatch:', workflow)

@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
+import {
+  isAnonymizedReplayName,
+  jalaliMonthLabel,
+  jalaliWeekLabel,
+} from '../lib/shadow-report-labels';
 
 type Tab =
   | 'admins'
@@ -166,6 +171,11 @@ const REASONS: Record<string, string> = {
   NONFINANCIAL_ACTION: 'رویداد غیرمالی',
   DELETE_CREDIT_DISABLED: 'بستانکاری حذف در ENV غیرفعال',
   ALREADY_CREDITED: 'خرید قبلاً بستانکار شده',
+};
+const ADMIN_NAME_STATUS: Record<string, string> = {
+  ARCHIVE_PSEUDONYMIZED: 'نام در خروجی قدیمی ناشناس شده است؛ تطبیق نشده',
+  CONFLICT: 'چند نام متناقض در آرشیو',
+  MISSING: 'نام در آرشیو موجود نیست',
 };
 const WEEK_NAMES: Record<string, string> = {
   SATURDAY: 'شنبه',
@@ -671,10 +681,21 @@ export function ShadowAuditReports() {
                     {(report.rows as AdminRow[]).map((r) => (
                       <tr key={r.billingAdminId}>
                         <td>
-                          {r.adminName ?? 'نام ناموجود یا متناقض'}
+                          {r.adminName && !isAnonymizedReplayName(r.adminName)
+                            ? r.adminName
+                            : 'نام واقعی مدیر هنوز تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
+                          {r.adminName &&
+                            isAnonymizedReplayName(r.adminName) && (
+                              <small dir="ltr">
+                                شناسهٔ ناشناس آرشیو: {r.adminName}
+                              </small>
+                            )}
                           {r.nameStatus !== 'VERIFIED_IN_ARCHIVE' && (
-                            <small> · {r.nameStatus}</small>
+                            <small>
+                              {' '}
+                              · {labelFor(r.nameStatus, ADMIN_NAME_STATUS)}
+                            </small>
                           )}
                         </td>
                         <td>{formatInteger(r.observedDays)}</td>
@@ -701,7 +722,12 @@ export function ShadowAuditReports() {
                             className="secondary"
                             onClick={() => {
                               setAdminId(r.billingAdminId);
-                              setAdminName(r.adminName ?? 'نام نامطمئن');
+                              setAdminName(
+                                r.adminName &&
+                                  !isAnonymizedReplayName(r.adminName)
+                                  ? r.adminName
+                                  : 'مدیر تاریخی بدون تطبیق هویت',
+                              );
                               setFrom('');
                               setTo('');
                               switchTab('day');
@@ -732,6 +758,19 @@ export function ShadowAuditReports() {
                     {(report.rows as PeriodRow[]).map((r) => (
                       <tr key={r.startDate}>
                         <td>
+                          {tab === 'week' && overview && (
+                            <strong>
+                              {jalaliWeekLabel(
+                                r.startDate,
+                                r.endDate,
+                                overview.weekStartDay,
+                              )}
+                            </strong>
+                          )}
+                          {tab === 'month' && (
+                            <strong>{jalaliMonthLabel(r.startDate)}</strong>
+                          )}
+                          {tab !== 'day' && <br />}
                           <span dir="ltr">{r.startDate}</span>
                           {r.endDate !== r.startDate && (
                             <>
@@ -821,8 +860,14 @@ export function ShadowAuditReports() {
                     {(report.rows as OperationRow[]).map((r) => (
                       <tr key={r.operationKey}>
                         <td>
-                          {r.adminName ?? 'نام نامطمئن'}
+                          {r.adminName && !isAnonymizedReplayName(r.adminName)
+                            ? r.adminName
+                            : 'نام واقعی مدیر تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
+                          {r.adminName &&
+                            isAnonymizedReplayName(r.adminName) && (
+                              <small dir="ltr">{r.adminName}</small>
+                            )}
                         </td>
                         <td>
                           {r.accountName ?? 'نام نامطمئن'}

@@ -7,6 +7,7 @@ import {
   type ReportWeekStart,
   type StoredShadowDay,
 } from '../application/shadow-report-periods.js';
+import { archivedAdminNameStatus } from '../application/archive-admin-name.js';
 import type { PostgresReplayShadowJournal } from './replay-shadow-journal.js';
 import type { ReplayLedgerLine } from './replay-shadow-calculator.js';
 
@@ -448,12 +449,7 @@ export class PostgresReplayShadowAudit {
         rows.map((r) => ({
           ...r,
           adminName: r.names?.length === 1 ? r.names[0] : null,
-          nameStatus:
-            r.names?.length === 1
-              ? 'VERIFIED_IN_ARCHIVE'
-              : r.names?.length
-                ? 'CONFLICT'
-                : 'MISSING',
+          nameStatus: archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
           heldCandidateCount: candidatesByAdmin.get(r.billingAdminId) ?? 0,
           status: Number(r.pendingDays) > 0 ? 'PENDING_REVIEW' : 'RECONCILED',
         })),
@@ -625,7 +621,7 @@ export class PostgresReplayShadowAudit {
         ...new Set(
           events
             .map((e) => e[field])
-            .filter((v) => typeof v === 'string' && v !== ''),
+            .filter((v): v is string => typeof v === 'string' && v !== ''),
         ),
       ];
       const adminNames = names('billingAdminUsername');
@@ -638,12 +634,7 @@ export class PostgresReplayShadowAudit {
         ),
         adminName: adminNames.length === 1 ? adminNames[0] : null,
         accountName: accountNames.length === 1 ? accountNames[0] : null,
-        adminNameStatus:
-          adminNames.length === 1
-            ? 'SOURCE'
-            : adminNames.length
-              ? 'CONFLICT'
-              : 'MISSING',
+        adminNameStatus: archivedAdminNameStatus(adminNames, 'SOURCE'),
         accountNameStatus:
           accountNames.length === 1
             ? 'SOURCE'

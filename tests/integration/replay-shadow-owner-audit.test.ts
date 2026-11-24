@@ -234,7 +234,7 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
       (source_instance_id,manifest_sha256,map_sha256,replay_plaintext_sha256,source_script_sha256,
         event_count,mapped_admins,mapped_accounts,mapped_actor_admins,
         unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs)
-      VALUES('replay-30d',repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),64135,1,1,0,0,0,0)`);
+      VALUES('replay-30d',repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),64135,1,1,0,1,0,0)`);
     await db.query(`INSERT INTO fair_replay_private_identity_aliases
       (source_instance_id,role,archived_id,archived_username,original_id,original_username)
       VALUES
@@ -263,7 +263,9 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
     });
     expect(unmatched.rows[0]).toMatchObject({
       billingAdminId: '17',
-      adminName: null,
+      adminName: 'reseller',
+      historicalAdminId: null,
+      nameStatus: 'VERIFIED_IN_ARCHIVE',
     });
     const entries = await audit().entries({
       runId,
@@ -288,6 +290,6 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
     expect(after.totals).toEqual(before.totals);
     expect(after.integrity).toEqual(before.integrity);
     expect(after.historicalIdentityVerified).toBe(false); // no current-directory proof
-    expect(after.historicalSourceIdentity.status).toBe('SOURCE_VERIFIED');
+    expect(after.historicalSourceIdentity.status).toBe('PARTIAL_SOURCE_MATCH');
   });
 });

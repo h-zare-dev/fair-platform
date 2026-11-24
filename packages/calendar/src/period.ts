@@ -45,8 +45,17 @@ function gregorianDateAt(
   return { year: number('year'), month: number('month'), day: number('day') };
 }
 
+// Intl.DateTimeFormat retains substantial native ICU state that is not counted
+// against V8's heap limit. Recreating it for each archived event can exhaust
+// the 512 MiB Staging API container even for a bounded 30-day replay.
+// Keep the cache bounded because zones are also accepted from input.
+const MAX_FORMATTERS = 16;
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function formatterFor(zone: string): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat('en-US', {
+  const cached = dateFormatters.get(zone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: validateTimeZone(zone),
     calendar: 'gregory',
     numberingSystem: 'latn',
@@ -54,6 +63,12 @@ function formatterFor(zone: string): Intl.DateTimeFormat {
     month: '2-digit',
     day: '2-digit',
   });
+  if (dateFormatters.size >= MAX_FORMATTERS) {
+    const first = dateFormatters.keys().next().value;
+    if (first !== undefined) dateFormatters.delete(first);
+  }
+  dateFormatters.set(zone, formatter);
+  return formatter;
 }
 
 function civilKey(d: CalendarDate): number {

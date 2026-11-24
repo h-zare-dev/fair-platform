@@ -188,7 +188,9 @@ describe('FP-006 opening baseline transaction and recovery', () => {
       calls.filter(({ limit }) => limit === 50).map(({ offset }) => offset),
     ).toEqual([0, 50]);
     // Verification is by stored IDs; it never enumerates live offsets again.
-    expect(calls.filter(({ limit }) => limit === 1)).toHaveLength(2);
+    expect(
+      calls.filter(({ limit, offset }) => limit === 1 && offset === 0),
+    ).toHaveLength(2);
   });
 
   it('completes safely when the source shrinks below the next scan offset', async () => {

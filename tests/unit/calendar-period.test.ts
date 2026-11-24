@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   jalaliValidityWindow,
   jalaliLocalMidnightUtc,
@@ -73,5 +73,21 @@ describe('FP-004 local-calendar assignment windows', () => {
     expect(() => jalaliLocalMidnightUtc('1390-10-09', 'Pacific/Apia')).toThrow(
       'NONEXISTENT_LOCAL_DATE',
     );
+  });
+
+  it('reuses bounded native date formatters during high-volume archive replay', () => {
+    const constructor = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      const instant = new Date('2026-11-24T00:00:00Z');
+      const days = Array.from({ length: 1000 }, () =>
+        localJalaliDate(instant, 'Pacific/Tongatapu'),
+      );
+      expect(new Set(days).size).toBe(1);
+      // One zone validation and one date formatter, instead of 2,000
+      // native ICU objects and unbounded resident memory.
+      expect(constructor.mock.calls.length).toBeLessThanOrEqual(2);
+    } finally {
+      constructor.mockRestore();
+    }
   });
 });

@@ -514,7 +514,11 @@ export class PostgresReplayShadowAudit {
           adminName:
             Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
               ? r.verifiedNames[0]
-              : null,
+              : r.verifiedIds?.length
+                ? null
+                : r.names?.length === 1
+                  ? r.names[0]
+                  : null,
           historicalAdminId:
             r.verifiedIds?.length === 1 ? r.verifiedIds[0] : null,
           nameStatus: r.verifiedIds?.length
@@ -824,9 +828,13 @@ export class PostgresReplayShadowAudit {
           .filter((e) => !row.eventIds.includes(e.id as string))
           .map(enriched),
         adminName:
-          adminNames.length === 1 && adminFullyMatched ? adminNames[0] : null,
+          adminNames.length === 1 &&
+          (adminFullyMatched || !adminPartiallyMatched)
+            ? adminNames[0]
+            : null,
         accountName:
-          accountNames.length === 1 && accountFullyMatched
+          accountNames.length === 1 &&
+          (accountFullyMatched || !accountPartiallyMatched)
             ? accountNames[0]
             : null,
         adminNameStatus:

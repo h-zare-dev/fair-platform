@@ -550,6 +550,19 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // The private historical identity sidecar is the newest additive migration.
+  // Undo it first so the legacy SHADOW migration ordering remains unchanged.
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_replay_private_identity_imports')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_replay_private_identity_aliases')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
   // The Owner-only audit adds immutable price/candidate evidence after the
   // original SHADOW journal; unwind only in this disposable test database.
   await db.undoLastMigration({ transaction: 'all' });

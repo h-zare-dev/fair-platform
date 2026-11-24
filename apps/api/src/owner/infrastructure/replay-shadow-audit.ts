@@ -568,7 +568,11 @@ export class PostgresReplayShadowAudit {
        FROM jsonb_to_recordset($1::jsonb) AS requested(
          operation_key text,billing_admin_id bigint,external_user_id bigint,before_at timestamptz)
        CROSS JOIN LATERAL (
-         SELECT e.* FROM pasarguard_events e
+         SELECT e.id,e.action,e.billing_admin_id,e.billing_admin_username,
+           e.external_user_id,e.username,e.actor_admin_id,e.actor_admin_username,
+           e.source_enqueued_at,e.data_limit_bytes,e.on_hold_expire_duration_seconds,
+           e.source_user_created_at,e.source_user_expire_at,e.user_status,e.event_status
+         FROM pasarguard_events e
          WHERE e.source_instance_id=$2 AND e.billing_admin_id=requested.billing_admin_id
            AND e.external_user_id=requested.external_user_id
            AND e.source_enqueued_at < requested.before_at

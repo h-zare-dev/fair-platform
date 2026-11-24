@@ -62,6 +62,7 @@ export class ReplayShadowAudit1792000000000 implements MigrationInterface {
       GRANT SELECT (id,source_instance_id,action,external_user_id,username,
         billing_admin_id,billing_admin_username,actor_admin_id,actor_admin_username,
         source_enqueued_at,data_limit_bytes,on_hold_expire_duration_seconds,
+        source_user_created_at,source_user_expire_at,
         user_status,event_status) ON pasarguard_events TO fair_owner_runtime;
     END IF; END $$`);
   }

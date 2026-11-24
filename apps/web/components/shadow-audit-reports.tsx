@@ -232,6 +232,7 @@ function Evidence({ row }: { row: OperationRow }) {
               <th>وضعیت</th>
               <th>حجم دقیق</th>
               <th>مدت اثبات‌شده</th>
+              <th>تاریخ ایجاد / انقضا</th>
             </tr>
           </thead>
           <tbody>
@@ -260,6 +261,14 @@ function Evidence({ row }: { row: OperationRow }) {
                   {event.durationSeconds === null
                     ? 'نامشخص'
                     : `${formatInteger(event.durationSeconds)} ثانیه`}
+                </td>
+                <td>
+                  {event.createdAt ? formatUtc(event.createdAt) : 'نامشخص'}
+                  <small>
+                    {event.expiresAt
+                      ? formatUtc(event.expiresAt)
+                      : 'انقضا نامشخص'}
+                  </small>
                 </td>
               </tr>
             ))}

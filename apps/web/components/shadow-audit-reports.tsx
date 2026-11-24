@@ -57,6 +57,17 @@ type Overview = {
   };
   integrity: { status: string; errors: string[]; note: string };
   historicalIdentityVerified: false;
+  historicalSourceIdentity: {
+    status: 'SOURCE_VERIFIED' | 'PARTIAL_SOURCE_MATCH' | 'NOT_IMPORTED';
+    mappedBillingAdmins: number;
+    mappedAccounts: number;
+    mappedActorAdmins: number;
+    unmatchedArchiveAdminPairs: number | null;
+    unmatchedArchiveAccountPairs: number | null;
+    unmatchedArchiveActorPairs: number | null;
+    importedAt: string | null;
+    currentDirectoryMatched: false;
+  };
 };
 type EventEvidence = {
   id: string;
@@ -68,6 +79,12 @@ type EventEvidence = {
   accountUsername: string;
   actorAdminId: string | null;
   actorAdminUsername: string | null;
+  historicalBillingAdminId?: string | null;
+  historicalAccountId?: string | null;
+  historicalActorId?: string | null;
+  archivedBillingAdminUsername?: string;
+  archivedAccountUsername?: string;
+  archivedActorAdminUsername?: string | null;
   dataLimitBytes: string;
   durationSeconds: string | null;
   eventStatus: string;
@@ -91,6 +108,7 @@ type OperationRow = {
   accountName: string | null;
   adminNameStatus: string;
   accountNameStatus: string;
+  historicalAdminId?: string | null;
   eventEvidenceComplete: boolean;
   amountToman?: string;
   packageId?: string;
@@ -103,6 +121,7 @@ type AdminRow = {
   adminName: string | null;
   nameStatus: string;
   names: string[] | null;
+  historicalAdminId: string | null;
   observedDays: string;
   readyDays: string;
   pendingDays: string;
@@ -173,6 +192,12 @@ const REASONS: Record<string, string> = {
   ALREADY_CREDITED: 'خرید قبلاً بستانکار شده',
 };
 const ADMIN_NAME_STATUS: Record<string, string> = {
+  SOURCE_VERIFIED_HISTORICAL:
+    'نام تاریخی از منبع اصلی آرشیو تأیید شده؛ تطبیق با مدیر فعلی انجام نشده',
+  SOURCE_VERIFIED_ID_ONLY: 'شناسهٔ تاریخی تأیید شده اما نام اصلی موجود نیست',
+  PARTIAL_SOURCE_MATCH: 'تطبیق هویت برای تمام نام‌های این مدیر کامل نیست',
+  HISTORICAL_NAME_CONFLICT:
+    'چند نام واقعی تاریخی در منبع دیده شده؛ نام واحد حدس زده نشد',
   ARCHIVE_PSEUDONYMIZED: 'نام در خروجی قدیمی ناشناس شده است؛ تطبیق نشده',
   CONFLICT: 'چند نام متناقض در آرشیو',
   MISSING: 'نام در آرشیو موجود نیست',
@@ -258,6 +283,12 @@ function Evidence({ row }: { row: OperationRow }) {
                   {event.actorAdminUsername ?? 'عامل نامشخص'}
                   {event.actorAdminId && (
                     <small dir="ltr"> · #{event.actorAdminId}</small>
+                  )}
+                  {event.historicalActorId && (
+                    <small dir="ltr">
+                      {' '}
+                      · source #{event.historicalActorId}
+                    </small>
                   )}
                 </td>
                 <td>
@@ -428,9 +459,37 @@ export function ShadowAuditReports() {
         <b>فقط آزمایش SHADOW — بدون تغییر موجودی واقعی</b>
         <p>
           این محاسبات بر اساس آرشیو تاریخی و فرض قیمت‌های ثابت انجام شده‌اند.
-          نام و شناسهٔ مدیر تاریخی با مدیر فعلی PasarGuard معادل‌سازی نشده است.
+          نام‌های تاریخی فقط پس از ورود خصوصی و تطبیق با آرشیو اصلی نمایش داده
+          می‌شوند؛ شناسهٔ تاریخی به‌صورت خودکار معادل مدیر فعلی PasarGuard نیست.
           روز مبهم بدهیِ صفر ندارد؛ مبلغش هنوز ثبت نشده است.
         </p>
+        {overview && (
+          <p className="muted" data-testid="identity-coverage">
+            وضعیت نام‌های تاریخی:{' '}
+            <strong>
+              {overview.historicalSourceIdentity.status === 'SOURCE_VERIFIED'
+                ? 'تطبیق منبع تاریخی تکمیل شده'
+                : overview.historicalSourceIdentity.status ===
+                    'PARTIAL_SOURCE_MATCH'
+                  ? 'تطبیق منبع تاریخی ناقص است'
+                  : 'هنوز فایل خصوصی هویت وارد نشده'}
+            </strong>
+            {' · '}مدیران ثبت‌شده در فایل خصوصی:{' '}
+            {formatInteger(
+              overview.historicalSourceIdentity.mappedBillingAdmins,
+            )}
+            {' · '}اکانت‌های بازیابی‌شده:{' '}
+            {formatInteger(overview.historicalSourceIdentity.mappedAccounts)}
+            {' · '}عامل‌های ثبت بازیابی‌شده:{' '}
+            {formatInteger(overview.historicalSourceIdentity.mappedActorAdmins)}
+            {overview.historicalSourceIdentity.unmatchedArchiveAdminPairs !==
+              null &&
+              ` · نام‌های آرشیوی بدون تطبیق: ${formatInteger(overview.historicalSourceIdentity.unmatchedArchiveAdminPairs)}`}
+            {overview.historicalSourceIdentity.unmatchedArchiveAccountPairs !==
+              null &&
+              ` · اکانت‌های بدون تطبیق: ${formatInteger(overview.historicalSourceIdentity.unmatchedArchiveAccountPairs)}`}
+          </p>
+        )}
       </div>
       <div className="audit-toolbar">
         <label>
@@ -685,6 +744,12 @@ export function ShadowAuditReports() {
                             ? r.adminName
                             : 'نام واقعی مدیر هنوز تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
+                          {r.historicalAdminId && (
+                            <small dir="ltr">
+                              {' '}
+                              شناسهٔ اصلی تاریخی: #{r.historicalAdminId}
+                            </small>
+                          )}
                           {r.adminName &&
                             isAnonymizedReplayName(r.adminName) && (
                               <small dir="ltr">
@@ -864,14 +929,31 @@ export function ShadowAuditReports() {
                             ? r.adminName
                             : 'نام واقعی مدیر تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
+                          {r.events[0]?.historicalBillingAdminId && (
+                            <small dir="ltr">
+                              {' '}
+                              شناسهٔ اصلی تاریخی: #
+                              {r.events[0].historicalBillingAdminId}
+                            </small>
+                          )}
                           {r.adminName &&
                             isAnonymizedReplayName(r.adminName) && (
                               <small dir="ltr">{r.adminName}</small>
                             )}
                         </td>
                         <td>
-                          {r.accountName ?? 'نام نامطمئن'}
+                          {r.accountName &&
+                          !isAnonymizedReplayName(r.accountName)
+                            ? r.accountName
+                            : 'نام واقعی اکانت هنوز تطبیق نشده'}
                           <small dir="ltr"> #{r.externalUserId}</small>
+                          {r.events[0]?.historicalAccountId && (
+                            <small dir="ltr">
+                              {' '}
+                              شناسهٔ اصلی تاریخی: #
+                              {r.events[0].historicalAccountId}
+                            </small>
+                          )}
                         </td>
                         <td>
                           <span dir="ltr">{r.localDay}</span>

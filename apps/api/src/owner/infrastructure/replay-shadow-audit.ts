@@ -128,6 +128,51 @@ export class PostgresReplayShadowAudit {
     return this.journal.legacyAuditEvidence(run.id);
   }
 
+  private async historicalIdentityCoverage() {
+    const [record] = await this.db.query<
+      Array<{
+        mapped_admins: number;
+        mapped_accounts: number;
+        mapped_actor_admins: number;
+        unmatched_admin_pairs: number;
+        unmatched_account_pairs: number;
+        unmatched_actor_pairs: number;
+        imported_at: Date;
+      }>
+    >(
+      `SELECT mapped_admins,mapped_accounts,mapped_actor_admins,
+        unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs,imported_at
+      FROM fair_replay_private_identity_imports WHERE source_instance_id=$1`,
+      [SOURCE],
+    );
+    return record
+      ? {
+          status:
+            record.unmatched_admin_pairs === 0
+              ? 'SOURCE_VERIFIED'
+              : 'PARTIAL_SOURCE_MATCH',
+          mappedBillingAdmins: record.mapped_admins,
+          mappedAccounts: record.mapped_accounts,
+          mappedActorAdmins: record.mapped_actor_admins,
+          unmatchedArchiveAdminPairs: record.unmatched_admin_pairs,
+          unmatchedArchiveAccountPairs: record.unmatched_account_pairs,
+          unmatchedArchiveActorPairs: record.unmatched_actor_pairs,
+          importedAt: record.imported_at.toISOString(),
+          currentDirectoryMatched: false,
+        }
+      : {
+          status: 'NOT_IMPORTED',
+          mappedBillingAdmins: 0,
+          mappedAccounts: 0,
+          mappedActorAdmins: 0,
+          unmatchedArchiveAdminPairs: null,
+          unmatchedArchiveAccountPairs: null,
+          unmatchedArchiveActorPairs: null,
+          importedAt: null,
+          currentDirectoryMatched: false,
+        };
+  }
+
   private async hasSnapshot(runId: string): Promise<boolean> {
     const [r] = await this.db.query<{ present: boolean }[]>(
       `SELECT EXISTS(SELECT 1 FROM fair_replay_shadow_audit_prices WHERE run_id=$1) AS present`,
@@ -384,6 +429,7 @@ export class PostgresReplayShadowAudit {
         note: 'Internal journal consistency only; not independent proof of historical identity or LIVE charges.',
       },
       historicalIdentityVerified: false,
+      historicalSourceIdentity: await this.historicalIdentityCoverage(),
     };
   }
 
@@ -394,6 +440,9 @@ export class PostgresReplayShadowAudit {
       Array<{
         billingAdminId: string;
         names: string[] | null;
+        verifiedNames: string[] | null;
+        verifiedIds: string[] | null;
+        unmatchedAliases: string;
         observedDays: string;
         readyDays: string;
         pendingDays: string;
@@ -405,9 +454,20 @@ export class PostgresReplayShadowAudit {
       }>
     >(
       `WITH admin_names AS (
-        SELECT billing_admin_id,ARRAY_AGG(DISTINCT billing_admin_username ORDER BY billing_admin_username)
-          FILTER(WHERE billing_admin_username<>'') AS names
-        FROM pasarguard_events WHERE source_instance_id=$2 GROUP BY billing_admin_id),
+        SELECT e.billing_admin_id,
+          ARRAY_AGG(DISTINCT e.billing_admin_username ORDER BY e.billing_admin_username)
+            FILTER(WHERE e.billing_admin_username<>'') AS names,
+          ARRAY_AGG(DISTINCT m.original_username ORDER BY m.original_username)
+            FILTER(WHERE m.original_username IS NOT NULL AND m.original_username<>'') AS "verifiedNames",
+          ARRAY_AGG(DISTINCT m.original_id::text ORDER BY m.original_id::text)
+            FILTER(WHERE m.original_id IS NOT NULL) AS "verifiedIds",
+          COUNT(DISTINCT (e.billing_admin_id,e.billing_admin_username))
+            FILTER(WHERE m.archived_id IS NULL)::text AS "unmatchedAliases"
+        FROM pasarguard_events e LEFT JOIN fair_replay_private_identity_aliases m
+          ON m.source_instance_id=e.source_instance_id AND m.role='billing_admin'
+          AND m.archived_id=e.billing_admin_id
+          AND m.archived_username=COALESCE(e.billing_admin_username,'')
+        WHERE e.source_instance_id=$2 GROUP BY e.billing_admin_id),
       totals AS (
         SELECT billing_admin_id,COUNT(*)::text AS "observedDays",
           COUNT(*) FILTER(WHERE status='SHADOW_READY')::text AS "readyDays",
@@ -417,10 +477,13 @@ export class PostgresReplayShadowAudit {
           COALESCE(SUM(net_toman),0)::text AS "netToman",
           SUM(hold_count)::text AS "holdCount",SUM(entry_count)::text AS "entryCount"
         FROM fair_replay_shadow_days WHERE run_id=$1 GROUP BY billing_admin_id)
-      SELECT t.*,t.billing_admin_id::text AS "billingAdminId",n.names
+      SELECT t.*,t.billing_admin_id::text AS "billingAdminId",
+        n.names,n."verifiedNames",n."verifiedIds",n."unmatchedAliases"
       FROM totals t LEFT JOIN admin_names n USING(billing_admin_id)
       WHERE ($3::text='' OR POSITION(LOWER($3) IN LOWER(t.billing_admin_id::text))>0 OR
-        EXISTS(SELECT 1 FROM unnest(n.names) name WHERE POSITION(LOWER($3) IN LOWER(name))>0))
+        EXISTS(SELECT 1 FROM unnest(n.names) name WHERE POSITION(LOWER($3) IN LOWER(name))>0) OR
+        EXISTS(SELECT 1 FROM unnest(n."verifiedNames") name WHERE POSITION(LOWER($3) IN LOWER(name))>0) OR
+        EXISTS(SELECT 1 FROM unnest(n."verifiedIds") id WHERE POSITION($3 IN id)>0))
       ORDER BY t.billing_admin_id LIMIT $4 OFFSET $5`,
       [run.id, SOURCE, search, filters.limit + 1, filters.offset],
     );
@@ -448,8 +511,21 @@ export class PostgresReplayShadowAudit {
       ...page(
         rows.map((r) => ({
           ...r,
-          adminName: r.names?.length === 1 ? r.names[0] : null,
-          nameStatus: archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
+          adminName:
+            Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
+              ? r.verifiedNames[0]
+              : null,
+          historicalAdminId:
+            r.verifiedIds?.length === 1 ? r.verifiedIds[0] : null,
+          nameStatus: r.verifiedIds?.length
+            ? Number(r.unmatchedAliases) > 0
+              ? 'PARTIAL_SOURCE_MATCH'
+              : r.verifiedNames?.length === 1
+                ? 'SOURCE_VERIFIED_HISTORICAL'
+                : r.verifiedNames?.length
+                  ? 'HISTORICAL_NAME_CONFLICT'
+                  : 'SOURCE_VERIFIED_ID_ONLY'
+            : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
           heldCandidateCount: candidatesByAdmin.get(r.billingAdminId) ?? 0,
           status: Number(r.pendingDays) > 0 ? 'PENDING_REVIEW' : 'RECONCILED',
         })),
@@ -595,6 +671,38 @@ export class PostgresReplayShadowAudit {
     return grouped;
   }
 
+  private async privateEventNames(events: Array<Record<string, unknown>>) {
+    const ids = new Set<string>();
+    for (const event of events)
+      for (const key of ['billingAdminId', 'externalUserId', 'actorAdminId']) {
+        const value = event[key];
+        if (typeof value === 'string' && /^\d+$/.test(value)) ids.add(value);
+      }
+    const results = new Map<string, { id: string; name: string | null }>();
+    if (!ids.size) return results;
+    const rows = await this.db.query<
+      Array<{
+        role: string;
+        archivedId: string;
+        archivedUsername: string;
+        originalId: string;
+        originalUsername: string | null;
+      }>
+    >(
+      `SELECT role,archived_id::text AS "archivedId",archived_username AS "archivedUsername",
+      original_id::text AS "originalId",original_username AS "originalUsername"
+      FROM fair_replay_private_identity_aliases
+      WHERE source_instance_id=$1 AND archived_id=ANY($2::bigint[])`,
+      [SOURCE, [...ids]],
+    );
+    for (const row of rows)
+      results.set(
+        JSON.stringify([row.role, row.archivedId, row.archivedUsername]),
+        { id: row.originalId, name: row.originalUsername },
+      );
+    return results;
+  }
+
   private async decorate<
     T extends {
       eventIds: string[];
@@ -608,8 +716,74 @@ export class PostgresReplayShadowAudit {
     const context = includePrecedingContext
       ? await this.precedingContext(rows)
       : new Map<string, Array<Record<string, unknown>>>();
+    const identities = await this.privateEventNames([
+      ...byId.values(),
+      ...[...context.values()].flat(),
+    ]);
+    const verified = (
+      event: Record<string, unknown>,
+      role: string,
+      idKey: string,
+      nameKey: string,
+    ) => {
+      const archivedId = event[idKey];
+      const alias = event[nameKey];
+      if (typeof archivedId !== 'string') return null;
+      return (
+        identities.get(
+          JSON.stringify([
+            role,
+            archivedId,
+            typeof alias === 'string' ? alias : '',
+          ]),
+        ) ?? null
+      );
+    };
+    const enriched = (
+      event: Record<string, unknown>,
+    ): Record<string, unknown> => {
+      const admin = verified(
+        event,
+        'billing_admin',
+        'billingAdminId',
+        'billingAdminUsername',
+      );
+      const account = verified(
+        event,
+        'account',
+        'externalUserId',
+        'accountUsername',
+      );
+      const actor = verified(
+        event,
+        'actor_admin',
+        'actorAdminId',
+        'actorAdminUsername',
+      );
+      return {
+        ...event,
+        archivedBillingAdminUsername: event.billingAdminUsername,
+        archivedAccountUsername: event.accountUsername,
+        archivedActorAdminUsername: event.actorAdminUsername,
+        billingAdminUsername: admin?.name || event.billingAdminUsername,
+        accountUsername: account?.name || event.accountUsername,
+        actorAdminUsername: actor?.name || event.actorAdminUsername,
+        historicalBillingAdminId: admin?.id ?? null,
+        historicalAccountId: account?.id ?? null,
+        historicalActorId: actor?.id ?? null,
+        billingAdminNameStatus: admin?.name
+          ? 'SOURCE_VERIFIED_HISTORICAL'
+          : 'ARCHIVE_PSEUDONYMIZED',
+        accountNameStatus: account?.name
+          ? 'SOURCE_VERIFIED_HISTORICAL'
+          : 'ARCHIVE_PSEUDONYMIZED',
+        actorNameStatus: actor?.name
+          ? 'SOURCE_VERIFIED_HISTORICAL'
+          : 'ARCHIVE_PSEUDONYMIZED',
+      };
+    };
     return rows.map((row) => {
-      const events = row.eventIds
+      const sourceEvents = row.eventIds
         .map((id) => byId.get(id))
         .filter(
           (e): e is Record<string, unknown> =>
@@ -617,6 +791,7 @@ export class PostgresReplayShadowAudit {
             e.billingAdminId === row.billingAdminId &&
             e.externalUserId === row.externalUserId,
         );
+      const events = sourceEvents.map(enriched);
       const names = (field: string) => [
         ...new Set(
           events
@@ -626,21 +801,54 @@ export class PostgresReplayShadowAudit {
       ];
       const adminNames = names('billingAdminUsername');
       const accountNames = names('accountUsername');
+      const adminFullyMatched =
+        events.length > 0 &&
+        events.every(
+          (e) => e.billingAdminNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
+        );
+      const adminPartiallyMatched = events.some(
+        (e) => e.billingAdminNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
+      );
+      const accountFullyMatched =
+        events.length > 0 &&
+        events.every(
+          (e) => e.accountNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
+        );
+      const accountPartiallyMatched = events.some(
+        (e) => e.accountNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
+      );
       return {
         ...row,
         events,
-        contextEvents: (context.get(row.operationKey) ?? []).filter(
-          (e) => !row.eventIds.includes(e.id as string),
-        ),
-        adminName: adminNames.length === 1 ? adminNames[0] : null,
-        accountName: accountNames.length === 1 ? accountNames[0] : null,
-        adminNameStatus: archivedAdminNameStatus(adminNames, 'SOURCE'),
+        contextEvents: (context.get(row.operationKey) ?? [])
+          .filter((e) => !row.eventIds.includes(e.id as string))
+          .map(enriched),
+        adminName:
+          adminNames.length === 1 && adminFullyMatched ? adminNames[0] : null,
+        accountName:
+          accountNames.length === 1 && accountFullyMatched
+            ? accountNames[0]
+            : null,
+        adminNameStatus:
+          adminFullyMatched && adminNames.length === 1
+            ? 'SOURCE_VERIFIED_HISTORICAL'
+            : adminFullyMatched && adminNames.length > 1
+              ? 'HISTORICAL_NAME_CONFLICT'
+              : adminPartiallyMatched
+                ? 'PARTIAL_SOURCE_MATCH'
+                : archivedAdminNameStatus(adminNames, 'SOURCE'),
         accountNameStatus:
-          accountNames.length === 1
-            ? 'SOURCE'
-            : accountNames.length
-              ? 'CONFLICT'
-              : 'MISSING',
+          accountFullyMatched && accountNames.length === 1
+            ? 'SOURCE_VERIFIED_HISTORICAL'
+            : accountFullyMatched && accountNames.length > 1
+              ? 'HISTORICAL_NAME_CONFLICT'
+              : accountPartiallyMatched
+                ? 'PARTIAL_SOURCE_MATCH'
+                : accountNames.length === 1
+                  ? 'SOURCE'
+                  : accountNames.length
+                    ? 'CONFLICT'
+                    : 'MISSING',
         eventEvidenceComplete: events.length === row.eventIds.length,
       };
     });

@@ -5,10 +5,13 @@ import { passwords } from './infrastructure/password.js';
 import { OwnerAuth } from './application/auth.js';
 import { confirmedPassword } from './infrastructure/terminal.js';
 import { seedSynthetic } from './infrastructure/seed.js';
+import { importPrivateReplayIdentities } from './infrastructure/private-replay-identity.js';
 async function main() {
   const [command, ...extra] = process.argv.slice(2);
   if (
-    extra.length ||
+    (command === 'import-private-replay-identities'
+      ? extra.length !== 2
+      : extra.length !== 0) ||
     ![
       'bootstrap',
       'reset-password',
@@ -16,6 +19,7 @@ async function main() {
       'cleanup',
       'migrate',
       'seed',
+      'import-private-replay-identities',
     ].includes(command ?? '')
   )
     throw new Error('INVALID_COMMAND');
@@ -30,7 +34,16 @@ async function main() {
       await passwords.hash(randomUUID()),
     );
     if (command === 'migrate') await db.runMigrations({ transaction: 'all' });
-    else if (command === 'bootstrap') {
+    else if (command === 'import-private-replay-identities') {
+      if (process.env.FAIR_SHADOW_ENABLED !== 'true')
+        throw new Error('SHADOW_ONLY_IMPORT_REQUIRED');
+      const result = await importPrivateReplayIdentities(
+        db,
+        extra[0]!,
+        extra[1]!,
+      );
+      console.info('PRIVATE_IDENTITY_IMPORT', JSON.stringify(result));
+    } else if (command === 'bootstrap') {
       if (await store.passwordHash()) throw new Error('OWNER_ALREADY_EXISTS');
       if (!(await auth.bootstrap(await confirmedPassword())))
         throw new Error('OWNER_ALREADY_EXISTS');

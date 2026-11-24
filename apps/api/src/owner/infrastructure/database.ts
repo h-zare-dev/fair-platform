@@ -9,6 +9,7 @@ import { OpeningBaseline1791700000000 } from './opening-baseline-migration.js';
 import { OpeningBaselineControl1791800000000 } from './opening-baseline-control-migration.js';
 import { ReplayShadowJournal1791900000000 } from './replay-shadow-journal-migration.js';
 import { ReplayShadowAudit1792000000000 } from './replay-shadow-audit-migration.js';
+import { PrivateReplayIdentity1792100000000 } from './private-replay-identity-migration.js';
 
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
@@ -25,6 +26,7 @@ export function createOwnerDataSource(url: string) {
       OpeningBaselineControl1791800000000,
       ReplayShadowJournal1791900000000,
       ReplayShadowAudit1792000000000,
+      PrivateReplayIdentity1792100000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

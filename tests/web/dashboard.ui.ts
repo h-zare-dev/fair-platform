@@ -97,68 +97,13 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     page.getByRole('heading', {
       name: 'تست ترکیبی FP-006 / FP-007: Update و Reset',
     }),
-  ).toBeVisible();
-  await page.route(
-    '**/api/v1/owner/operations/accounting/replay-update-reset-preview',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          mode: 'HISTORICAL_UPDATE_RESET_PREVIEW',
-          postingScope: 'NONE',
-          completeAccounting: false,
-          configurationReady: true,
-          ingestionReady: true,
-          correlationWindowSeconds: 120,
-          updateEventCount: 5,
-          resetEventCount: 3,
-          pairedRenewalCount: 2,
-          pairedResetContextCount: 1,
-          updateOnlyEventCount: 2,
-          resetOnlyEventCount: 0,
-          ambiguousUpdateCount: 0,
-          ambiguousResetCount: 0,
-          priorSnapshotMissingCount: 1,
-          boundaryFirstPairCount: 1,
-          pricedBoundaryFirstPairCount: 1,
-          provenDurationChangeCount: 1,
-          pricedProvenDurationChangeCount: 1,
-          multiCyclePairCount: 2,
-          pricedUpdateOnlyCount: 1,
-          pricedRenewalCount: 2,
-          pricedResetContextCount: 1,
-          pricedStandaloneResetCount: 0,
-          decreaseUpdateCount: 1,
-          unchangedUpdateCount: 0,
-          heldOperationCount: 1,
-          updateResetSubtotalToman: '400000',
-          packageBreakdown: [],
-          heldReasons: [{ code: 'PREVIOUS_STATE_MISSING', count: 1 }],
-        }),
-      }),
-  );
-  await page
-    .getByRole('button', { name: 'اجرای بررسی ترکیبی Update و Reset' })
-    .click();
-  await expect(page.getByText('۴۰۰٬۰۰۰ تومان (غیرنهایی)')).toBeVisible();
+  ).toHaveCount(0);
   await expect(
-    page.getByText('Reset با مدت تأییدشده و دارای قیمت', { exact: false }),
-  ).toBeVisible();
+    page.getByRole('heading', { name: 'تست دفتر حسابداری آرشیو ۳۰روزه' }),
+  ).toHaveCount(0);
   await expect(
-    page.getByText('تطبیق یکتای Reset ابتدای آرشیو با Update بعدی', {
-      exact: false,
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByText('تمدیدهای تغییر مدت با سابقهٔ معتبر', { exact: false }),
-  ).toBeVisible();
-  await expect(
-    page.getByText('این عدد بدهی یا کردیت واقعی نیست', { exact: false }),
-  ).toBeVisible();
-  await page.unroute(
-    '**/api/v1/owner/operations/accounting/replay-update-reset-preview',
-  );
+    page.getByRole('link', { name: 'گزارش‌ها', exact: true }),
+  ).toHaveAttribute('href', '/reports');
   await expect(page.locator('.quick-nav a')).toHaveCount(4);
   await expect(
     page.getByRole('link', { name: 'ابهامات حسابداری' }),
@@ -390,7 +335,7 @@ test('selected historical source survives dashboard to packages and groups navig
   await page.goto('/dashboard');
   await expect(page.getByLabel('بازهٔ زمانی')).toHaveValue('replay-fixed');
 });
-test('historical what-if quote is visibly distinct from identity-verified Create', async ({
+test('obsolete historical previews are gone while SHADOW and bootstrap tools remain accessible', async ({
   page,
 }) => {
   await page.goto('/login');
@@ -399,72 +344,40 @@ test('historical what-if quote is visibly distinct from identity-verified Create
     .fill('synthetic-browser-test-password');
   await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.route(
-    '**/api/v1/owner/operations/accounting/replay-preview',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          mode: 'HISTORICAL_STATIC_PACKAGE_PREVIEW',
-          postingScope: 'NONE',
-          completeAccounting: false,
-          packageCount: 25,
-          assignedPackageCount: 25,
-          memberCount: 153,
-          ingestionReady: true,
-          configurationReady: true,
-          ingestedBatchCount: '15914',
-          unfinishedBatchCount: '0',
-          normalizedEventCount: 64135,
-          createEventCount: 13530,
-          pricedCreateCount: 0,
-          heldCreateCount: 13530,
-          createOnlySubtotalToman: '0',
-          unclassifiedEventCount: 50605,
-          packageBreakdown: [],
-          heldReasons: [{ code: 'ADMIN_MEMBERSHIP_MISSING', count: 13530 }],
-          actionCounts: [],
-          ownerAttestedWhatIf: {
-            assumption: 'ALL_REPLAY_ADMINS_USE_SINGLE_CONFIGURED_GROUP',
-            allCreateIdsMatchMemberships: false,
-            identityMatchedCreateCount: 0,
-            identityUnmatchedCreateCount: 13530,
-            pricedCreateCount: 12000,
-            heldCreateCount: 1530,
-            activeTwoDayInferredPricedCreateCount: 1361,
-            createOnlySubtotalToman: '2400000000',
-            packageBreakdown: [
-              {
-                packageBytes: '107374182400',
-                durationDays: 30,
-                amountToman: '200000',
-                pricedCreateCount: 12000,
-                subtotalToman: '2400000000',
-              },
-            ],
-            heldReasons: [{ code: 'MISSING_DURATION', count: 1530 }],
-          },
-        }),
-      }),
+  await expect(
+    page.getByRole('button', { name: 'اجرای بررسی آزمایشی ۳۰روزه' }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'اجرای بررسی ترکیبی Update و Reset' }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'تست دفتر حسابداری آرشیو ۳۰روزه' }),
+  ).toHaveCount(0);
+  await page.getByRole('link', { name: 'گزارش‌ها', exact: true }).click();
+  await expect(page).toHaveURL(/\/reports$/);
+  await expect(
+    page.getByRole('heading', { name: 'گزارش‌های جامع حسابداری' }),
+  ).toBeVisible();
+  const advanced = page.getByText(
+    'ابزار پیشرفته: اجرای مجدد آزمون آفلاین SHADOW',
   );
-  await page
-    .getByRole('button', { name: 'اجرای بررسی آزمایشی ۳۰روزه' })
-    .click();
+  await expect(advanced).toBeVisible();
+  await advanced.click();
   await expect(
-    page.getByText('جمع Create با تطبیق دقیق شناسهٔ مدیر:'),
+    page.getByRole('heading', { name: 'تست دفتر حسابداری آرشیو ۳۰روزه' }),
   ).toBeVisible();
   await expect(
-    page.getByText('محاسبهٔ فرضی با نرخ‌های یکسان برای تمام مدیران آرشیو'),
+    page.getByText('فقط SHADOW · بدون تغییر موجودی واقعی'),
   ).toBeVisible();
-  await expect(page.getByText('۲٬۴۰۰٬۰۰۰٬۰۰۰ تومان')).toBeVisible();
-  await expect(page.getByText(/۱۳۶۱|۱٬۳۶۱/)).toBeVisible();
-  await expect(page.getByText(/فیلد مدت ثبت نشده است/)).toBeVisible();
+  await page.getByRole('link', { name: 'تنظیمات', exact: true }).click();
+  await page.locator('a[href="/settings/initialization"]').click();
+  await expect(page).toHaveURL(/\/settings\/initialization$/);
   await expect(
-    page.getByText(/این جمع تأیید بدهی یا صحت تطبیق مدیران نیست/),
+    page.getByRole('heading', { name: 'راه‌اندازی اولیه' }),
   ).toBeVisible();
-  await page.getByText('مبلغ و تعداد Create فرضی برای هر ۲۵ پکیج').click();
-  await expect(page.getByRole('cell', { name: '۱۲٬۰۰۰' })).toBeVisible();
+  await expect(
+    page.getByText('ابزار راه‌اندازی یک‌بارهٔ پکیج‌ها (در صورت نیاز)'),
+  ).toBeVisible();
 });
 test('wrong password and failed operations show safe errors, never zero substitutes', async ({
   page,

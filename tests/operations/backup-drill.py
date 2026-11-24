@@ -69,12 +69,15 @@ try:
         'PasarguardBillingProjection1791500000000',
         'PasarguardInbox1790000000000',
         'PricingEngine1791200000000',
+        'PrivateReplayIdentity1792100000000',
         'ReplayShadowAudit1792000000000',
         'ReplayShadowJournal1791900000000',
     ]
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 12 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == 13 and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
+    assert ('GRANT SELECT ON fair_replay_private_identity_imports,\n'
+            '  fair_replay_private_identity_aliases TO fair_owner_runtime;') in grants
     grants += "\nALTER ROLE fair_backup PASSWORD 'synthetic-backup-test-only';\n"
     run(compose+['exec', '-T', 'postgres', 'psql', '-U', 'fair_migrator', '-d', 'fair_staging',
                  '-v', 'ON_ERROR_STOP=1'], 'GRANTS', grants)

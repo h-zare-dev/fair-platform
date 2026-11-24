@@ -3,6 +3,7 @@ import { ownerSession } from '../../../lib/session';
 import { CatalogManagement } from '../../../components/catalog';
 import { OwnerHeader } from '../../../components/owner-header';
 import { OpeningBaseline } from '../../../components/opening-baseline';
+import { CatalogBootstrap } from '../../../components/catalog-bootstrap';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,6 +66,14 @@ export default async function SettingsSectionPage({
               </a>
             </nav>
             <OpeningBaseline />
+            <details className="catalog-source-panel">
+              <summary>ابزار راه‌اندازی یک‌بارهٔ پکیج‌ها (در صورت نیاز)</summary>
+              <p className="muted">
+                اگر پکیج‌ها و گروه‌ها از قبل ثبت شده‌اند، نیازی به اجرای مجدد
+                این ابزار نیست. ثبت دوباره روی تنظیمات موجود مسدود است.
+              </p>
+              <CatalogBootstrap />
+            </details>
           </section>
         ) : (
           <CatalogManagement section={section} />

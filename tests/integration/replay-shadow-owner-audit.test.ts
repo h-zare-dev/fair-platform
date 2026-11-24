@@ -226,4 +226,70 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
       ),
     ).rejects.toThrow('REPLAY_SHADOW_EVIDENCE_IMMUTABLE');
   });
+
+  it('shows source-verified historical names only on matching archived ID + username, keeping amounts unchanged', async () => {
+    const before = await audit().overview(runId);
+    expect(before.historicalSourceIdentity.status).toBe('NOT_IMPORTED');
+    await db.query(`INSERT INTO fair_replay_private_identity_imports
+      (source_instance_id,manifest_sha256,map_sha256,replay_plaintext_sha256,source_script_sha256,
+        event_count,mapped_admins,mapped_accounts,mapped_actor_admins,
+        unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs)
+      VALUES('replay-30d',repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),64135,1,1,0,1,0,0)`);
+    await db.query(`INSERT INTO fair_replay_private_identity_aliases
+      (source_instance_id,role,archived_id,archived_username,original_id,original_username)
+      VALUES
+        ('replay-30d','billing_admin',18,'agency',208,'historical-owner'),
+        ('replay-30d','account',903,'sara',1903,'historical-account'),
+        ('replay-30d','billing_admin',17,'different-alias',207,'must-not-show')`);
+    const names = await audit().admins({
+      runId,
+      search: 'historical-owner',
+      offset: 0,
+      limit: 10,
+    });
+    expect(names.rows).toMatchObject([
+      {
+        billingAdminId: '18',
+        historicalAdminId: '208',
+        adminName: 'historical-owner',
+        nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+      },
+    ]);
+    const unmatched = await audit().admins({
+      runId,
+      search: '17',
+      offset: 0,
+      limit: 10,
+    });
+    expect(unmatched.rows[0]).toMatchObject({
+      billingAdminId: '17',
+      adminName: 'reseller',
+      historicalAdminId: null,
+      nameStatus: 'VERIFIED_IN_ARCHIVE',
+    });
+    const entries = await audit().entries({
+      runId,
+      billingAdminId: '18',
+      offset: 0,
+      limit: 10,
+    });
+    expect(entries.rows[0]).toMatchObject({
+      adminName: 'historical-owner',
+      accountName: 'historical-account',
+      adminNameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+      accountNameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+      events: [
+        {
+          historicalBillingAdminId: '208',
+          historicalAccountId: '1903',
+          archivedAccountUsername: 'sara',
+        },
+      ],
+    });
+    const after = await audit().overview(runId);
+    expect(after.totals).toEqual(before.totals);
+    expect(after.integrity).toEqual(before.integrity);
+    expect(after.historicalIdentityVerified).toBe(false); // no current-directory proof
+    expect(after.historicalSourceIdentity.status).toBe('PARTIAL_SOURCE_MATCH');
+  });
 });

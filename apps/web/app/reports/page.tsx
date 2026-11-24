@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { ownerSession } from '../../lib/session';
 import { OwnerHeader } from '../../components/owner-header';
 import { ShadowAuditReports } from '../../components/shadow-audit-reports';
+import { ReplayShadowJournal } from '../../components/replay-shadow-journal';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,14 @@ export default async function ReportsPage() {
             ابهامات و شواهد منبع.
           </p>
         </header>
+        <details className="catalog-source-panel">
+          <summary>ابزار پیشرفته: اجرای مجدد آزمون آفلاین SHADOW</summary>
+          <p className="muted">
+            فقط برای بررسی مجدد آرشیو و تنظیمات آزمایشی؛ اجرای جدید، مبالغ
+            اجراهای قبلی یا موجودی واقعی را تغییر نمی‌دهد.
+          </p>
+          <ReplayShadowJournal />
+        </details>
         <ShadowAuditReports />
       </main>
     </>

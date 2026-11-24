@@ -29,7 +29,7 @@
     "@fair-platform/pasarguard": "workspace:*",
     "@fair-platform/pricing": "workspace:*",
     "@playwright/test": "^1.65.1",
-    "@testcontainers/postgresql": "^12.2.0",
+    "@testcontainers/postgresql": "^12.2.2",
     "@types/node": "^24.13.6",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.3.0",

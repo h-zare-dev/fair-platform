@@ -44,7 +44,7 @@ from the existing SHADOW summary, with the following tabs and fixed filters:
 | --- | --- | --- |
 | «مدیران» | Run, historic Billing Admin ID / searchable historic username | Each admin's event-day count, ready/pending days, booked charge, credit and net, held operation/candidate counts, reconciliation state. Do not join an archive ID to a live admin without a verified mapping. |
 | «روزانه» | Run, one historic Billing Admin, Jalali date range | One row per observed admin/day; status `SHADOW_READY` or `PENDING_REVIEW`, entries, charges, credits, net or **pending**, hold codes and count. Drill into the booked operation lines with source-event IDs, affected account ID/username, kind (`CREATE`, `RENEWAL`, etc.), package exact bytes+duration, frozen Toman price, source time and reference to the credited purchase. |
-| «هفتگی» | Run, one historic Billing Admin, Jalali week/range | Aggregate **only immutable booked daily lines**. Show covered/ready/pending days, ready-only subtotal and a prominent **incomplete** marker if any day is held or archive coverage is not proved. No fabricated final total. Drill down to constituent days. |
+| «هفتگی» | Run, one historic Billing Admin, Jalali week/range | Aggregate **only immutable booked daily lines** using the validated ENV-configured local week boundary (default Saturday–Friday). Show covered/ready/pending days, ready-only subtotal and a prominent **incomplete** marker if any day is held or archive coverage is not proved. No fabricated final total. Drill down to constituent days. |
 | «ماهانه» | Run, one historic Billing Admin, Jalali month | Same integrity rules, using the calendar package for Jalali Esfand/Farvardin/leap boundaries and business-local time zone. Drill down to weeks/days. |
 | «ابهامات» | Run, admin, date, reason, pagination | One row **for each of the original 45 holds** (the exact count is run-dependent): historic Billing Admin ID/username, account ID/username, reason code, event IDs, source timestamps, action chronology, prior/current limit and verified duration if present, held admin/day. Never infer unobserved prior state. |
 | «عملیات متوقف‌شده» | Run, admin, date, kind, pagination | One row per **hypothetical unposted candidate** on a held admin/day, including package, source-event chain, candidate amount, blocking hold/day and a conspicuous `NOT_BOOKED` label. Full candidate count reconciles to `held_candidate_count` (1,438 on Owner's displayed run). This is **not** added to SHADOW totals. |
@@ -67,6 +67,30 @@ from the existing SHADOW summary, with the following tabs and fixed filters:
 - Run selector defaults to the latest completed run; older immutable runs
   remain available, enabling delete-credit ENV-off/ENV-on comparisons without
   silently combining them.
+
+### Owner-approved configurable business week (2026-11-24)
+
+- The Iranian reporting default is **Saturday 00:00 through the following
+  Saturday 00:00 (exclusive)**, i.e. Saturday–Friday as the seven visible days.
+  The business-local calendar is calculated in `FAIR_TIME_ZONE`; never use a
+  hardcoded 24-hour UTC interval to define its bounds.
+- Add the startup ENV setting `FAIR_REPORT_WEEK_START_DAY` with the default
+  `SATURDAY`. Valid values are exactly `SATURDAY`, `SUNDAY`, `MONDAY`,
+  `TUESDAY`, `WEDNESDAY`, `THURSDAY`, `FRIDAY` (case-insensitive input may be
+  normalized once at startup). An invalid value **fails startup explicitly**;
+  never silently change to a different reporting week.
+- Weekly reports follow the *currently configured* week boundary and include
+  `weekStartDay`, local start/end dates, `timeZone` and `runId` in their
+  response and UI. ENV changes affect **only grouping of future read-only
+  report requests**; never rewrite SHADOW entries/days, historic event dates,
+  or posted amounts. Two report exports/views with different week settings
+  are not blindly comparable; show that distinction.
+- Monthly reports always aggregate the directly selected Jalali month's
+  **daily** entries, not whole weeks that overlap a month boundary. A change
+  of weekly start cannot alter monthly or daily totals.
+- Tests cover Saturday/Friday boundary, a configurable alternative start,
+  changing ENV without repricing, week spans across Esfand/Farvardin, DST
+  and time zones with non-24-hour local calendar days.
 
 ### Pagination, privacy, errors
 
@@ -144,7 +168,7 @@ The report must include an Owner-visible read-only reconciliation panel:
 | --- | --- |
 | Access | Unauthenticated/expired Owner session cannot read any report, details or names; bounded validation/pagination; no-cache headers. |
 | Baseline parity | Existing SHADOW run summary and immutable rows unchanged before/after all report queries; 45 hold rows and candidate total 1,438 reconcile if this exact run is selected. |
-| Period arithmetic | Per-admin day sums = per-admin week/month contributions = booked global total for a fully covered period, in integer Toman, including negative net when credits exceed charges. |
+| Period arithmetic | Per-admin day sums = per-admin week/month contributions = booked global total for a fully covered period, in integer Toman, including negative net when credits exceed charges. Week start is controlled by `FAIR_REPORT_WEEK_START_DAY` (default Saturday), and months sum days independently of overlapping weeks. |
 | Held-day honesty | A held day never becomes zero or finalized merely because its candidate operations were priceable; monthly/weekly reports containing that day remain incomplete. |
 | Names / chronology | Same-archive admin/account names/IDs and event chronology only; missing/change/conflict signaled, no unauthorized source-to-primary mapping. |
 | Independence | Test oracle built separately from production calculator, 25 shapes × Create/Increase/Reset/Renewal, repeat renewals, delete credit off/on and mismatch cases. |
@@ -153,8 +177,9 @@ The report must include an Owner-visible read-only reconciliation panel:
 
 ## 6. Explicit choices required from Owner before implementation
 
-1. **Weekly boundary**: use Iranian business week **Saturday–Friday** in
-   `FAIR_TIME_ZONE` (recommended), or another Owner-specified boundary?
+1. **Weekly boundary — APPROVED 2026-11-24**: default Iranian **Saturday–Friday**,
+   configurable using `FAIR_REPORT_WEEK_START_DAY` ENV and `FAIR_TIME_ZONE`
+   for local date boundaries. No further choice needed.
 2. **Sensitive details**: approve displaying historic Billing Admin and
    account usernames/IDs, action chronology and exact operation amounts in
    Owner-authenticated UI only, without CSV export?

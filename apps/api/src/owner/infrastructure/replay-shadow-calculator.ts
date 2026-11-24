@@ -131,6 +131,7 @@ export function calculateReplayShadow(
 
   const candidates: ReplayLedgerLine[] = [];
   const holds: ReplayHold[] = [];
+  const unresolvedByAccount = new Set<string>();
   let ignoredEvents = 0;
   const hold = (
     e: ReplaySourceEvent,
@@ -138,6 +139,7 @@ export function calculateReplayShadow(
     code: string,
     ids = [e.id],
   ) => {
+    if (kind !== 'DELETE_CREDIT') unresolvedByAccount.add(accountKey(e));
     holds.push({
       operationKey: eventKey(kind, ids),
       code,
@@ -197,6 +199,7 @@ export function calculateReplayShadow(
       referenceOperationKey: reference,
     };
     candidates.push(line);
+    unresolvedByAccount.delete(accountKey(e));
     return line;
   };
 
@@ -257,6 +260,8 @@ export function calculateReplayShadow(
         if (options.deleteCreditEnabled) {
           if (e.eventStatus !== 'READY_FOR_ACCOUNTING')
             hold(e, 'DELETE_CREDIT', 'SOURCE_NEEDS_REVIEW');
+          else if (unresolvedByAccount.has(accountKey(e)))
+            hold(e, 'DELETE_CREDIT', 'CREDIT_SOURCE_NOT_PROVEN');
           else if (lastPurchase && !purchaseCredited) {
             candidates.push({
               ...lastPurchase,

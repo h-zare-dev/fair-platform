@@ -252,6 +252,32 @@ describe('Owner-attested historical SHADOW journal', () => {
     ]);
   });
 
+  it('never refunds an older purchase when a newer operation is unproven', () => {
+    const result = run(
+      [
+        event(1, 'user_created'),
+        event(2, 'data_usage_reset', 100n * GIB, {
+          sourceTimestamp: '2026-11-21T12:02:00Z',
+          durationSeconds: null,
+        }),
+        event(3, 'user_deleted', 100n * GIB, {
+          sourceTimestamp: '2026-11-22T12:03:00Z',
+        }),
+      ],
+      true,
+    );
+    expect(result.entries).toMatchObject([
+      { kind: 'CREATE', entryType: 'CHARGE' },
+    ]);
+    expect(result.entries.some((line) => line.entryType === 'CREDIT')).toBe(
+      false,
+    );
+    expect(result.holds.map((h) => h.code)).toEqual([
+      'MISSING_DURATION',
+      'CREDIT_SOURCE_NOT_PROVEN',
+    ]);
+  });
+
   it('recognizes only the approved exact active 0.5 GiB / two-day trial', () => {
     const active = event(1, 'user_created', GIB / 2n, {
       userStatus: 'active',

@@ -25,6 +25,12 @@ GROUP_MIGRATION = 'OwnerSafeGroupDelete1791400000000'
 GROUP_MIGRATION_FILE = 'dist/owner/infrastructure/group-delete-migration.js'
 OPENING_MIGRATION = 'OpeningBaseline1791700000000'
 OPENING_MIGRATION_FILE = 'dist/owner/infrastructure/opening-baseline-migration.js'
+BASELINE_CONTROL_MIGRATION = 'OpeningBaselineControl1791800000000'
+BASELINE_CONTROL_FILE = 'dist/owner/infrastructure/opening-baseline-control-migration.js'
+REPLAY_JOURNAL_MIGRATION = 'ReplayShadowJournal1791900000000'
+REPLAY_JOURNAL_FILE = 'dist/owner/infrastructure/replay-shadow-journal-migration.js'
+SHADOW_CREDIT_ANCHOR = b"      FAIR_SHADOW_CLOSE_TIME: '02:10'\n"
+SHADOW_CREDIT_ADDITION = b'      FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}\n'
 IMAGE_RE = re.compile(r'ghcr\.io/h-zare-dev/fair-platform-owner-api@sha256:[0-9a-f]{64}')
 
 
@@ -38,6 +44,13 @@ def check_compose(previous, proposed, mode='initial'):
         if proposed != previous:
             raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
         return
+    if mode == 'accounting-shadow':
+        if previous.count(SHADOW_CREDIT_ADDITION) != 0 or previous.count(SHADOW_CREDIT_ANCHOR) != 1:
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        if proposed != previous.replace(SHADOW_CREDIT_ANCHOR,
+                                        SHADOW_CREDIT_ANCHOR + SHADOW_CREDIT_ADDITION, 1):
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        return
     if previous.count(ADDITION) != 0 or previous.count(ANCHOR) != 1:
         raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
     if proposed != previous.replace(ANCHOR, ANCHOR + ADDITION, 1):
@@ -47,11 +60,15 @@ def check_compose(previous, proposed, mode='initial'):
 def check_proofs(approved, old, new, mode='initial'):
     """Exact additive migration: preserve every previously accepted code hash."""
     additions = {
-        'initial': (NEW_MIGRATION, NEW_MIGRATION_FILE),
-        'group-delete': (GROUP_MIGRATION, GROUP_MIGRATION_FILE),
-        'opening-baseline': (OPENING_MIGRATION, OPENING_MIGRATION_FILE),
+        'initial': [(NEW_MIGRATION, NEW_MIGRATION_FILE)],
+        'group-delete': [(GROUP_MIGRATION, GROUP_MIGRATION_FILE)],
+        'opening-baseline': [(OPENING_MIGRATION, OPENING_MIGRATION_FILE)],
+        'accounting-shadow': [
+            (BASELINE_CONTROL_MIGRATION, BASELINE_CONTROL_FILE),
+            (REPLAY_JOURNAL_MIGRATION, REPLAY_JOURNAL_FILE),
+        ],
     }
-    added_name, added_file = additions[mode]
+    added = additions[mode]
     for proof in (old, new):
         if proof.get('schema') != 'fp003b-v1':
             raise UpgradeError('STAGING_MIGRATION_PROOF_INVALID')
@@ -68,13 +85,13 @@ def check_proofs(approved, old, new, mode='initial'):
             or old['hashes'] != approved.get('hashes')
             or any(name not in old['configuredMigrations'] for name in old['migrations'])):
         raise UpgradeError('STAGING_ACCEPTED_MIGRATIONS_DRIFT')
-    if added_name in old['configuredMigrations'] or added_file in old['hashes']:
+    if any(name in old['configuredMigrations'] or file in old['hashes'] for name, file in added):
         raise UpgradeError('STAGING_MIGRATION_ALREADY_APPROVED')
-    if new['configuredMigrations'] != sorted(old['configuredMigrations'] + [added_name]):
+    if new['configuredMigrations'] != sorted(old['configuredMigrations'] + [name for name, _ in added]):
         raise UpgradeError('STAGING_UNEXPECTED_NEW_MIGRATIONS')
     if new['migrations'] != old['migrations']:
         raise UpgradeError('STAGING_DATABASE_CHANGED_DURING_REVIEW')
-    if (set(new['hashes']) != set(old['hashes']) | {added_file}
+    if (set(new['hashes']) != set(old['hashes']) | {file for _, file in added}
             or any(new['hashes'].get(k) != v for k, v in old['hashes'].items())):
         raise UpgradeError('STAGING_PREVIOUS_MIGRATION_HASH_CHANGED')
     return {'configuredMigrations': new['configuredMigrations'], 'hashes': new['hashes']}
@@ -176,7 +193,7 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
     original_compat = (settings / 'compatible-migrations.json').read_text()
     new_manifest = {**accepted, 'configHash': ''}
     try:
-        if mode == 'initial':
+        if mode in ('initial', 'accounting-shadow'):
             atomic(root / 'compose.yml', proposed.decode('utf-8'))
             new_manifest['configHash'] = config_hash(root)
             atomic(root / 'current.json', json.dumps(new_manifest))
@@ -188,7 +205,8 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
         atomic(settings / 'compatible-migrations.json', original_compat)
         raise
     return ({'group-delete': 'STAGING_GROUP_DELETE_MIGRATION_APPROVED',
-             'opening-baseline': 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED'}
+             'opening-baseline': 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED',
+             'accounting-shadow': 'STAGING_ACCOUNTING_SHADOW_MIGRATIONS_APPROVED'}
             .get(mode, 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED'))
 
 
@@ -197,7 +215,7 @@ def main():
     if os.geteuid() != 0 or len(sys.argv) not in (2, 3):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
-    if mode not in ('initial', 'group-delete', 'opening-baseline'):
+    if mode not in ('initial', 'group-delete', 'opening-baseline', 'accounting-shadow'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)
     if len(proposed) > 30000:

@@ -290,4 +290,54 @@ describe('FP-006 opening baseline transaction and recovery', () => {
       ),
     ).rejects.toThrow('OPENING_BASELINE_IMMUTABLE');
   });
+
+  it('replaces the selected snapshot without erasing immutable historical runs or duplicating retries', async () => {
+    const directory: OpeningBaselineDirectory = {
+      listIds() {
+        return Promise.resolve({ ids: ['9901'], total: 1 });
+      },
+      details(ids) {
+        return Promise.resolve(ids.map((id) => sample(Number(id))));
+      },
+    };
+    const importer = new PostgresOpeningBaseline(db, directory);
+    const before = await importer.summary();
+    const key = '5c18f4cd-3318-43c7-a4b0-9647d22a72ed';
+    const first = await importer.start(key);
+    expect(first.generation).toBe(before.generation + 1);
+    expect(await importer.start(key)).toEqual(first);
+    await expect(
+      importer.start('7798af8e-8bd9-41ab-a2fe-f278ac1c506f'),
+    ).rejects.toThrow('OPENING_BASELINE_ALREADY_RUNNING');
+    for (let i = 0; i < 3; i++) await importer.runNext();
+    expect((await importer.summary()).run).toMatchObject({
+      id: first.id,
+      status: 'COMPLETE',
+      firstPassUsers: 1,
+    });
+    const [retained] = await db.query<{ count: string }[]>(
+      'SELECT COUNT(*)::text AS count FROM fair_opening_baseline_users WHERE run_id=$1',
+      [before.run!.id],
+    );
+    expect(Number(retained!.count)).toBeGreaterThan(0);
+    const next = await importer.start('5855d99a-bcb6-4d50-bf87-3e0d419b598b');
+    expect(next.generation).toBe(first.generation + 1);
+    expect((await importer.summary()).run).toMatchObject({
+      id: next.id,
+      status: 'PENDING',
+      firstPassUsers: 0,
+    });
+    for (let i = 0; i < 3; i++) await importer.runNext();
+    await db.query(`UPDATE fair_opening_baseline_control
+      SET financial_cutover_started_at=clock_timestamp()
+      WHERE source_instance_id='primary'`);
+    await expect(importer.start()).rejects.toThrow(
+      'OPENING_BASELINE_CUTOVER_LOCKED',
+    );
+    await db.query(`UPDATE fair_opening_baseline_control
+      SET financial_cutover_started_at=NULL WHERE source_instance_id='primary'`);
+    await expect(
+      db.query('DELETE FROM fair_opening_baseline_reseed_audit'),
+    ).rejects.toThrow('OPENING_BASELINE_AUDIT_IMMUTABLE');
+  });
 });

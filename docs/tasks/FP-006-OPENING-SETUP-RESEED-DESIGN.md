@@ -1,10 +1,38 @@
 # FP-006 — Initial accounting setup: replaceable opening snapshot
 
-> **Status: Owner-requested DESIGN PROPOSAL, 2026-11-24. Not implementation authorization.**
-> This document specifies a UI and state lifecycle for the existing read-only opening
-> baseline. It does **not** authorize deleting records, enabling webhooks, making
-> accounting entries, publishing reports, or deploying. Review and approve the
-> exact semantics below before a separate implementation PR.
+> **Status: Original design approved in principle by Owner on 2026-11-24.**
+> This document preserves the pre-implementation design and gap inventory for
+> traceability. Its previously proposed Settings reseed behavior and a separate
+> historical **SHADOW-only** ledger are now implemented together in PR #114.
+> The approval does **not** extend to LIVE posting, automatic reports,
+> webhook activation, destructive deletion of evidence, or deployment.
+
+## Owner approvals for the combined PR #114 (2026-11-24)
+
+1. Initial import reset means selecting a **fresh generation**, not deleting
+   immutable earlier import evidence. Only the newly selected generation is
+   shown as the current baseline; it has no opening financial charge.
+2. Historical 30-day Create/Update/Reset/Delete processing may store immutable
+   **trial-only debt and credit entries in Toman** in new `fair_replay_shadow_*`
+   tables. The run is labelled Owner-attested hypothetical because historic
+   `replay-30d` admin IDs are not proven equal to current `primary` admin IDs.
+   Do not update LIVE balances or the existing nightly ledger.
+3. Delete credit is configured **only via**
+   `FAIR_SHADOW_DELETE_CREDIT_ENABLED=false|true` in the owner API environment;
+   it defaults to `false`. When enabled, a Delete may credit the **entire
+   most recent demonstrably priced purchase**, without a same-day/expiry test.
+   Any unprovable source holds its admin/day for human review. Runs retain the
+   policy captured at creation and are never repriced in place.
+4. Verify with the known complete 30-day historical archive first. Other
+   durations (90/180 days) are not admitted until independent valid exports
+   and explicit ingestion review are available.
+5. Settings reset and historical ledger UI/API are Owner-only; owner reviews
+   and merges the PR and separately authorizes the protected Staging migration
+   config approval. CI synthetic tests do not constitute a completed Staging
+   archive test or financial cutover.
+
+See `docs/tasks/FP-006-007-SHADOW-REPLAY-ACCEPTANCE.md` for executable
+verification and observed-vs-pending acceptance evidence.
 
 ## 1. Problem, intent, and the current implementation
 
@@ -186,9 +214,9 @@ or “approved”; **approved design != implemented LIVE system**.
 
 | Priority | Workstream | Current state and remaining work |
 | --- | --- | --- |
-| P0 | Owner setup and opening snapshot | Two-pass, read-only importer works; settings relocation, replaceable selection, explicit reset, and immutable cutover lock **not implemented**. |
+| P0 | Owner setup and opening snapshot | Settings relocation, generation replacement, audit, and a future cutover-lock field are implemented in PR #114; Staging verification and **actual financial cutover integration** remain pending. |
 | P0 | Source/identity and cutoff readiness | PasarGuard read-only directory and Shadow ingestion plumbing exist; verify correct production identities, initial roster, webhook coverage and replay-to-live boundary. The Owner says new webhook is **not connected yet**. Import alone does not prove duration/history for all existing accounts. |
-| P0 | Final event interpretation: FP-005/006/007 | Create and Reset+Update read-only/what-if previews exist, including 10-minute ordered pairing and ambiguity reasons. Implement and validate complete **nightly financial** classification for Create, standalone Update, Reset, renewals, corrections, automatic resets, Next Plan, deleted accounts and missing previous state. Resolve remaining business policy questions (including optional Delete credit behavior) before any charge. |
+| P0 | Final event interpretation: FP-005/006/007 | PR #114 adds a separate read-only 30-day Owner-attested financial **SHADOW trial** for priced Create, Update, Reset, renewals and optional Delete credit. Ambiguous/missing data hold the admin/day; Next Plan and other unproved operations are not silently charged. A complete **LIVE** nightly classifier is still pending. |
 | P0 | Durable nightly settlement & ledger | A limited Create-only `NightlyShadow` closer and prior ledger foundations exist, but not the Owner-approved all-operation, group/day, idempotent **LIVE** close, frozen historical prices, exception holds, atomic ledger/report/outbox workflow. Requires a separate approved implementation spec. |
 | P0 | Exceptions and Owner resolution | Read-only ambiguity diagnosis exists; implement audited review/hold/resolve and resumption of a blocked `(source, admin, local date)` without repricing a finalized period. No guessed tariffs or durations. |
 | P1 | Daily reports | No complete, immutable per-admin daily account statement with detailed charges/credits, settled state, and downloadable output has been verified in this code. Design report contents, persistence, access, audit and delivery. |

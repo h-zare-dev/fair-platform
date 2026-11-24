@@ -76,7 +76,10 @@ class UpgradeTests(unittest.TestCase):
         self.root.mkdir()
         self.settings = Path(tmp.name) / 'settings'
         self.settings.mkdir()
-        candidate = (REPO / 'docker/staging/compose.yml').read_bytes()
+        # Older operator modes exercised the Compose bytes as they were
+        # before the newly requested Shadow credit ENV mapping.
+        candidate = (REPO / 'docker/staging/compose.yml').read_bytes().replace(
+            upgrade.SHADOW_CREDIT_ADDITION, b'')
         self.old_compose = candidate.replace(upgrade.ADDITION, b'')
         self.proposed = candidate
         (self.root / 'compose.yml').write_bytes(self.old_compose)
@@ -231,6 +234,48 @@ class UpgradeTests(unittest.TestCase):
                          'github.ref_protected', 'group: fair-staging-deployment',
                          'environment: staging-bootstrap', 'APPROVE_FP006_OPENING_BASELINE',
                          'opening-baseline'):
+            self.assertIn(required, workflow)
+        self.assertNotIn('pull_request:', workflow)
+
+    def test_shadow_journal_approves_only_two_new_migrations_and_false_default_env(self):
+        # Simulate accepted development after existing OpeningBaseline approval.
+        self.root.joinpath('compose.yml').write_bytes(self.proposed)
+        self.accepted['configHash'] = release.config_hash(self.root)
+        self.root.joinpath('current.json').write_text(json.dumps(self.accepted))
+        names = OLD + [upgrade.NEW_MIGRATION, upgrade.GROUP_MIGRATION,
+                       upgrade.OPENING_MIGRATION]
+        hashes = {**NEW_HASHES, upgrade.GROUP_MIGRATION_FILE: 'd' * 64,
+                  upgrade.OPENING_MIGRATION_FILE: 'e' * 64}
+        self.settings.joinpath('compatible-migrations.json').write_text(json.dumps({
+            'configuredMigrations': sorted(names), 'hashes': hashes,
+        }))
+        self.commands.old = report(names, hashes)
+        new_names = names + [upgrade.BASELINE_CONTROL_MIGRATION, upgrade.REPLAY_JOURNAL_MIGRATION]
+        new_hashes = {**hashes, upgrade.BASELINE_CONTROL_FILE: 'f' * 64,
+                      upgrade.REPLAY_JOURNAL_FILE: '1' * 64}
+        self.commands.new = report(new_names, new_hashes)
+        proposed = self.proposed.replace(upgrade.SHADOW_CREDIT_ANCHOR,
+                                         upgrade.SHADOW_CREDIT_ANCHOR + upgrade.SHADOW_CREDIT_ADDITION)
+        self.assertEqual(upgrade.review_and_approve(self.root, self.settings, proposed,
+                                                   self.target_sha, self.commands, 'accounting-shadow'),
+                         'STAGING_ACCOUNTING_SHADOW_MIGRATIONS_APPROVED')
+        self.assertEqual(self.root.joinpath('compose.yml').read_bytes(), proposed)
+        self.assertEqual(json.loads(self.settings.joinpath('compatible-migrations.json').read_text())['hashes'],
+                         new_hashes)
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+            upgrade.check_compose(self.proposed,
+                                  proposed.replace(b':-false', b':-true'), 'accounting-shadow')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'UNEXPECTED_NEW_MIGRATIONS'):
+            upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
+                                 report(names, hashes), report(new_names + ['Unreviewed'], new_hashes),
+                                 'accounting-shadow')
+
+    def test_shadow_journal_workflow_is_manual_owner_only(self):
+        workflow = (REPO / '.github/workflows/staging-accounting-shadow-approval.yml').read_text()
+        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
+                         'github.ref_protected', 'group: fair-staging-deployment',
+                         'environment: staging-bootstrap', 'APPROVE_ACCOUNTING_SHADOW_STAGE',
+                         'accounting-shadow'):
             self.assertIn(required, workflow)
         self.assertNotIn('pull_request:', workflow)
 

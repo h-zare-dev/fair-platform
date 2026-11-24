@@ -33,8 +33,14 @@ import type { PostgresShadowReader } from './infrastructure/shadow-reader.js';
 import { STATIC_CATALOG_SHAPES } from './application/static-catalog-bootstrap.js';
 import {
   OpeningBaselineBusy,
+  OpeningBaselineCutoverLocked,
   type PostgresOpeningBaseline,
 } from './infrastructure/opening-baseline.js';
+import {
+  ReplayShadowBusy,
+  ReplayShadowNotReady,
+  type PostgresReplayShadowJournal,
+} from './infrastructure/replay-shadow-journal.js';
 import {
   ReceiveWebhook,
   WebhookFailure,
@@ -203,6 +209,7 @@ export async function createOwnerApi(
   webhook?: ReceiveWebhook,
   replayInbox?: DurableInbox,
   openingBaseline?: PostgresOpeningBaseline,
+  replayShadow?: PostgresReplayShadowJournal,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -371,6 +378,61 @@ export async function createOwnerApi(
       } catch (error) {
         if (error instanceof OpeningBaselineBusy)
           throw new HttpException('OPENING_BASELINE_ALREADY_RUNNING', 409);
+        if (error instanceof OpeningBaselineCutoverLocked)
+          throw new HttpException('OPENING_BASELINE_CUTOVER_LOCKED', 409);
+        throw error;
+      }
+    }
+    @Post('operations/accounting/opening-baseline/reseed')
+    async reseedOpeningBaseline(@Req() req: FastifyRequest) {
+      csrf(req);
+      await requireOwner(req);
+      const request = input(
+        z.object({ requestKey: z.string().uuid() }).strict(),
+        req.body,
+      );
+      if (!openingBaseline)
+        throw new HttpException('OPENING_BASELINE_UNAVAILABLE', 503);
+      try {
+        return await openingBaseline.start(request.requestKey);
+      } catch (error) {
+        if (error instanceof OpeningBaselineBusy)
+          throw new HttpException('OPENING_BASELINE_ALREADY_RUNNING', 409);
+        if (error instanceof OpeningBaselineCutoverLocked)
+          throw new HttpException('OPENING_BASELINE_CUTOVER_LOCKED', 409);
+        throw error;
+      }
+    }
+    @Get('operations/accounting/replay-shadow') async replayShadowStatus(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      input(z.object({}).strict(), req.query);
+      if (!replayShadow)
+        throw new HttpException('REPLAY_SHADOW_UNAVAILABLE', 503);
+      return replayShadow.summary();
+    }
+    @Post('operations/accounting/replay-shadow') async replayShadowStart(
+      @Req() req: FastifyRequest,
+    ) {
+      csrf(req);
+      await requireOwner(req);
+      const request = input(
+        z.object({ requestKey: z.string().uuid() }).strict(),
+        req.body,
+      );
+      if (!replayShadow)
+        throw new HttpException('REPLAY_SHADOW_UNAVAILABLE', 503);
+      try {
+        return await replayShadow.start(request.requestKey);
+      } catch (error) {
+        if (error instanceof ReplayShadowBusy)
+          throw new HttpException('REPLAY_SHADOW_ALREADY_RUNNING', 409);
+        if (error instanceof ReplayShadowNotReady)
+          throw new HttpException(
+            'REPLAY_SHADOW_CONFIGURATION_INCOMPLETE',
+            409,
+          );
         throw error;
       }
     }

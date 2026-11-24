@@ -6,6 +6,8 @@ import { AtomicCatalog1791300000000 } from './catalog-migration.js';
 import { OwnerSafeGroupDelete1791400000000 } from './group-delete-migration.js';
 import { FairShadowCreate1791600000000 } from './shadow-migration.js';
 import { OpeningBaseline1791700000000 } from './opening-baseline-migration.js';
+import { OpeningBaselineControl1791800000000 } from './opening-baseline-control-migration.js';
+import { ReplayShadowJournal1791900000000 } from './replay-shadow-journal-migration.js';
 
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
@@ -19,6 +21,8 @@ export function createOwnerDataSource(url: string) {
       OwnerSafeGroupDelete1791400000000,
       FairShadowCreate1791600000000,
       OpeningBaseline1791700000000,
+      OpeningBaselineControl1791800000000,
+      ReplayShadowJournal1791900000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

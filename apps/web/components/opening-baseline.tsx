@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatInteger } from '../lib/traffic';
 
 type Status = {
   mode: 'OPENING_BASELINE_SHADOW';
   postingScope: 'NONE';
   financialCutoverReady: false;
+  cutoverLocked: boolean;
+  generation: number;
   run: null | {
     id: string;
     status: string;
@@ -33,6 +35,7 @@ export function OpeningBaseline() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const pendingRequestKey = useRef<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -82,15 +85,24 @@ export function OpeningBaseline() {
 
   async function start() {
     if (busy) return;
+    if (
+      !window.confirm(
+        status?.run
+          ? 'واردسازی فعلی از حالت فعال خارج می‌شود و فهرست جدید کاملاً از صفر دریافت خواهد شد. سوابق قبلی برای ممیزی باقی می‌مانند؛ پکیج‌ها، گروه‌ها و رویدادها پاک نمی‌شوند. تأیید می‌کنید؟'
+          : 'دریافت وضعیت اولیه از پاسارگارد آغاز شود؟ این عملیات هیچ بدهی یا کردیتی ثبت نمی‌کند.',
+      )
+    )
+      return;
     setBusy(true);
     setError('');
     try {
+      pendingRequestKey.current ??= crypto.randomUUID();
       const res = await fetch(
-        '/api/v1/owner/operations/accounting/opening-baseline',
+        '/api/v1/owner/operations/accounting/opening-baseline/reseed',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Fair-CSRF': '1' },
-          body: '{}',
+          body: JSON.stringify({ requestKey: pendingRequestKey.current }),
           cache: 'no-store',
           signal: AbortSignal.timeout(15000),
         },
@@ -99,8 +111,13 @@ export function OpeningBaseline() {
         window.location.assign('/login');
         return;
       }
+      if (res.status === 409)
+        throw new Error(
+          'واردسازی هم‌زمان فعال است یا شروع حسابداری، بازنشانی را قفل کرده است.',
+        );
       if (!res.ok)
         throw new Error(`ثبت وضعیت اولیه شروع نشد (HTTP ${res.status}).`);
+      pendingRequestKey.current = null;
       setRefresh((v) => v + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'خطای ارتباط');
@@ -116,7 +133,7 @@ export function OpeningBaseline() {
   return (
     <section className="table-card" aria-label="ثبت وضعیت اولیه حسابداری">
       <div className="section-heading">
-        <h2>FP-006: ثبت وضعیت اولیهٔ اکانت‌های موجود</h2>
+        <h2>ثبت وضعیت اولیهٔ اکانت‌های موجود</h2>
         <span className="badge">فقط خواندن از پاسارگارد · بدون ثبت مالی</span>
       </div>
       <p className="muted">
@@ -130,18 +147,30 @@ export function OpeningBaseline() {
         نمی‌شود.
       </p>
       {status && (
+        <p className="muted" data-testid="baseline-generation">
+          نسل واردسازی انتخاب‌شده: <b>{formatInteger(status.generation)}</b>
+          {' · '}سوابق نسل‌های قبلی حفظ می‌شوند، اما وارد محاسبات نسل تازه
+          نمی‌شوند.
+        </p>
+      )}
+      {status && (
         <button
           className="secondary"
           type="button"
           onClick={() => void start()}
-          disabled={busy || active}
+          disabled={busy || active || status.cutoverLocked}
         >
           {busy
             ? 'در حال شروع…'
             : run
-              ? 'اجرای واردسازی جدید'
+              ? 'بازنشانی و دریافت مجدد'
               : 'دریافت وضعیت اولیه از پاسارگارد'}
         </button>
+      )}
+      {status?.cutoverLocked && (
+        <p role="alert" className="error-banner">
+          پس از شروع حسابداری مالی، بازنشانی وضعیت اولیه مجاز نیست.
+        </p>
       )}
       {!status && !error && (
         <p className="muted">

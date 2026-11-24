@@ -615,7 +615,12 @@ export class PostgresReplayShadowAudit {
     return rows.map((row) => {
       const events = row.eventIds
         .map((id) => byId.get(id))
-        .filter((e) => e !== undefined);
+        .filter(
+          (e): e is Record<string, unknown> =>
+            e !== undefined &&
+            e.billingAdminId === row.billingAdminId &&
+            e.externalUserId === row.externalUserId,
+        );
       const names = (field: string) => [
         ...new Set(
           events
@@ -645,13 +650,7 @@ export class PostgresReplayShadowAudit {
             : accountNames.length
               ? 'CONFLICT'
               : 'MISSING',
-        eventEvidenceComplete:
-          events.length === row.eventIds.length &&
-          events.every(
-            (e) =>
-              e.billingAdminId === row.billingAdminId &&
-              e.externalUserId === row.externalUserId,
-          ),
+        eventEvidenceComplete: events.length === row.eventIds.length,
       };
     });
   }

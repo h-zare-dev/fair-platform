@@ -8,6 +8,11 @@ export function tokenHash(token: string): string {
 export interface OwnerAuthStore {
   bootstrap(hash: string): Promise<boolean>;
   reset(hash: string): Promise<boolean>;
+  changePassword(
+    expectedHash: string,
+    newHash: string,
+    sessionHash: string,
+  ): Promise<boolean>;
   revoke(): Promise<void>;
   attempt(): Promise<boolean>;
   passwordHash(): Promise<string | null>;
@@ -36,6 +41,30 @@ export class OwnerAuth {
   }
   async reset(password: string): Promise<boolean> {
     return this.store.reset(await this.hasher.hash(password));
+  }
+  async changePassword(
+    current: string,
+    next: string,
+    token: string | null,
+  ): Promise<'ok' | 'denied' | 'limited'> {
+    if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return 'denied';
+    if (!(await this.store.attempt())) return 'limited';
+    const existing = await this.store.passwordHash();
+    if (
+      !(await this.hasher.verify(existing ?? this.dummyHash, current)) ||
+      !existing
+    ) {
+      await this.store.denied();
+      return 'denied';
+    }
+    const nextHash = await this.hasher.hash(next);
+    return (await this.store.changePassword(
+      existing,
+      nextHash,
+      tokenHash(token),
+    ))
+      ? 'ok'
+      : 'denied';
   }
   async login(
     password: string,

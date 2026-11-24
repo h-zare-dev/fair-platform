@@ -347,6 +347,41 @@ export async function createOwnerApi(
       reply.header('Set-Cookie', cookie('', 0));
       return { authenticated: false };
     }
+    @Post('auth/change-password') async changePassword(
+      @Req() req: FastifyRequest,
+      @Res({ passthrough: true }) reply: FastifyReply,
+    ) {
+      csrf(req);
+      await requireOwner(req);
+      const input = z
+        .object({
+          currentPassword: z.string().min(1).max(1024),
+          newPassword: z
+            .string()
+            .min(8)
+            .max(1024)
+            .regex(/^(?=.*[A-Za-z])(?=.*[0-9]).+$/),
+        })
+        .strict()
+        .safeParse(req.body);
+      if (!input.success) throw new HttpException('Invalid request', 400);
+      if (input.data.currentPassword === input.data.newPassword)
+        throw new HttpException('Invalid request', 400);
+      const result = await auth.changePassword(
+        input.data.currentPassword,
+        input.data.newPassword,
+        sessionToken(req.headers.cookie),
+      );
+      if (result !== 'ok') {
+        if (result === 'limited') reply.header('Retry-After', '60');
+        throw new HttpException(
+          'Invalid credentials',
+          result === 'limited' ? 429 : 401,
+        );
+      }
+      reply.header('Set-Cookie', cookie('', 0));
+      return { changed: true };
+    }
     @Get('auth/session') async session(@Req() req: FastifyRequest) {
       await requireOwner(req);
       return {

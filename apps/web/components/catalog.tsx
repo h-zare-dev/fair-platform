@@ -485,6 +485,11 @@ export function CatalogManagement({
           <b>راه‌اندازی اولیه</b>
           <small>دریافت وضعیت اکانت‌ها</small>
         </a>
+        <a href="/settings/security">
+          <span aria-hidden="true">♙</span>
+          <b>امنیت حساب</b>
+          <small>تغییر رمز عبور</small>
+        </a>
       </nav>
       {notice && (
         <div

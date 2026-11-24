@@ -59,6 +59,7 @@ export class PostgresOpeningBaseline {
       verifiedTotal: number | null;
       firstPassUsers: number;
       stable: number;
+      nonMaterialChanged: number;
       changed: number;
       added: number;
       missing: number;
@@ -83,6 +84,7 @@ export class PostgresOpeningBaseline {
       finished_at: Date | null;
       users: string;
       stable: string;
+      non_material_changed: string;
       changed: string;
       added: string;
       missing: string;
@@ -96,6 +98,8 @@ export class PostgresOpeningBaseline {
       SELECT r.*, count(u.external_user_id) FILTER
         (WHERE u.verification_status<>'ADDED')::text AS users,
         count(*) FILTER (WHERE u.verification_status='STABLE')::text AS stable,
+        count(*) FILTER (WHERE u.verification_status='STABLE' AND
+          u.verified_fingerprint IS DISTINCT FROM u.fingerprint)::text AS non_material_changed,
         count(*) FILTER (WHERE u.verification_status='CHANGED')::text AS changed,
         count(*) FILTER (WHERE u.verification_status='ADDED')::text AS added,
         count(*) FILTER (WHERE u.verification_status='MISSING')::text AS missing,
@@ -128,6 +132,7 @@ export class PostgresOpeningBaseline {
             verifiedTotal: r.verified_total,
             firstPassUsers: Number(r.users),
             stable: Number(r.stable),
+            nonMaterialChanged: Number(r.non_material_changed),
             changed: Number(r.changed),
             added: Number(r.added),
             missing: Number(r.missing),
@@ -171,89 +176,8 @@ export class PostgresOpeningBaseline {
     const run = await this.claim();
     if (!run) return false;
     try {
-      const page = await this.directory.listIds(run.next_offset, PAGE_SIZE);
-      const expectedTotal =
-        run.phase === 'SCAN' ? run.source_total : run.verified_total;
-      if (expectedTotal !== null && expectedTotal !== page.total)
-        throw new Error('OPENING_BASELINE_TOTAL_CHANGED');
-      if (
-        page.total < run.next_offset ||
-        page.ids.length !== Math.min(PAGE_SIZE, page.total - run.next_offset)
-      )
-        throw new Error('OPENING_BASELINE_PAGE_INCOMPLETE');
-      const users = page.ids.length
-        ? await this.directory.details(page.ids)
-        : [];
-      if (
-        users.length !== page.ids.length ||
-        new Set(users.map((u) => u.externalUserId)).size !== page.ids.length ||
-        users.some((u) => !page.ids.includes(u.externalUserId))
-      )
-        throw new Error('OPENING_BASELINE_DETAIL_INCOMPLETE');
-
-      await this.db.transaction(async (manager) => {
-        const checked: Run[] = await manager.query(
-          `
-          SELECT id::text,status,phase,next_offset,source_total,verified_total,lease_token
-          FROM fair_opening_baseline_runs WHERE id=$1 FOR UPDATE`,
-          [run.id],
-        );
-        if (
-          checked[0]?.lease_token !== run.lease_token ||
-          checked[0]?.next_offset !== run.next_offset ||
-          checked[0]?.phase !== run.phase
-        )
-          throw new Error('OPENING_BASELINE_LEASE_LOST');
-        const previous: { max: string | null }[] = await manager.query(
-          `
-          SELECT max(external_user_id)::text AS max FROM fair_opening_baseline_users
-          WHERE run_id=$1 ${
-            run.phase === 'VERIFY'
-              ? "AND verification_status<>'UNVERIFIED'"
-              : ''
-          }`,
-          [run.id],
-        );
-        if (
-          page.ids.length &&
-          previous[0]?.max &&
-          BigInt(page.ids[0]!) <= BigInt(previous[0].max)
-        )
-          throw new Error('OPENING_BASELINE_ORDER_CHANGED');
-
-        for (const user of users) {
-          if (run.phase === 'SCAN')
-            await this.insertFirst(manager, run.id, user);
-          else await this.verify(manager, run.id, user);
-        }
-        const finished = run.next_offset + page.ids.length === page.total;
-        if (run.phase === 'SCAN') {
-          await manager.query(
-            `UPDATE fair_opening_baseline_runs SET
-            source_total=$2,phase=CASE WHEN $3 THEN 'VERIFY' ELSE 'SCAN' END,
-            status=CASE WHEN $3 THEN 'VERIFYING' ELSE 'SCANNING' END,
-            next_offset=CASE WHEN $3 THEN 0 ELSE $4 END,
-            lease_token=NULL,lease_until=NULL WHERE id=$1`,
-            [run.id, page.total, finished, run.next_offset + page.ids.length],
-          );
-        } else {
-          if (finished)
-            await manager.query(
-              `UPDATE fair_opening_baseline_users
-            SET verification_status='MISSING'
-            WHERE run_id=$1 AND verification_status='UNVERIFIED'`,
-              [run.id],
-            );
-          await manager.query(
-            `UPDATE fair_opening_baseline_runs SET
-            verified_total=$2,next_offset=$3,
-            status=CASE WHEN $4 THEN 'COMPLETE' ELSE 'VERIFYING' END,
-            finished_at=CASE WHEN $4 THEN clock_timestamp() ELSE NULL END,
-            lease_token=NULL,lease_until=NULL WHERE id=$1`,
-            [run.id, page.total, run.next_offset + page.ids.length, finished],
-          );
-        }
-      });
+      if (run.phase === 'SCAN') await this.scanPage(run);
+      else await this.verifyPage(run);
       return true;
     } catch (error) {
       const code =
@@ -270,6 +194,132 @@ export class PostgresOpeningBaseline {
       );
       return true;
     }
+  }
+
+  private assertDetails(ids: string[], users: OpeningUser[]): void {
+    if (
+      new Set(users.map((u) => u.externalUserId)).size !== users.length ||
+      users.some((u) => !ids.includes(u.externalUserId))
+    )
+      throw new Error('OPENING_BASELINE_DETAIL_INCOMPLETE');
+  }
+
+  private async assertLease(manager: EntityManager, run: Run): Promise<void> {
+    const checked: Run[] = await manager.query(
+      `SELECT id::text,status,phase,next_offset,source_total,verified_total,lease_token
+       FROM fair_opening_baseline_runs WHERE id=$1 FOR UPDATE`,
+      [run.id],
+    );
+    if (
+      checked[0]?.lease_token !== run.lease_token ||
+      checked[0]?.next_offset !== run.next_offset ||
+      checked[0]?.phase !== run.phase
+    )
+      throw new Error('OPENING_BASELINE_LEASE_LOST');
+  }
+
+  private async scanPage(run: Run): Promise<void> {
+    // The count is observational. New users at the sorted tail, or deleted
+    // users before the offset, must not make this non-posting run fail.
+    const page = await this.directory.listIds(run.next_offset, PAGE_SIZE);
+    const users = page.ids.length ? await this.directory.details(page.ids) : [];
+    this.assertDetails(page.ids, users);
+    // A missing detail can be a real deletion between list and detail reads.
+    // Re-read missing IDs once so a short, inconsistent source response does
+    // not discard an otherwise available opening account.
+    const absent = page.ids.filter(
+      (id) => !users.some((user) => user.externalUserId === id),
+    );
+    const recovered = absent.length ? await this.directory.details(absent) : [];
+    this.assertDetails(absent, recovered);
+    const observed = [...users, ...recovered].sort((a, b) =>
+      BigInt(a.externalUserId) < BigInt(b.externalUserId) ? -1 : 1,
+    );
+    const finished =
+      page.ids.length < PAGE_SIZE ||
+      run.next_offset + page.ids.length >= page.total;
+    await this.db.transaction(async (manager) => {
+      await this.assertLease(manager, run);
+      const previous: { max: string | null }[] = await manager.query(
+        `SELECT max(external_user_id)::text AS max FROM fair_opening_baseline_users
+         WHERE run_id=$1`,
+        [run.id],
+      );
+      if (
+        page.ids.length &&
+        previous[0]?.max &&
+        BigInt(page.ids[0]!) <= BigInt(previous[0].max)
+      )
+        throw new Error('OPENING_BASELINE_ORDER_CHANGED');
+      for (const user of observed)
+        await this.insertFirst(manager, run.id, user);
+      await manager.query(
+        `UPDATE fair_opening_baseline_runs SET
+          source_total=COALESCE(source_total,$2),
+          phase=CASE WHEN $3 THEN 'VERIFY' ELSE 'SCAN' END,
+          status=CASE WHEN $3 THEN 'VERIFYING' ELSE 'SCANNING' END,
+          next_offset=CASE WHEN $3 THEN 0 ELSE $4 END,
+          lease_token=NULL,lease_until=NULL WHERE id=$1`,
+        [run.id, page.total, finished, run.next_offset + page.ids.length],
+      );
+    });
+  }
+
+  private async verifyPage(run: Run): Promise<void> {
+    // Verify the *persisted* first-pass roster, not unstable live offsets.
+    // A new PasarGuard user is outside this cohort and cannot silently become
+    // a pre-existing opening account or an invented Create charge.
+    const roster: { id: string }[] = await this.db.query(
+      `SELECT external_user_id::text AS id FROM fair_opening_baseline_users
+       WHERE run_id=$1 AND verification_status='UNVERIFIED'
+       ORDER BY external_user_id LIMIT $2`,
+      [run.id, PAGE_SIZE + 1],
+    );
+    const ids = roster.slice(0, PAGE_SIZE).map((row) => row.id);
+    const first = ids.length ? await this.directory.details(ids) : [];
+    this.assertDetails(ids, first);
+    const absent = ids.filter(
+      (id) => !first.some((user) => user.externalUserId === id),
+    );
+    const recovered = absent.length ? await this.directory.details(absent) : [];
+    this.assertDetails(absent, recovered);
+    const users = [...first, ...recovered];
+    const missing = ids.filter(
+      (id) => !users.some((user) => user.externalUserId === id),
+    );
+    // A one-record source count is enough to report net count drift. It is
+    // not used for pagination, identity inference or financial readiness.
+    const currentCount = await this.directory.listIds(0, 1);
+    const finished = roster.length <= PAGE_SIZE;
+    await this.db.transaction(async (manager) => {
+      await this.assertLease(manager, run);
+      const checked: { id: string }[] = await manager.query(
+        `SELECT external_user_id::text AS id FROM fair_opening_baseline_users
+         WHERE run_id=$1 AND verification_status='UNVERIFIED'
+         ORDER BY external_user_id LIMIT $2`,
+        [run.id, PAGE_SIZE + 1],
+      );
+      if (
+        checked.length !== roster.length ||
+        checked.some((row, i) => row.id !== roster[i]?.id)
+      )
+        throw new Error('OPENING_BASELINE_LEASE_LOST');
+      for (const user of users) await this.verify(manager, run.id, user);
+      for (const id of missing)
+        await manager.query(
+          `UPDATE fair_opening_baseline_users SET verification_status='MISSING'
+           WHERE run_id=$1 AND external_user_id=$2 AND verification_status='UNVERIFIED'`,
+          [run.id, id],
+        );
+      await manager.query(
+        `UPDATE fair_opening_baseline_runs SET
+         verified_total=$2,next_offset=$3,
+         status=CASE WHEN $4 THEN 'COMPLETE' ELSE 'VERIFYING' END,
+         finished_at=CASE WHEN $4 THEN clock_timestamp() ELSE NULL END,
+         lease_token=NULL,lease_until=NULL WHERE id=$1`,
+        [run.id, currentCount.total, run.next_offset + ids.length, finished],
+      );
+    });
   }
 
   private async insertFirst(
@@ -305,35 +355,52 @@ export class PostgresOpeningBaseline {
     runId: string,
     user: OpeningUser,
   ) {
-    const rows: { fingerprint: string; verification_status: string }[] =
-      await manager.query(
-        `
-      SELECT fingerprint,verification_status FROM fair_opening_baseline_users
+    const rows: {
+      fingerprint: string;
+      verification_status: string;
+      billing_admin_id: string | null;
+      user_status: string;
+      data_limit_bytes: string | null;
+      expires_at: Date | null;
+      on_hold_duration_seconds: string | null;
+      reset_strategy: string | null;
+      source_created_at: Date;
+    }[] = await manager.query(
+      `
+      SELECT fingerprint,verification_status,billing_admin_id::text,user_status,
+        data_limit_bytes::text,expires_at,on_hold_duration_seconds::text,
+        reset_strategy,source_created_at FROM fair_opening_baseline_users
       WHERE run_id=$1 AND external_user_id=$2`,
-        [runId, user.externalUserId],
-      );
-    if (!rows.length) {
-      await this.insertFirst(manager, runId, user);
-      await manager.query(
-        `UPDATE fair_opening_baseline_users
-        SET verification_status='ADDED',verified_fingerprint=$3
-        WHERE run_id=$1 AND external_user_id=$2`,
-        [runId, user.externalUserId, user.fingerprint],
-      );
-    } else {
-      if (rows[0]!.verification_status !== 'UNVERIFIED')
-        throw new Error('OPENING_BASELINE_DUPLICATE_VERIFICATION');
-      await manager.query(
-        `UPDATE fair_opening_baseline_users
-        SET verification_status=$3,verified_fingerprint=$4
-        WHERE run_id=$1 AND external_user_id=$2`,
-        [
-          runId,
-          user.externalUserId,
-          rows[0]!.fingerprint === user.fingerprint ? 'STABLE' : 'CHANGED',
-          user.fingerprint,
-        ],
-      );
-    }
+      [runId, user.externalUserId],
+    );
+    if (!rows.length) throw new Error('OPENING_BASELINE_UNKNOWN_ROSTER_USER');
+    const old = rows[0]!;
+    if (old.verification_status !== 'UNVERIFIED')
+      throw new Error('OPENING_BASELINE_DUPLICATE_VERIFICATION');
+    // Usage bytes and edit_at are volatile observations, not a change in
+    // package shape, admin ownership or source lifecycle state.
+    const materialChange =
+      old.billing_admin_id !== user.billingAdminId ||
+      old.user_status !== user.status ||
+      old.data_limit_bytes !== user.dataLimitBytes ||
+      old.expires_at?.toISOString() !== (user.expiresAt ?? undefined) ||
+      old.on_hold_duration_seconds !==
+        (user.onHoldDurationSeconds == null
+          ? null
+          : String(user.onHoldDurationSeconds)) ||
+      old.reset_strategy !== user.resetStrategy ||
+      old.source_created_at.toISOString() !==
+        new Date(user.sourceCreatedAt).toISOString();
+    await manager.query(
+      `UPDATE fair_opening_baseline_users
+       SET verification_status=$3,verified_fingerprint=$4
+       WHERE run_id=$1 AND external_user_id=$2`,
+      [
+        runId,
+        user.externalUserId,
+        materialChange ? 'CHANGED' : 'STABLE',
+        user.fingerprint,
+      ],
+    );
   }
 }

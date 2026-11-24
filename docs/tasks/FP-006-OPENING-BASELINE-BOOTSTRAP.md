@@ -49,6 +49,34 @@ webhook coverage, reconcile events against the opening watermark, freeze the
 opening date/Owner-admin tariffs and authorize the ledger transition. The
 current SHADOW webhook must remain independent of legacy delivery.
 
+## Owner-approved Staging correction (2026-11-24): live roster churn
+
+The Owner approved adjusting FP-006 after an actual 28,481-account Staging
+import stopped at `OPENING_BASELINE_TOTAL_CHANGED` during verification. This
+section supersedes the **constant-total and two-live-enumeration** requirements
+in item 3 above; all non-posting, authentication and financial gates remain.
+
+- The first pass enumerates ascending source IDs. It tolerates a changing
+  reported total and a missing detail caused by concurrent deletion, recording
+  the initially observed source total. The source has **offset**, not a
+  transactional keyset or atomic export. Thus deletion before an offset can
+  still cause an unobserved initial ID; completion is not proof of full coverage.
+- The second pass verifies only the frozen first-pass IDs, in bounded persisted
+  ID order. A second missing-ID lookup confirms disappearance. New upstream IDs
+  appearing after the first pass are **outside** the opening cohort and require
+  subsequent webhook/watermark reconciliation. The latest live total is sampled
+  for an informational **net** count delta, never interpreted as the exact
+  number of created or deleted accounts. The old `ADDED` counter is retained
+  for response compatibility but no longer claims to enumerate new users.
+- Preserve the original immutable user projection and the verified fingerprint.
+  `CHANGED` now means changes to owner, package-limit, status, expiry, explicit
+  duration, reset strategy or creation timestamp. Differences confined to
+  volatile used-traffic/edit time are counted separately as non-material.
+- Missing, inconsistent IDs and malformed source data still fail closed;
+  partial detail sets with valid requested IDs are a possible deletion, not an
+  implicit zero charge. The two passes remain observational, no financial
+  cutoff is approved and `financialCutoverReady` stays false.
+
 ## Owner acceptance
 
 - Owner can start and follow progress on the Staging dashboard only after the

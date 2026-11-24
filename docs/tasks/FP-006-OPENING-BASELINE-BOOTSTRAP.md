@@ -58,9 +58,11 @@ in item 3 above; all non-posting, authentication and financial gates remain.
 
 - The first pass enumerates ascending source IDs. It tolerates a changing
   reported total and a missing detail caused by concurrent deletion, recording
-  the initially observed source total. The source has **offset**, not a
-  transactional keyset or atomic export. Thus deletion before an offset can
-  still cause an unobserved initial ID; completion is not proof of full coverage.
+  the initially observed source total. It re-seeks the sorted offset after the
+  last persisted ID (with bounded retries and adjacent-ID checks) if a prior
+  deletion shifts the cursor, avoiding the ordinary one-record skip. The source
+  still has **offset**, not a transactional keyset or atomic export, so changes
+  racing between multiple API reads cannot prove full coverage.
 - The second pass verifies only the frozen first-pass IDs, in bounded persisted
   ID order. A second missing-ID lookup confirms disappearance. New upstream IDs
   appearing after the first pass are **outside** the opening cohort and require

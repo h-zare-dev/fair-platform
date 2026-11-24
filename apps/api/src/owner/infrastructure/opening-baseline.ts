@@ -159,7 +159,7 @@ export class PostgresOpeningBaseline {
       `WITH claimed AS (
         UPDATE fair_opening_baseline_runs SET
           status=CASE WHEN status='PENDING' THEN 'SCANNING' ELSE status END,
-          lease_token=$1,lease_until=clock_timestamp()+interval '45 seconds'
+          lease_token=$1,lease_until=clock_timestamp()+interval '5 minutes'
         WHERE id=(SELECT id FROM fair_opening_baseline_runs
           WHERE source_instance_id=$2 AND status IN ('PENDING','SCANNING','VERIFYING')
             AND (lease_until IS NULL OR lease_until<clock_timestamp())
@@ -221,7 +221,40 @@ export class PostgresOpeningBaseline {
   private async scanPage(run: Run): Promise<void> {
     // The count is observational. New users at the sorted tail, or deleted
     // users before the offset, must not make this non-posting run fail.
-    const page = await this.directory.listIds(run.next_offset, PAGE_SIZE);
+    const previous: { max: string | null }[] = await this.db.query(
+      `SELECT max(external_user_id)::text AS max FROM fair_opening_baseline_users
+       WHERE run_id=$1`,
+      [run.id],
+    );
+    const anchor = previous[0]?.max ? BigInt(previous[0].max) : null;
+    let offset = run.next_offset;
+    let page: Awaited<ReturnType<OpeningBaselineDirectory['listIds']>> | null =
+      null;
+    // Offset cursors move when users are removed before the cursor. Find the
+    // first surviving ID after the persisted anchor, so those deletions do
+    // not silently skip unrelated existing accounts.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (anchor !== null && offset > 0) {
+        const before = await this.directory.listIds(offset - 1, 1);
+        if (!before.ids.length || BigInt(before.ids[0]!) > anchor)
+          offset = await this.findSuccessorOffset(anchor, before.total);
+      }
+      const candidate = await this.directory.listIds(offset, PAGE_SIZE);
+      const before =
+        anchor !== null && offset > 0
+          ? await this.directory.listIds(offset - 1, 1)
+          : null;
+      if (
+        anchor === null ||
+        ((!candidate.ids.length || BigInt(candidate.ids[0]!) > anchor) &&
+          (!before?.ids.length || BigInt(before.ids[0]!) <= anchor))
+      ) {
+        page = candidate;
+        break;
+      }
+      offset = await this.findSuccessorOffset(anchor, candidate.total);
+    }
+    if (!page) throw new Error('OPENING_BASELINE_ORDER_CHANGED');
     const users = page.ids.length ? await this.directory.details(page.ids) : [];
     this.assertDetails(page.ids, users);
     // A missing detail can be a real deletion between list and detail reads.
@@ -236,19 +269,20 @@ export class PostgresOpeningBaseline {
       BigInt(a.externalUserId) < BigInt(b.externalUserId) ? -1 : 1,
     );
     const finished =
-      page.ids.length < PAGE_SIZE ||
-      run.next_offset + page.ids.length >= page.total;
+      page.ids.length < PAGE_SIZE || offset + page.ids.length >= page.total;
     await this.db.transaction(async (manager) => {
       await this.assertLease(manager, run);
-      const previous: { max: string | null }[] = await manager.query(
+      const committed: { max: string | null }[] = await manager.query(
         `SELECT max(external_user_id)::text AS max FROM fair_opening_baseline_users
          WHERE run_id=$1`,
         [run.id],
       );
+      if (committed[0]?.max !== (previous[0]?.max ?? null))
+        throw new Error('OPENING_BASELINE_LEASE_LOST');
       if (
         page.ids.length &&
-        previous[0]?.max &&
-        BigInt(page.ids[0]!) <= BigInt(previous[0].max)
+        committed[0]?.max &&
+        BigInt(page.ids[0]!) <= BigInt(committed[0].max)
       )
         throw new Error('OPENING_BASELINE_ORDER_CHANGED');
       for (const user of observed)
@@ -260,9 +294,24 @@ export class PostgresOpeningBaseline {
           status=CASE WHEN $3 THEN 'VERIFYING' ELSE 'SCANNING' END,
           next_offset=CASE WHEN $3 THEN 0 ELSE $4 END,
           lease_token=NULL,lease_until=NULL WHERE id=$1`,
-        [run.id, page.total, finished, run.next_offset + page.ids.length],
+        [run.id, page.total, finished, offset + page.ids.length],
       );
     });
+  }
+
+  private async findSuccessorOffset(
+    anchor: bigint,
+    observedTotal: number,
+  ): Promise<number> {
+    let low = 0;
+    let high = observedTotal;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      const probe = await this.directory.listIds(mid, 1);
+      if (probe.ids.length && BigInt(probe.ids[0]!) <= anchor) low = mid + 1;
+      else high = mid;
+    }
+    return low;
   }
 
   private async verifyPage(run: Run): Promise<void> {

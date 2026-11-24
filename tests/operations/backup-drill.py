@@ -70,9 +70,10 @@ try:
         'PasarguardInbox1790000000000',
         'PricingEngine1791200000000',
         'ReplayShadowJournal1791900000000',
+        'ReplayShadowAudit1792000000000',
     ]
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 11 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == 12 and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
     grants += "\nALTER ROLE fair_backup PASSWORD 'synthetic-backup-test-only';\n"
     run(compose+['exec', '-T', 'postgres', 'psql', '-U', 'fair_migrator', '-d', 'fair_staging',

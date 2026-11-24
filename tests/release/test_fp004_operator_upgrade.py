@@ -79,7 +79,7 @@ class UpgradeTests(unittest.TestCase):
         # Older operator modes exercised the Compose bytes as they were
         # before the newly requested Shadow credit ENV mapping.
         candidate = (REPO / 'docker/staging/compose.yml').read_bytes().replace(
-            upgrade.SHADOW_CREDIT_ADDITION, b'')
+            upgrade.REPORT_WEEK_ADDITION, b'').replace(upgrade.SHADOW_CREDIT_ADDITION, b'')
         self.old_compose = candidate.replace(upgrade.ADDITION, b'')
         self.proposed = candidate
         (self.root / 'compose.yml').write_bytes(self.old_compose)
@@ -276,6 +276,53 @@ class UpgradeTests(unittest.TestCase):
                          'github.ref_protected', 'group: fair-staging-deployment',
                          'environment: staging-bootstrap', 'APPROVE_ACCOUNTING_SHADOW_STAGE',
                          'accounting-shadow'):
+            self.assertIn(required, workflow)
+        self.assertNotIn('pull_request:', workflow)
+
+    def test_shadow_audit_approves_only_one_migration_and_saturday_week_env(self):
+        old_compose = self.proposed.replace(
+            upgrade.SHADOW_CREDIT_ANCHOR,
+            upgrade.SHADOW_CREDIT_ANCHOR + upgrade.SHADOW_CREDIT_ADDITION, 1)
+        self.root.joinpath('compose.yml').write_bytes(old_compose)
+        self.accepted['configHash'] = release.config_hash(self.root)
+        self.root.joinpath('current.json').write_text(json.dumps(self.accepted))
+        names = OLD + [upgrade.NEW_MIGRATION, upgrade.GROUP_MIGRATION,
+                       upgrade.OPENING_MIGRATION, upgrade.BASELINE_CONTROL_MIGRATION,
+                       upgrade.REPLAY_JOURNAL_MIGRATION]
+        hashes = {**NEW_HASHES, upgrade.GROUP_MIGRATION_FILE: 'd' * 64,
+                  upgrade.OPENING_MIGRATION_FILE: 'e' * 64,
+                  upgrade.BASELINE_CONTROL_FILE: 'f' * 64,
+                  upgrade.REPLAY_JOURNAL_FILE: '1' * 64}
+        self.settings.joinpath('compatible-migrations.json').write_text(json.dumps({
+            'configuredMigrations': sorted(names), 'hashes': hashes,
+        }))
+        self.commands.old = report(names, hashes)
+        new_hashes = {**hashes, upgrade.REPLAY_AUDIT_FILE: '2' * 64}
+        self.commands.new = report(names + [upgrade.REPLAY_AUDIT_MIGRATION], new_hashes)
+        proposed = old_compose.replace(upgrade.REPORT_WEEK_ANCHOR,
+                                       upgrade.REPORT_WEEK_ANCHOR + upgrade.REPORT_WEEK_ADDITION, 1)
+        self.assertEqual(upgrade.review_and_approve(self.root, self.settings, proposed,
+                                                   self.target_sha, self.commands, 'shadow-audit'),
+                         'STAGING_SHADOW_AUDIT_MIGRATION_APPROVED')
+        self.assertEqual(self.root.joinpath('compose.yml').read_bytes(), proposed)
+        self.assertEqual(json.loads(self.settings.joinpath('compatible-migrations.json').read_text())['hashes'],
+                         new_hashes)
+        for invalid in (old_compose, proposed.replace(b':-SATURDAY', b':-SUNDAY'),
+                        proposed + b'  UNSAFE_EXTRA: true\n'):
+            with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+                upgrade.check_compose(old_compose, invalid, 'shadow-audit')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'UNEXPECTED_NEW_MIGRATIONS'):
+            upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
+                                 report(names, hashes),
+                                 report(names + [upgrade.REPLAY_AUDIT_MIGRATION, 'Unreviewed'],
+                                        new_hashes), 'shadow-audit')
+
+    def test_shadow_audit_workflow_is_manual_owner_only(self):
+        workflow = (REPO / '.github/workflows/staging-shadow-audit-approval.yml').read_text()
+        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
+                         'github.ref_protected', 'group: fair-staging-deployment',
+                         'environment: staging-bootstrap', 'APPROVE_SHADOW_AUDIT_STAGE',
+                         'shadow-audit'):
             self.assertIn(required, workflow)
         self.assertNotIn('pull_request:', workflow)
 

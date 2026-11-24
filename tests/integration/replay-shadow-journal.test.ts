@@ -3,6 +3,7 @@ import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { startPostgres } from '../helpers/postgres.js';
 import { createOwnerDataSource } from '../../apps/api/dist/owner/infrastructure/database.js';
 import { PostgresReplayShadowJournal } from '../../apps/api/dist/owner/infrastructure/replay-shadow-journal.js';
+import { PostgresReplayShadowAudit } from '../../apps/api/dist/owner/infrastructure/replay-shadow-audit.js';
 
 let container: StartedPostgreSqlContainer;
 let db: ReturnType<typeof createOwnerDataSource>;
@@ -98,6 +99,68 @@ describe('FP-006/007 archival SHADOW financial journal', () => {
     await expect(
       db.query('DELETE FROM fair_replay_shadow_entries WHERE run_id=$1', [run]),
     ).rejects.toThrow('REPLAY_SHADOW_EVIDENCE_IMMUTABLE');
+    expect(
+      await db.query(
+        'SELECT COUNT(*)::text AS count FROM fair_replay_shadow_audit_prices WHERE run_id=$1',
+        [run],
+      ),
+    ).toEqual([{ count: '25' }]);
+    expect(
+      await db.query(
+        'SELECT action,reason,event_count FROM fair_replay_shadow_ignored_summary WHERE run_id=$1',
+        [run],
+      ),
+    ).toMatchObject([
+      {
+        action: 'user_deleted',
+        reason: 'DELETE_CREDIT_DISABLED',
+        event_count: 1,
+      },
+    ]);
+    const audit = new PostgresReplayShadowAudit(
+      db,
+      new PostgresReplayShadowJournal(db, 'Asia/Tehran', 600, false),
+      'SATURDAY',
+    );
+    expect(await audit.overview(run)).toMatchObject({
+      postingScope: 'SHADOW',
+      liveBalanceMutated: false,
+      integrity: { status: 'RECONCILED', errors: [] },
+      totals: {
+        chargesToman: '100000',
+        creditsToman: '0',
+        heldCandidates: 0,
+        ignoredEvents: 1,
+      },
+    });
+    const admins = await audit.admins({ runId: run, offset: 0, limit: 10 });
+    expect(admins.rows[0]).toMatchObject({
+      billingAdminId: '17',
+      adminName: 'admin',
+      chargeToman: '100000',
+    });
+    const entries = await audit.entries({
+      runId: run,
+      billingAdminId: '17',
+      offset: 0,
+      limit: 10,
+    });
+    expect(entries.rows[0]).toMatchObject({
+      accountName: 'sample',
+      adminName: 'admin',
+      amountToman: '100000',
+      packageBytes: (50n * 1073741824n).toString(),
+      durationDays: 30,
+      eventEvidenceComplete: true,
+    });
+    const periods = await audit.periods(
+      { runId: run, billingAdminId: '17', offset: 0, limit: 10 },
+      'day',
+    );
+    expect(periods.rows[0]).toMatchObject({
+      status: 'RECONCILED',
+      readyNetToman: '100000',
+    });
   });
 
   it('credits the full last proven purchase when ENV is on; old run remains unchanged', async () => {

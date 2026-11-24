@@ -24,6 +24,7 @@ async function main() {
       'OpeningBaseline1791700000000',
       'OpeningBaselineControl1791800000000',
       'ReplayShadowJournal1791900000000',
+      'ReplayShadowAudit1792000000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -47,6 +48,7 @@ async function main() {
       'dist/owner/infrastructure/opening-baseline-migration.js',
       'dist/owner/infrastructure/opening-baseline-control-migration.js',
       'dist/owner/infrastructure/replay-shadow-journal-migration.js',
+      'dist/owner/infrastructure/replay-shadow-audit-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

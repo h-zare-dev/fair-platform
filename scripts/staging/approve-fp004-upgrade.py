@@ -29,8 +29,12 @@ BASELINE_CONTROL_MIGRATION = 'OpeningBaselineControl1791800000000'
 BASELINE_CONTROL_FILE = 'dist/owner/infrastructure/opening-baseline-control-migration.js'
 REPLAY_JOURNAL_MIGRATION = 'ReplayShadowJournal1791900000000'
 REPLAY_JOURNAL_FILE = 'dist/owner/infrastructure/replay-shadow-journal-migration.js'
+REPLAY_AUDIT_MIGRATION = 'ReplayShadowAudit1792000000000'
+REPLAY_AUDIT_FILE = 'dist/owner/infrastructure/replay-shadow-audit-migration.js'
 SHADOW_CREDIT_ANCHOR = b"      FAIR_SHADOW_CLOSE_TIME: '02:10'\n"
 SHADOW_CREDIT_ADDITION = b'      FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}\n'
+REPORT_WEEK_ANCHOR = SHADOW_CREDIT_ADDITION
+REPORT_WEEK_ADDITION = b'      FAIR_REPORT_WEEK_START_DAY: ${FAIR_REPORT_WEEK_START_DAY:-SATURDAY}\n'
 IMAGE_RE = re.compile(r'ghcr\.io/h-zare-dev/fair-platform-owner-api@sha256:[0-9a-f]{64}')
 
 
@@ -51,6 +55,13 @@ def check_compose(previous, proposed, mode='initial'):
                                         SHADOW_CREDIT_ANCHOR + SHADOW_CREDIT_ADDITION, 1):
             raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
         return
+    if mode == 'shadow-audit':
+        if previous.count(REPORT_WEEK_ADDITION) != 0 or previous.count(REPORT_WEEK_ANCHOR) != 1:
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        if proposed != previous.replace(REPORT_WEEK_ANCHOR,
+                                        REPORT_WEEK_ANCHOR + REPORT_WEEK_ADDITION, 1):
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        return
     if previous.count(ADDITION) != 0 or previous.count(ANCHOR) != 1:
         raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
     if proposed != previous.replace(ANCHOR, ANCHOR + ADDITION, 1):
@@ -67,6 +78,7 @@ def check_proofs(approved, old, new, mode='initial'):
             (BASELINE_CONTROL_MIGRATION, BASELINE_CONTROL_FILE),
             (REPLAY_JOURNAL_MIGRATION, REPLAY_JOURNAL_FILE),
         ],
+        'shadow-audit': [(REPLAY_AUDIT_MIGRATION, REPLAY_AUDIT_FILE)],
     }
     added = additions[mode]
     for proof in (old, new):
@@ -193,7 +205,7 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
     original_compat = (settings / 'compatible-migrations.json').read_text()
     new_manifest = {**accepted, 'configHash': ''}
     try:
-        if mode in ('initial', 'accounting-shadow'):
+        if mode in ('initial', 'accounting-shadow', 'shadow-audit'):
             atomic(root / 'compose.yml', proposed.decode('utf-8'))
             new_manifest['configHash'] = config_hash(root)
             atomic(root / 'current.json', json.dumps(new_manifest))
@@ -206,7 +218,8 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
         raise
     return ({'group-delete': 'STAGING_GROUP_DELETE_MIGRATION_APPROVED',
              'opening-baseline': 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED',
-             'accounting-shadow': 'STAGING_ACCOUNTING_SHADOW_MIGRATIONS_APPROVED'}
+             'accounting-shadow': 'STAGING_ACCOUNTING_SHADOW_MIGRATIONS_APPROVED',
+             'shadow-audit': 'STAGING_SHADOW_AUDIT_MIGRATION_APPROVED'}
             .get(mode, 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED'))
 
 
@@ -215,7 +228,8 @@ def main():
     if os.geteuid() != 0 or len(sys.argv) not in (2, 3):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
-    if mode not in ('initial', 'group-delete', 'opening-baseline', 'accounting-shadow'):
+    if mode not in ('initial', 'group-delete', 'opening-baseline', 'accounting-shadow',
+                    'shadow-audit'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)
     if len(proposed) > 30000:

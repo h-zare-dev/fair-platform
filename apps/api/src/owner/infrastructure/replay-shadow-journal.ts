@@ -5,6 +5,7 @@ import { PostgresShadowReader } from './shadow-reader.js';
 import {
   calculateReplayShadow,
   type ReplayFixedPrice,
+  type ReplayLedgerLine,
   type ReplaySourceEvent,
 } from './replay-shadow-calculator.js';
 
@@ -34,6 +35,14 @@ interface RunRow {
 /** An entirely separate immutable test ledger: no LIVE, no PasarGuard debit. */
 export class PostgresReplayShadowJournal {
   private readonly zone: string;
+  private readonly legacyEvidenceCache = new Map<
+    string,
+    Promise<{
+      prices: ReplayFixedPrice[];
+      heldCandidates: ReplayLedgerLine[];
+      ignoredByAction: Array<{ action: string; reason: string; count: number }>;
+    }>
+  >();
   constructor(
     private readonly db: DataSource,
     timeZone: string,
@@ -216,6 +225,69 @@ export class PostgresReplayShadowJournal {
     };
   }
 
+  /** Compatibility for runs completed before the immutable audit tables
+   * existed. Never reprice a historic run against a changed 25-price catalog. */
+  async legacyAuditEvidence(runId: string) {
+    const prior = this.legacyEvidenceCache.get(runId);
+    if (prior) return prior;
+    if (this.legacyEvidenceCache.size >= 2)
+      this.legacyEvidenceCache.delete(
+        this.legacyEvidenceCache.keys().next().value!,
+      );
+    const pending = (async () => {
+      const [run] = await this.db.query<
+        {
+          status: string;
+          catalog_hash: string | null;
+          time_zone: string;
+          correlation_window_seconds: number;
+          delete_credit_enabled: boolean;
+          event_count: number;
+          entry_count: number;
+          held_count: number;
+          held_candidate_count: number;
+          ignored_count: number;
+        }[]
+      >(
+        `SELECT status,catalog_hash,time_zone,correlation_window_seconds,
+        delete_credit_enabled,event_count,entry_count,held_count,
+        held_candidate_count,ignored_count
+        FROM fair_replay_shadow_runs WHERE id=$1`,
+        [runId],
+      );
+      if (!run || run.status !== 'COMPLETE' || !run.catalog_hash)
+        throw new Error('SHADOW_AUDIT_RUN_NOT_COMPLETE');
+      const prices = await this.readPrices(this.db.manager);
+      const hash = createHash('sha256')
+        .update(JSON.stringify(prices))
+        .digest('hex');
+      if (hash !== run.catalog_hash)
+        throw new Error('HISTORICAL_CATALOG_UNAVAILABLE');
+      const events = await this.readEvents(this.db.manager);
+      const priced = calculateReplayShadow(events, prices, {
+        timeZone: run.time_zone,
+        correlationWindowSeconds: run.correlation_window_seconds,
+        deleteCreditEnabled: run.delete_credit_enabled,
+      });
+      if (
+        priced.analyzedEvents !== run.event_count ||
+        priced.entries.length !== run.entry_count ||
+        priced.holds.length !== run.held_count ||
+        priced.candidateEntriesHeld !== run.held_candidate_count ||
+        priced.ignoredEvents !== run.ignored_count
+      )
+        throw new Error('SHADOW_AUDIT_ARCHIVE_DRIFT');
+      return {
+        prices,
+        heldCandidates: priced.heldCandidates,
+        ignoredByAction: priced.ignoredByAction,
+      };
+    })();
+    this.legacyEvidenceCache.set(runId, pending);
+    void pending.catch(() => this.legacyEvidenceCache.delete(runId));
+    return pending;
+  }
+
   /** One transaction atomically produces all hypothetical financial evidence.
    * An interrupted process rolls back completely, leaving PENDING retriable. */
   async runNext(): Promise<boolean> {
@@ -262,6 +334,23 @@ export class PostgresReplayShadowJournal {
             hold_count: d.holdCount,
           })),
         );
+        // Freeze the complete 25-price catalog before any financial lines;
+        // historic audit must never reprice a previous run with today's tariff.
+        await this.batchInsert(
+          tx,
+          `INSERT INTO fair_replay_shadow_audit_prices
+            (run_id,package_id,package_bytes,duration_days,amount_toman)
+           SELECT $1,v.package_id,v.package_bytes,v.duration_days,v.amount_toman
+           FROM jsonb_to_recordset($2::jsonb) AS v(
+             package_id bigint,package_bytes bigint,duration_days integer,amount_toman bigint)`,
+          run.id,
+          prices.map((p) => ({
+            package_id: p.packageId,
+            package_bytes: p.bytes,
+            duration_days: p.days,
+            amount_toman: p.amountToman,
+          })),
+        );
         await this.batchInsert(
           tx,
           `INSERT INTO fair_replay_shadow_entries
@@ -277,6 +366,34 @@ export class PostgresReplayShadowJournal {
              package_id bigint,reference_operation_key varchar(128))`,
           run.id,
           priced.entries.map((entry) => ({
+            operation_key: entry.operationKey,
+            kind: entry.kind,
+            entry_type: entry.entryType,
+            billing_admin_id: entry.billingAdminId,
+            external_user_id: entry.externalUserId,
+            local_day: entry.localDay,
+            occurred_at: entry.occurredAt,
+            source_event_ids: entry.eventIds,
+            amount_toman: entry.amountToman,
+            package_id: entry.packageId,
+            reference_operation_key: entry.referenceOperationKey,
+          })),
+        );
+        await this.batchInsert(
+          tx,
+          `INSERT INTO fair_replay_shadow_held_candidates
+            (run_id,operation_key,kind,entry_type,billing_admin_id,external_user_id,
+             local_day,occurred_at,source_event_ids,amount_toman,package_id,reference_operation_key)
+           SELECT $1,v.operation_key,v.kind,v.entry_type,v.billing_admin_id,
+             v.external_user_id,v.local_day,v.occurred_at,v.source_event_ids,
+             v.amount_toman,v.package_id,v.reference_operation_key
+           FROM jsonb_to_recordset($2::jsonb) AS v(
+             operation_key varchar(128),kind varchar(32),entry_type varchar(8),
+             billing_admin_id bigint,external_user_id bigint,local_day varchar(10),
+             occurred_at timestamptz,source_event_ids bigint[],amount_toman bigint,
+             package_id bigint,reference_operation_key varchar(128))`,
+          run.id,
+          priced.heldCandidates.map((entry) => ({
             operation_key: entry.operationKey,
             kind: entry.kind,
             entry_type: entry.entryType,
@@ -310,6 +427,20 @@ export class PostgresReplayShadowJournal {
             local_day: h.localDay,
             occurred_at: h.occurredAt,
             source_event_ids: h.eventIds,
+          })),
+        );
+        await this.batchInsert(
+          tx,
+          `INSERT INTO fair_replay_shadow_ignored_summary
+            (run_id,action,reason,event_count)
+           SELECT $1,v.action,v.reason,v.event_count
+           FROM jsonb_to_recordset($2::jsonb) AS v(
+             action varchar(64),reason varchar(64),event_count integer)`,
+          run.id,
+          priced.ignoredByAction.map((v) => ({
+            action: v.action,
+            reason: v.reason,
+            event_count: v.count,
           })),
         );
         await tx.query(

@@ -1,6 +1,8 @@
 # FP-006/007 — Owner-only historical SHADOW financial audit and per-admin reports
 
-**Status:** detailed implementation proposal; **requires explicit Owner approval before code changes**.
+**Status:** **Owner-approved for implementation 2026-11-24** (all three choices
+confirmed in conversation). Implementation belongs in Draft PR #116; the Owner
+alone marks Ready, merges and authorizes Staging release.
 
 **Source:** Owner request of 2026-11-24 after the 30-day SHADOW trial. The Owner
 requests the identity/account/event detail behind the 45 holds, the approximately
@@ -37,8 +39,10 @@ authorization to activate the webhook or to begin LIVE accounting.
 
 ## 2. Owner UI and API contract
 
-Add the «ممیزی دفتر آزمایشی» section under Operations/Accounting, separate
-from the existing SHADOW summary, with the following tabs and fixed filters:
+Create a **top-level «گزارش‌ها» page** alongside «داشبورد» and «تنظیمات» in the
+main Owner navigation (**approved 2026-11-24**), with a «ممیزی دفتر آزمایشی»
+workbench separate from the existing dashboard SHADOW run controls. Include
+the following tabs and filters:
 
 | Tab | Filters | Required rows and information |
 | --- | --- | --- |
@@ -180,13 +184,49 @@ The report must include an Owner-visible read-only reconciliation panel:
 1. **Weekly boundary — APPROVED 2026-11-24**: default Iranian **Saturday–Friday**,
    configurable using `FAIR_REPORT_WEEK_START_DAY` ENV and `FAIR_TIME_ZONE`
    for local date boundaries. No further choice needed.
-2. **Sensitive details**: approve displaying historic Billing Admin and
+2. **Sensitive details — APPROVED 2026-11-24**: show historic Billing Admin and
    account usernames/IDs, action chronology and exact operation amounts in
-   Owner-authenticated UI only, without CSV export?
-3. **Held-period presentation**: approve showing a **separately labeled sum of
-   ready days** alongside `PENDING_REVIEW`, but **never** a final weekly/monthly
-   balance until all constituent days are reconciled?
+   Owner-authenticated UI only, without CSV export.
+3. **Held-period presentation — APPROVED 2026-11-24**: show a **separately labeled
+   sum of ready days** alongside `PENDING_REVIEW`, but **never** a final
+   weekly/monthly balance until all constituent days are reconciled.
 
-The Owner's response approving these choices (or modifying them) is the
-implementation authorization. This spec/document itself and any docs-only
-Draft PR **are not** an approval or deploy gate.
+The Owner explicitly approved these choices and requested comprehensive
+per-admin reporting. This authorizes the code/test changes in Draft PR #116,
+**not** financial production activation, webhook connection, Ready or Merge.
+
+## 7. Staging release sequence and human acceptance
+
+The new audit migration and `FAIR_REPORT_WEEK_START_DAY` Compose mapping are
+deliberately behind the existing protected Staging approval gate. Following
+Owner review and merge to `development`:
+
+1. As repository Owner `h-zare-dev`, manually dispatch the protected workflow
+   **Staging Shadow audit read-only evidence migration approval (Owner only)**
+   on `development`, entering `APPROVE_SHADOW_AUDIT_STAGE`. This only approves
+   the exact additive migration/ENV mapping and checks the immutable image;
+   it does not apply SQL, post balances or deploy.
+2. Re-run the protected `development` deployment. If a source/archive or
+   historical catalog error appears, **stop** and do not switch on LIVE
+   accounting. The default week begins Saturday; use the accepted Staging ENV
+   value to change it only deliberately.
+3. Sign into the Owner panel, open the new top-level **«گزارش‌ها»** tab, select
+   the last completed 30-day SHADOW run, and check the archive count and
+   integrity status. Compare the recorded run totals to the existing SHADOW
+   summary independently; verify the 45 holds, 1,438 unposted candidates and
+   43,167 nonfinancial events **only when the selected run actually has those
+   recorded counts**.
+4. Search historic Billing Admin names; review a few ready and pending days,
+   week boundaries (Saturday–Friday), Jalali month boundaries, exact frozen
+   package prices, negative credits and associated source-event chronology.
+   Check every hold reason and held candidate with the same-archive account
+   identity. A pending period must never show a final balance.
+5. Keep the application in SHADOW: no webhook activation, no credit transfer,
+   no CSV export, no real balance alteration. Owner acceptance of these
+   reports is **not** approval to begin LIVE posting or scheduled settlement.
+
+Local unit/TypeScript/operator-gate checks are available without a database.
+The PostgreSQL migration, immutability, identity and detailed journal
+integration tests require a real container runtime and must pass in CI before
+the Owner marks the PR Ready or merges it. The full historical 30-day result
+must be rechecked on Staging; no private archive is embedded in the PR.

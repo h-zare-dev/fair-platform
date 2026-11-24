@@ -8,6 +8,7 @@ import { FairShadowCreate1791600000000 } from './shadow-migration.js';
 import { OpeningBaseline1791700000000 } from './opening-baseline-migration.js';
 import { OpeningBaselineControl1791800000000 } from './opening-baseline-control-migration.js';
 import { ReplayShadowJournal1791900000000 } from './replay-shadow-journal-migration.js';
+import { ReplayShadowAudit1792000000000 } from './replay-shadow-audit-migration.js';
 
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
@@ -23,6 +24,7 @@ export function createOwnerDataSource(url: string) {
       OpeningBaseline1791700000000,
       OpeningBaselineControl1791800000000,
       ReplayShadowJournal1791900000000,
+      ReplayShadowAudit1792000000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

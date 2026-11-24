@@ -22,12 +22,15 @@ import { NightlyShadow } from './infrastructure/nightly-shadow.js';
 import { PasarguardOpeningBaselineDirectory } from './infrastructure/opening-baseline-directory.js';
 import { PostgresOpeningBaseline } from './infrastructure/opening-baseline.js';
 import { PostgresReplayShadowJournal } from './infrastructure/replay-shadow-journal.js';
+import { PostgresReplayShadowAudit } from './infrastructure/replay-shadow-audit.js';
+import { parseReportWeekStart } from './application/shadow-report-periods.js';
 async function main() {
   const config = z
     .object({
       DATABASE_URL: z.string().min(1),
       OWNER_ORIGIN: z.literal('https://panel.fairisfair.ir'),
       FAIR_TIME_ZONE: z.string().default('Asia/Tehran'),
+      FAIR_REPORT_WEEK_START_DAY: z.string().default('SATURDAY'),
       FAIR_CORRELATION_WINDOW_SECONDS: z.coerce
         .number()
         .int()
@@ -130,6 +133,12 @@ async function main() {
             config.FAIR_SHADOW_DELETE_CREDIT_ENABLED === 'true',
           )
         : undefined;
+    const reportWeekStart = parseReportWeekStart(
+      config.FAIR_REPORT_WEEK_START_DAY,
+    );
+    const replayAudit = replayShadow
+      ? new PostgresReplayShadowAudit(db, replayShadow, reportWeekStart)
+      : undefined;
     const app = await createOwnerApi(
       auth,
       new PostgresOwnerOperations(db),
@@ -151,6 +160,7 @@ async function main() {
       ingest?.replayInbox,
       openingBaseline,
       replayShadow,
+      replayAudit,
     );
     let processing = false;
     const ingestionLoop = setInterval(() => {

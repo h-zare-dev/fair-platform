@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { ThemeToggle } from './theme-toggle';
 
-export function OwnerHeader({ active }: { active: 'dashboard' | 'settings' }) {
+export function OwnerHeader({
+  active,
+}: {
+  active: 'dashboard' | 'reports' | 'settings';
+}) {
   const [error, setError] = useState('');
   async function logout() {
     setError('');
@@ -37,6 +41,12 @@ export function OwnerHeader({ active }: { active: 'dashboard' | 'settings' }) {
             href="/dashboard"
           >
             داشبورد
+          </a>
+          <a
+            aria-current={active === 'reports' ? 'page' : undefined}
+            href="/reports"
+          >
+            گزارش‌ها
           </a>
           <a
             aria-current={active === 'settings' ? 'page' : undefined}

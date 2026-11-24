@@ -550,8 +550,16 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // The Owner-only audit adds immutable price/candidate evidence after the
+  // original SHADOW journal; unwind only in this disposable test database.
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_replay_shadow_audit_prices')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
   // The combined FP-006/007 SHADOW trial adds two additive migrations after
-  // the read-only opening snapshot; unwind those first in this disposable DB.
+  // the read-only opening snapshot; unwind those next.
   await db.undoLastMigration({ transaction: 'all' });
   expect(
     await db.query(

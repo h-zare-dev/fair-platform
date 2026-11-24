@@ -63,9 +63,12 @@ export interface ReplayCalculation {
   days: ReplayDay[];
   /** Only entries on wholly unambiguous admin/days are financially posted. */
   entries: ReplayLedgerLine[];
+  /** Provable candidates on held admin/days: review evidence, NEVER booked. */
+  heldCandidates: ReplayLedgerLine[];
   holds: ReplayHold[];
   analyzedEvents: number;
   ignoredEvents: number;
+  ignoredByAction: Array<{ action: string; reason: string; count: number }>;
   candidateEntriesHeld: number;
 }
 
@@ -133,6 +136,12 @@ export function calculateReplayShadow(
   const holds: ReplayHold[] = [];
   const unresolvedByAccount = new Set<string>();
   let ignoredEvents = 0;
+  const ignoredCounts = new Map<string, number>();
+  const ignore = (event: ReplaySourceEvent, reason: string) => {
+    ignoredEvents++;
+    const key = `${event.action}\u0000${reason}`;
+    ignoredCounts.set(key, (ignoredCounts.get(key) ?? 0) + 1);
+  };
   const hold = (
     e: ReplaySourceEvent,
     kind: string,
@@ -276,8 +285,8 @@ export function calculateReplayShadow(
             purchaseCredited = true;
           } else if (!lastPurchase)
             hold(e, 'DELETE_CREDIT', 'CREDIT_SOURCE_NOT_PROVEN');
-          else ignoredEvents++;
-        } else ignoredEvents++;
+          else ignore(e, 'ALREADY_CREDITED');
+        } else ignore(e, 'DELETE_CREDIT_DISABLED');
         i++;
         continue;
       }
@@ -412,14 +421,15 @@ export function calculateReplayShadow(
               lastPurchase = line;
               purchaseCredited = false;
             }
-          } else ignoredEvents++;
+          } else
+            ignore(e, delta < 0n ? 'NONBILLABLE_DECREASE' : 'UNCHANGED_LIMIT');
         }
         i++;
         continue;
       }
       if (e.action === 'data_reset_by_next')
         hold(e, 'NEXT_PLAN', 'NEXT_PLAN_NEEDS_VERIFICATION');
-      else ignoredEvents++;
+      else ignore(e, 'NONFINANCIAL_ACTION');
       i++;
     }
   }
@@ -472,6 +482,7 @@ export function calculateReplayShadow(
   }
 
   const entries: ReplayLedgerLine[] = [];
+  const heldCandidates: ReplayLedgerLine[] = [];
   const days: ReplayDay[] = [];
   const keys = new Set([...candidatesByDay.keys(), ...holdsByDay.keys()]);
   for (const key of [...keys].sort()) {
@@ -479,6 +490,7 @@ export function calculateReplayShadow(
     const blocked = holdsByDay.get(key) ?? [];
     const [admin, localDay] = key.split(':') as [string, string];
     if (blocked.length) {
+      heldCandidates.push(...lines);
       days.push({
         billingAdminId: admin,
         localDay,
@@ -512,9 +524,19 @@ export function calculateReplayShadow(
   return {
     days,
     entries,
+    heldCandidates,
     holds,
     analyzedEvents: events.length,
     ignoredEvents,
-    candidateEntriesHeld: candidates.length - entries.length,
+    ignoredByAction: [...ignoredCounts]
+      .map(([key, count]) => {
+        const [action, reason] = key.split('\u0000') as [string, string];
+        return { action, reason, count };
+      })
+      .sort(
+        (a, b) =>
+          a.action.localeCompare(b.action) || a.reason.localeCompare(b.reason),
+      ),
+    candidateEntriesHeld: heldCandidates.length,
   };
 }

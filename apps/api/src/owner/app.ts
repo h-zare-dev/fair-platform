@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Param,
   Req,
   Res,
   Module,
@@ -18,6 +19,7 @@ import {
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { DurableInbox } from '@fair-platform/pasarguard/infrastructure';
 import { z } from 'zod';
+import { parseJalaliDate } from '@fair-platform/calendar';
 import { PricingError } from '@fair-platform/pricing';
 import {
   DirectoryUnavailable,
@@ -41,6 +43,11 @@ import {
   ReplayShadowNotReady,
   type PostgresReplayShadowJournal,
 } from './infrastructure/replay-shadow-journal.js';
+import {
+  ShadowAuditIncomplete,
+  ShadowAuditNotFound,
+  type PostgresReplayShadowAudit,
+} from './infrastructure/replay-shadow-audit.js';
 import {
   ReceiveWebhook,
   WebhookFailure,
@@ -169,6 +176,41 @@ const shadowQuery = z
     limit: z.coerce.number().int().min(1).max(100).default(25),
   })
   .strict();
+const auditDate = z
+  .string()
+  .regex(/^\d{4}-\d\d-\d\d$/)
+  .refine((date) => {
+    try {
+      parseJalaliDate(date);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+const auditQuery = z
+  .object({
+    runId: positive.optional(),
+    billingAdminId: decimal.optional(),
+    from: auditDate.optional(),
+    to: auditDate.optional(),
+    reason: z
+      .string()
+      .regex(/^[A-Z_]{2,64}$/)
+      .optional(),
+    kind: z
+      .enum(['CREATE', 'UPDATE_INCREASE', 'RENEWAL', 'RESET', 'DELETE_CREDIT'])
+      .optional(),
+    period: z.enum(['day', 'week', 'month']).optional(),
+    search: z
+      .string()
+      .max(64)
+      .regex(/^[^\x00-\x1f\x7f]*$/)
+      .optional(),
+    offset: z.coerce.number().int().min(0).max(100000).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+  })
+  .strict()
+  .refine((v) => !v.from || !v.to || v.from <= v.to);
 // One exact Owner-supplied legacy export; never a second live webhook source.
 const REPLAY_SHA256 =
   'fa845d0a2276e65ff7ca4c77fc253c289309541ed3367d752ab3ee4af190e242';
@@ -210,6 +252,7 @@ export async function createOwnerApi(
   replayInbox?: DurableInbox,
   openingBaseline?: PostgresOpeningBaseline,
   replayShadow?: PostgresReplayShadowJournal,
+  replayAudit?: PostgresReplayShadowAudit,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -411,6 +454,52 @@ export async function createOwnerApi(
       if (!replayShadow)
         throw new HttpException('REPLAY_SHADOW_UNAVAILABLE', 503);
       return replayShadow.summary();
+    }
+    @Get('operations/accounting/replay-shadow/audit/:view')
+    async replayShadowAudit(
+      @Req() req: FastifyRequest,
+      @Res({ passthrough: true }) reply: FastifyReply,
+      @Param('view') view: string,
+    ) {
+      await requireOwner(req);
+      const q = input(auditQuery, req.query);
+      if (!replayAudit)
+        throw new HttpException('SHADOW_AUDIT_UNAVAILABLE', 503);
+      reply.header('Vary', 'Cookie');
+      try {
+        switch (view) {
+          case 'overview':
+            return await replayAudit.overview(q.runId);
+          case 'admins':
+            return await replayAudit.admins(q);
+          case 'periods':
+            return await replayAudit.periods(q, q.period ?? 'day');
+          case 'entries':
+            return await replayAudit.entries(q);
+          case 'holds':
+            return await replayAudit.holds(q);
+          case 'candidates':
+            return await replayAudit.candidates(q);
+          case 'ignored':
+            return await replayAudit.ignored(q);
+          default:
+            throw new HttpException('Not found', 404);
+        }
+      } catch (error) {
+        if (error instanceof ShadowAuditNotFound)
+          throw new HttpException('SHADOW_AUDIT_RUN_NOT_FOUND', 404);
+        if (error instanceof ShadowAuditIncomplete)
+          throw new HttpException('SHADOW_AUDIT_RUN_NOT_COMPLETE', 409);
+        if (error instanceof RangeError)
+          throw new HttpException('Invalid report range', 400);
+        if (
+          error instanceof Error &&
+          (error.message === 'HISTORICAL_CATALOG_UNAVAILABLE' ||
+            error.message === 'SHADOW_AUDIT_ARCHIVE_DRIFT')
+        )
+          throw new HttpException('SHADOW_AUDIT_INTEGRITY_BLOCKED', 409);
+        throw error;
+      }
     }
     @Post('operations/accounting/replay-shadow') async replayShadowStart(
       @Req() req: FastifyRequest,

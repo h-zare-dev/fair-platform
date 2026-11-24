@@ -108,4 +108,73 @@ describe('Owner authenticated opening baseline controls', () => {
         .statusCode,
     ).toBe(503);
   });
+
+  it('requires Owner, CSRF and UUID to replace a baseline generation', async () => {
+    const keys: string[] = [];
+    const baseline = {
+      start: (key: string) => {
+        keys.push(key);
+        return Promise.resolve({ id: '3', status: 'PENDING', generation: 3 });
+      },
+      summary: () =>
+        Promise.resolve({
+          mode: 'OPENING_BASELINE_SHADOW',
+          postingScope: 'NONE',
+          financialCutoverReady: false,
+          cutoverLocked: false,
+          generation: 2,
+          sourceInstanceId: 'primary',
+          run: null,
+        }),
+    } as PostgresOpeningBaseline;
+    app = await createOwnerApi(
+      auth,
+      reader,
+      origin,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      baseline,
+    );
+    const url = '/api/v1/owner/operations/accounting/opening-baseline/reseed';
+    const payload = { requestKey: '682c929d-fcb6-4cd4-a06d-a73d5201efb2' };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          payload,
+          headers: { ...headers, cookie: '' },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          payload,
+          headers: { ...headers, 'x-fair-csrf': '0' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          payload: { requestKey: 'oops' },
+          headers,
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(keys).toHaveLength(0);
+    expect(
+      (await app.inject({ method: 'POST', url, payload, headers })).json(),
+    ).toEqual({ id: '3', status: 'PENDING', generation: 3 });
+    expect(keys).toEqual([payload.requestKey]);
+  });
 });

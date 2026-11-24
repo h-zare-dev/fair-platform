@@ -480,6 +480,11 @@ export function CatalogManagement({
           <b>گروه‌ها</b>
           <small>اعضا و اختصاص پکیج</small>
         </a>
+        <a href="/settings/initialization">
+          <span aria-hidden="true">↻</span>
+          <b>راه‌اندازی اولیه</b>
+          <small>دریافت وضعیت اکانت‌ها</small>
+        </a>
       </nav>
       {notice && (
         <div

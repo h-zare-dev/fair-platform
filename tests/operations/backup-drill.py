@@ -62,15 +62,17 @@ try:
         'AtomicCatalog1791300000000',
         'FairShadowCreate1791600000000',
         'OpeningBaseline1791700000000',
+        'OpeningBaselineControl1791800000000',
         'OwnerDashboard1791000000000',
         'OwnerGlobalTimeIndexes1791100000000',
         'OwnerSafeGroupDelete1791400000000',
         'PasarguardBillingProjection1791500000000',
         'PasarguardInbox1790000000000',
         'PricingEngine1791200000000',
+        'ReplayShadowJournal1791900000000',
     ]
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 9 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == 11 and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
     grants += "\nALTER ROLE fair_backup PASSWORD 'synthetic-backup-test-only';\n"
     run(compose+['exec', '-T', 'postgres', 'psql', '-U', 'fair_migrator', '-d', 'fair_staging',

@@ -24,22 +24,94 @@ export class OpeningBaselineBusy extends Error {
   }
 }
 
+export class OpeningBaselineCutoverLocked extends Error {
+  constructor() {
+    super('OPENING_BASELINE_CUTOVER_LOCKED');
+  }
+}
+
 export class PostgresOpeningBaseline {
   constructor(
     private readonly db: DataSource,
     private readonly directory: OpeningBaselineDirectory,
   ) {}
 
-  async start(): Promise<{ id: string; status: string }> {
+  /** Replaces the *selected* run, never its immutable evidence. A repeated
+   * request key always returns the same run, including after an HTTP timeout. */
+  async start(requestKey: string = randomUUID()): Promise<{
+    id: string;
+    status: string;
+    generation: number;
+  }> {
     try {
-      const rows: { id: string; status: string }[] = await this.db.query(
-        `INSERT INTO fair_opening_baseline_runs(source_instance_id,status)
-         VALUES ($1,'PENDING') RETURNING id::text,status`,
-        [SOURCE],
-      );
-      return rows[0]!;
+      return await this.db.transaction('SERIALIZABLE', async (tx) => {
+        await tx.query(
+          `INSERT INTO fair_opening_baseline_control(source_instance_id)
+          VALUES ($1) ON CONFLICT DO NOTHING`,
+          [SOURCE],
+        );
+        const [control] = await tx.query<
+          {
+            current_run_id: string | null;
+            generation: string;
+            financial_cutover_started_at: Date | null;
+          }[]
+        >(
+          `SELECT current_run_id::text,generation::text,
+            financial_cutover_started_at FROM fair_opening_baseline_control
+            WHERE source_instance_id=$1 FOR UPDATE`,
+          [SOURCE],
+        );
+        if (!control || control.financial_cutover_started_at)
+          throw new OpeningBaselineCutoverLocked();
+        const [previous] = await tx.query<
+          {
+            id: string;
+            status: string;
+            generation: string;
+          }[]
+        >(
+          `SELECT r.id::text,r.status,a.generation::text
+            FROM fair_opening_baseline_reseed_audit a
+            JOIN fair_opening_baseline_runs r ON r.id=a.new_run_id
+            WHERE a.source_instance_id=$1 AND a.request_key=$2::uuid`,
+          [SOURCE, requestKey],
+        );
+        if (previous)
+          return { ...previous, generation: Number(previous.generation) };
+        const [busy] = await tx.query<{ active: boolean }[]>(
+          `SELECT EXISTS (SELECT 1 FROM fair_opening_baseline_runs
+             WHERE source_instance_id=$1
+               AND status IN ('PENDING','SCANNING','VERIFYING')) AS active`,
+          [SOURCE],
+        );
+        if (busy?.active) throw new OpeningBaselineBusy();
+        const [run] = await tx.query<{ id: string; status: string }[]>(
+          `INSERT INTO fair_opening_baseline_runs(source_instance_id,status)
+            VALUES ($1,'PENDING') RETURNING id::text,status`,
+          [SOURCE],
+        );
+        if (!run) throw new Error('OPENING_BASELINE_START_FAILED');
+        const generation = Number(control.generation) + 1;
+        await tx.query(
+          `UPDATE fair_opening_baseline_control
+          SET current_run_id=$2,generation=$3,changed_at=clock_timestamp()
+          WHERE source_instance_id=$1`,
+          [SOURCE, run.id, generation],
+        );
+        await tx.query(
+          `INSERT INTO fair_opening_baseline_reseed_audit
+          (source_instance_id,request_key,old_run_id,new_run_id,generation)
+          VALUES ($1,$2::uuid,$3,$4,$5)`,
+          [SOURCE, requestKey, control.current_run_id, run.id, generation],
+        );
+        return { ...run, generation };
+      });
     } catch (error) {
-      if ((error as { code?: string }).code === '23505')
+      if (
+        (error as { code?: string }).code === '23505' ||
+        (error as { code?: string }).code === '40001'
+      )
         throw new OpeningBaselineBusy();
       throw error;
     }
@@ -49,6 +121,8 @@ export class PostgresOpeningBaseline {
     mode: 'OPENING_BASELINE_SHADOW';
     postingScope: 'NONE';
     financialCutoverReady: false;
+    cutoverLocked: boolean;
+    generation: number;
     sourceInstanceId: string;
     run: null | {
       id: string;
@@ -93,6 +167,16 @@ export class PostgresOpeningBaseline {
       unknown_volume: string;
       unknown_duration: string;
     };
+    const [control] = await this.db.query<
+      {
+        generation: string;
+        cutover_locked: boolean;
+      }[]
+    >(
+      `SELECT generation::text,financial_cutover_started_at IS NOT NULL AS cutover_locked
+      FROM fair_opening_baseline_control WHERE source_instance_id=$1`,
+      [SOURCE],
+    );
     const rows: Row[] = await this.db.query(
       `
       SELECT r.*, count(u.external_user_id) FILTER
@@ -112,7 +196,8 @@ export class PostgresOpeningBaseline {
            u.on_hold_duration_seconds=0))::text AS unknown_duration
       FROM fair_opening_baseline_runs r
       LEFT JOIN fair_opening_baseline_users u ON u.run_id=r.id
-      WHERE r.id=(SELECT max(id) FROM fair_opening_baseline_runs WHERE source_instance_id=$1)
+      WHERE r.id=(SELECT current_run_id FROM fair_opening_baseline_control
+        WHERE source_instance_id=$1)
       GROUP BY r.id`,
       [SOURCE],
     );
@@ -121,6 +206,8 @@ export class PostgresOpeningBaseline {
       mode: 'OPENING_BASELINE_SHADOW',
       postingScope: 'NONE',
       financialCutoverReady: false,
+      cutoverLocked: control?.cutover_locked ?? true,
+      generation: Number(control?.generation ?? '0'),
       sourceInstanceId: SOURCE,
       run: r
         ? {

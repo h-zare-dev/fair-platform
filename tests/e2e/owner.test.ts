@@ -550,6 +550,20 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // The combined FP-006/007 SHADOW trial adds two additive migrations after
+  // the read-only opening snapshot; unwind those first in this disposable DB.
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_replay_shadow_runs')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_opening_baseline_control')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
   // FP-006 adds the opening-baseline snapshot after FP-005 Shadow tables.
   await db.undoLastMigration({ transaction: 'all' });
   expect(

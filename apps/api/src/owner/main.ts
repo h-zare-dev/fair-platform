@@ -21,6 +21,7 @@ import { PostgresShadowReader } from './infrastructure/shadow-reader.js';
 import { NightlyShadow } from './infrastructure/nightly-shadow.js';
 import { PasarguardOpeningBaselineDirectory } from './infrastructure/opening-baseline-directory.js';
 import { PostgresOpeningBaseline } from './infrastructure/opening-baseline.js';
+import { PostgresReplayShadowJournal } from './infrastructure/replay-shadow-journal.js';
 async function main() {
   const config = z
     .object({
@@ -39,6 +40,9 @@ async function main() {
       PASARGUARD_WEBHOOK_SECRET_FILE: z.string().optional(),
       FAIR_SHADOW_ENABLED: z.enum(['true', 'false']).default('false'),
       FAIR_SHADOW_CLOSE_TIME: z.string().default('02:10'),
+      FAIR_SHADOW_DELETE_CREDIT_ENABLED: z
+        .enum(['true', 'false'])
+        .default('false'),
     })
     .parse(process.env);
   const db = createOwnerDataSource(config.DATABASE_URL);
@@ -117,6 +121,15 @@ async function main() {
             ),
           )
         : undefined;
+    const replayShadow =
+      config.FAIR_SHADOW_ENABLED === 'true'
+        ? new PostgresReplayShadowJournal(
+            db,
+            config.FAIR_TIME_ZONE,
+            config.FAIR_CORRELATION_WINDOW_SECONDS,
+            config.FAIR_SHADOW_DELETE_CREDIT_ENABLED === 'true',
+          )
+        : undefined;
     const app = await createOwnerApi(
       auth,
       new PostgresOwnerOperations(db),
@@ -137,6 +150,7 @@ async function main() {
       ingest?.receiver,
       ingest?.replayInbox,
       openingBaseline,
+      replayShadow,
     );
     let processing = false;
     const ingestionLoop = setInterval(() => {
@@ -194,6 +208,18 @@ async function main() {
         });
     }, 750);
     baselineLoop.unref();
+    let replayBusy = false;
+    const replayLoop = setInterval(() => {
+      if (!replayShadow || replayBusy) return;
+      replayBusy = true;
+      void replayShadow
+        .runNext()
+        .catch(() => console.error('REPLAY_SHADOW_RUN_FAILED'))
+        .finally(() => {
+          replayBusy = false;
+        });
+    }, 5000);
+    replayLoop.unref();
     const cleanup = setInterval(() => {
       void store.cleanup().catch(() => console.error('OWNER_CLEANUP_FAILED'));
     }, 60000);
@@ -207,7 +233,8 @@ async function main() {
         clearInterval(rawCleanup);
         clearInterval(nightlyLoop);
         clearInterval(baselineLoop);
-        while (processing || nightlyBusy || baselineBusy)
+        clearInterval(replayLoop);
+        while (processing || nightlyBusy || baselineBusy || replayBusy)
           await new Promise((r) => setTimeout(r, 50));
         if (db.isInitialized) await db.destroy();
       });

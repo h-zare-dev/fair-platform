@@ -56,6 +56,7 @@ services:
       FAIR_TIME_ZONE: ${FAIR_TIME_ZONE:-Asia/Tehran}
       FAIR_SHADOW_ENABLED: 'true'
       FAIR_SHADOW_CLOSE_TIME: '02:10'
+      FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
       APP_ENCRYPTION_KEY_FILE: /run/secrets/seed_encryption_key
       PASARGUARD_WEBHOOK_SECRET_FILE: /run/secrets/shadow_webhook_secret

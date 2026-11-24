@@ -22,6 +22,8 @@ async function main() {
       'PasarguardBillingProjection1791500000000',
       'FairShadowCreate1791600000000',
       'OpeningBaseline1791700000000',
+      'OpeningBaselineControl1791800000000',
+      'ReplayShadowJournal1791900000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -43,6 +45,8 @@ async function main() {
       'node_modules/@fair-platform/pasarguard/dist/infrastructure/billing-projection-migration.js',
       'dist/owner/infrastructure/shadow-migration.js',
       'dist/owner/infrastructure/opening-baseline-migration.js',
+      'dist/owner/infrastructure/opening-baseline-control-migration.js',
+      'dist/owner/infrastructure/replay-shadow-journal-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

@@ -205,12 +205,15 @@ export class PasarguardOpeningBaselineDirectory implements OpeningBaselineDirect
       const data = upstreamDetails.parse(await this.get('/api/users', params));
       const users = data.users.map(project);
       if (
-        data.total !== ids.length ||
-        users.length !== ids.length ||
-        new Set(users.map((user) => user.externalUserId)).size !== ids.length ||
+        data.total > ids.length ||
+        users.length > ids.length ||
+        new Set(users.map((user) => user.externalUserId)).size !==
+          users.length ||
         users.some((user) => !ids.includes(user.externalUserId))
       )
         throw new OpeningBaselineUnavailable();
+      // A user can be deleted between the upstream count and detail SELECT.
+      // Missing requested IDs are confirmed by a second read in the importer.
       return users;
     } catch {
       throw new OpeningBaselineUnavailable();

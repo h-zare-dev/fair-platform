@@ -16,6 +16,7 @@ type Status = {
     verifiedTotal: number | null;
     firstPassUsers: number;
     stable: number;
+    nonMaterialChanged: number;
     changed: number;
     added: number;
     missing: number;
@@ -120,6 +121,9 @@ export function OpeningBaseline() {
       </div>
       <p className="muted">
         فهرست و وضعیت فعلی کاربران منبع اصلی در دو مرحله دریافت و تطبیق می‌شود.
+        مرحلهٔ دوم شناسه‌های ثبت‌شده در مرحلهٔ اول را بررسی می‌کند؛ اکانت‌های جدید
+        پس از مرحلهٔ اول به این فهرست اضافه نمی‌شوند. تغییر تعداد اکانت‌های زنده
+        مانع اتمام بررسی نمی‌شود، اما پوشش کامل منبع را هم اثبات نمی‌کند.
         اکانت‌های موجود هیچ بدهی اولیه‌ای نمی‌سازند. تغییرات هنگام دریافت و
         اطلاعات ناقص گزارش می‌شوند؛ این تست مجوز شروع حسابداری واقعی یا جایگزین
         بررسی پوشش وب‌هوک نیست. مدت اصلی پکیج فعال از تاریخ انقضا حدس زده
@@ -161,13 +165,26 @@ export function OpeningBaseline() {
               {run.sourceTotal == null ? '—' : formatInteger(run.sourceTotal)}
             </b>
             {' · '}ثبت اولیه: <b>{formatInteger(run.firstPassUsers)}</b>
-            {' · '}تطبیق قطعی دو برداشت: <b>{formatInteger(run.stable)}</b>
+            {' · '}بدون تغییر مهم در دو برداشت:{' '}
+            <b>{formatInteger(run.stable)}</b>
           </p>
           <p>
-            تغییرکرده در حین ثبت: <b>{formatInteger(run.changed)}</b>
-            {' · '}افزوده‌شده: <b>{formatInteger(run.added)}</b>
+            تغییر در وضعیت/پکیج/مالک: <b>{formatInteger(run.changed)}</b>
+            {' · '}تغییر فقط در مصرف یا زمان ویرایش:{' '}
+            <b>{formatInteger(run.nonMaterialChanged)}</b>
             {' · '}حذف‌شده: <b>{formatInteger(run.missing)}</b>
           </p>
+          {run.sourceTotal != null && run.verifiedTotal != null && (
+            <p className="muted">
+              تعداد منبع در اولین برداشت:{' '}
+              <b>{formatInteger(run.sourceTotal)}</b>
+              {' · '}آخرین تعداد مشاهده‌شده:{' '}
+              <b>{formatInteger(run.verifiedTotal)}</b>
+              {' · '}تغییر خالص تعداد:{' '}
+              <b>{formatInteger(run.verifiedTotal - run.sourceTotal)}</b>
+              {' (تعداد دقیق ایجاد و حذف را نشان نمی‌دهد)'}
+            </p>
+          )}
           <p>
             مالک نامشخص: <b>{formatInteger(run.unknownAdmin)}</b>
             {' · '}حجم نامشخص/نامحدود: <b>{formatInteger(run.unknownVolume)}</b>
@@ -179,8 +196,9 @@ export function OpeningBaseline() {
           )}
           {run.status === 'COMPLETE' && (
             <p className="muted">
-              دو برداشت پایان یافت. نتیجه فقط ثبت اولیهٔ آزمایشی است و هنوز برای
-              قطعیت مالی و فعال‌سازی محاسبات شبانه تأیید نشده است.
+              تطبیق شناسه‌های برداشت اول پایان یافت. اکانت‌های ساخته‌شده پس از
+              برداشت اول باید با پوشش وب‌هوک‌ها جداگانه آشتی داده شوند؛ این
+              نتیجه فقط آزمایشی است و مجوز محاسبات مالی نیست.
             </p>
           )}
         </div>

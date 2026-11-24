@@ -79,8 +79,15 @@ describe('PasarGuard opening baseline official API', () => {
     expect(rows[0]!.fingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('accepts a requested user disappearing during a live source read', async () => {
+    const client = mock(() => Response.json({ users: [user(7)], total: 2 }));
+    expect(
+      (await client.details(['7', '8'])).map((u) => u.externalUserId),
+    ).toEqual(['7']);
+  });
+
   it.each([
-    ['missing record', { users: [user(7)], total: 2 }],
+    ['total above requested roster', { users: [user(7)], total: 3 }],
     ['duplicate record', { users: [user(7), user(7)], total: 2 }],
     ['unrelated ID', { users: [user(7), user(9)], total: 2 }],
     [

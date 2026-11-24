@@ -68,6 +68,7 @@ describe('FP-006 opening baseline transaction and recovery', () => {
       verifiedTotal: 53,
       firstPassUsers: 53,
       stable: 53,
+      nonMaterialChanged: 0,
       changed: 0,
       missing: 0,
       added: 0,
@@ -75,18 +76,24 @@ describe('FP-006 opening baseline transaction and recovery', () => {
   });
 
   it('commits zero billing, detects changed/deleted/created accounts and prevents duplicate runs', async () => {
-    let pass = 0;
+    let reads = 0;
+    let detailReads = 0;
     const directory: OpeningBaselineDirectory = {
       listIds() {
-        pass++;
+        reads++;
         return Promise.resolve({
-          ids: pass === 1 ? ['1', '2', '4'] : ['1', '2', '3'],
-          total: 3,
+          ids: reads === 1 ? ['1', '2', '4'] : ['1', '2', '3'],
+          total: reads === 1 ? 3 : 4,
         });
       },
       details(ids) {
+        detailReads++;
         return Promise.resolve(
-          ids.map((id) => sample(Number(id), pass === 2 && id === '2' ? 2 : 1)),
+          ids
+            .filter((id) => detailReads === 1 || id !== '4')
+            .map((id) =>
+              sample(Number(id), detailReads > 1 && id === '2' ? 2 : 1),
+            ),
         );
       },
     };
@@ -114,9 +121,11 @@ describe('FP-006 opening baseline transaction and recovery', () => {
         firstPassUsers: 3,
         stable: 1,
         changed: 1,
-        added: 1,
+        added: 0,
         missing: 1,
-        unknownExactDuration: 4,
+        sourceTotal: 3,
+        verifiedTotal: 4,
+        unknownExactDuration: 3,
       },
     });
     // Owner's baseline database has no accounting ledger migration at all.
@@ -134,7 +143,120 @@ describe('FP-006 opening baseline transaction and recovery', () => {
     expect(await importer.runNext()).toBe(false);
   });
 
-  it('fails closed without committing partial pages when the API total changes', async () => {
+  it('tolerates live count changes during both scan pages and roster verification', async () => {
+    const first = Array.from({ length: 50 }, (_, i) => String(i + 100));
+    const calls: { offset: number; limit: number }[] = [];
+    let lookups = 0;
+    const directory: OpeningBaselineDirectory = {
+      listIds(offset, limit) {
+        calls.push({ offset, limit });
+        if (limit === 1) return Promise.resolve({ ids: ['100'], total: 52 });
+        if (offset === 0) return Promise.resolve({ ids: first, total: 51 });
+        return Promise.resolve({ ids: ['151', '152'], total: 52 });
+      },
+      details(ids) {
+        lookups++;
+        return Promise.resolve(
+          ids
+            .filter((id) => id !== '101' || lookups === 1)
+            .map((id) => ({
+              ...sample(Number(id)),
+              // Active usage is non-material; the verified fingerprint still differs.
+              usedTrafficBytes: lookups > 2 ? '100' : '0',
+              fingerprint:
+                lookups > 2
+                  ? `ab${id.padStart(62, '0')}`
+                  : sample(Number(id)).fingerprint,
+            })),
+        );
+      },
+    };
+    const importer = new PostgresOpeningBaseline(db, directory);
+    await importer.start();
+    for (let i = 0; i < 4; i++) expect(await importer.runNext()).toBe(true);
+    expect((await importer.summary()).run).toMatchObject({
+      status: 'COMPLETE',
+      sourceTotal: 51,
+      verifiedTotal: 52,
+      firstPassUsers: 52,
+      stable: 51,
+      nonMaterialChanged: 51,
+      missing: 1,
+      added: 0,
+    });
+    expect(
+      calls.filter(({ limit }) => limit === 50).map(({ offset }) => offset),
+    ).toEqual([0, 50]);
+    // Verification is by stored IDs; it never enumerates live offsets again.
+    expect(
+      calls.filter(({ limit, offset }) => limit === 1 && offset === 0),
+    ).toHaveLength(2);
+  });
+
+  it('completes safely when the source shrinks below the next scan offset', async () => {
+    const first = Array.from({ length: 50 }, (_, i) => String(i + 500));
+    let deleted = false;
+    const directory: OpeningBaselineDirectory = {
+      listIds(offset, limit) {
+        if (limit === 1) return Promise.resolve({ ids: ['500'], total: 50 });
+        if (offset === 0) return Promise.resolve({ ids: first, total: 51 });
+        deleted = true;
+        return Promise.resolve({ ids: [], total: 50 });
+      },
+      details(ids) {
+        return Promise.resolve(ids.map((id) => sample(Number(id))));
+      },
+    };
+    const importer = new PostgresOpeningBaseline(db, directory);
+    await importer.start();
+    for (let i = 0; i < 3; i++) await importer.runNext();
+    expect(deleted).toBe(true);
+    expect((await importer.summary()).run).toMatchObject({
+      status: 'COMPLETE',
+      sourceTotal: 51,
+      verifiedTotal: 50,
+      firstPassUsers: 50,
+      stable: 50,
+      missing: 0,
+    });
+  });
+
+  it('recovers the ID boundary when a deletion shifts the live source offset', async () => {
+    const ids = Array.from({ length: 51 }, (_, i) => String(i + 100));
+    let deleted = false;
+    const directory: OpeningBaselineDirectory = {
+      listIds(offset, limit) {
+        const live = deleted ? ids.slice(1) : ids;
+        return Promise.resolve({
+          ids: live.slice(offset, offset + limit),
+          total: live.length,
+        });
+      },
+      details(requested) {
+        return Promise.resolve(
+          requested
+            .filter((id) => !deleted || id !== '100')
+            .map((id) => sample(Number(id))),
+        );
+      },
+    };
+    const importer = new PostgresOpeningBaseline(db, directory);
+    await importer.start();
+    await importer.runNext();
+    deleted = true;
+    for (let i = 0; i < 3; i++) await importer.runNext();
+    expect((await importer.summary()).run).toMatchObject({
+      status: 'COMPLETE',
+      sourceTotal: 51,
+      verifiedTotal: 50,
+      firstPassUsers: 51,
+      stable: 50,
+      missing: 1,
+      unverified: 0,
+    });
+  });
+
+  it('fails closed without committing partial pages when source ID order regresses', async () => {
     let reads = 0;
     const directory: OpeningBaselineDirectory = {
       listIds(offset) {
@@ -144,7 +266,7 @@ describe('FP-006 opening baseline transaction and recovery', () => {
             ids: Array.from({ length: 50 }, (_, i) => String(i + 10)),
             total: 51,
           });
-        return Promise.resolve({ ids: ['60'], total: 52 });
+        return Promise.resolve({ ids: ['59'], total: 52 });
       },
       details(ids) {
         return Promise.resolve(ids.map((id) => sample(Number(id))));
@@ -157,10 +279,10 @@ describe('FP-006 opening baseline transaction and recovery', () => {
     expect((await importer.summary()).run).toMatchObject({
       id: run.id,
       status: 'FAILED',
-      failureCode: 'OPENING_BASELINE_TOTAL_CHANGED',
+      failureCode: 'OPENING_BASELINE_ORDER_CHANGED',
       firstPassUsers: 50,
     });
-    expect(reads).toBe(2);
+    expect(reads).toBeGreaterThanOrEqual(2);
     await expect(
       db.query(
         'UPDATE fair_opening_baseline_users SET verification_status=$1 WHERE run_id=$2',

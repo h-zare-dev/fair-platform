@@ -200,9 +200,19 @@ export function Dashboard() {
       abort.abort();
     };
   }, [windowRange, source, refresh, sourceReady]);
+  const [browsingHistory, setBrowsingHistory] = useState(false);
+  useEffect(() => {
+    if (windowRange === 'replay-fixed' || browsingHistory || busy || pageBusy)
+      return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setRefresh((v) => v + 1);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [windowRange, browsingHistory, busy, pageBusy]);
   async function next(kind: 'events' | 'issues') {
     const cursor = kind === 'events' ? events.nextCursor : issues.nextCursor;
     if (!cursor || !summary) return;
+    setBrowsingHistory(true);
     setPageBusy(true);
     setError('');
     const params = new URLSearchParams({
@@ -261,7 +271,10 @@ export function Dashboard() {
           <button
             className="secondary"
             disabled={busy || pageBusy}
-            onClick={() => setRefresh((v) => v + 1)}
+            onClick={() => {
+              setBrowsingHistory(false);
+              setRefresh((v) => v + 1);
+            }}
           >
             <span aria-hidden="true">↻</span> به‌روزرسانی
           </button>
@@ -322,7 +335,10 @@ export function Dashboard() {
             {error}{' '}
             <button
               className="secondary"
-              onClick={() => setRefresh((v) => v + 1)}
+              onClick={() => {
+                setBrowsingHistory(false);
+                setRefresh((v) => v + 1);
+              }}
             >
               تلاش دوباره
             </button>

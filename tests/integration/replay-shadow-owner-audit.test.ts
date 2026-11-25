@@ -229,7 +229,7 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
 
   it('shows source-verified historical names only on matching archived ID + username, keeping amounts unchanged', async () => {
     const before = await audit().overview(runId);
-    expect(before.historicalSourceIdentity.status).toBe('NOT_IMPORTED');
+    expect(before.historicalSourceIdentity?.status).toBe('NOT_IMPORTED');
     await db.query(`INSERT INTO fair_replay_private_identity_imports
       (source_instance_id,manifest_sha256,map_sha256,replay_plaintext_sha256,source_script_sha256,
         event_count,mapped_admins,mapped_accounts,mapped_actor_admins,
@@ -290,6 +290,6 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
     expect(after.totals).toEqual(before.totals);
     expect(after.integrity).toEqual(before.integrity);
     expect(after.historicalIdentityVerified).toBe(false); // no current-directory proof
-    expect(after.historicalSourceIdentity.status).toBe('PARTIAL_SOURCE_MATCH');
+    expect(after.historicalSourceIdentity?.status).toBe('PARTIAL_SOURCE_MATCH');
   });
 });

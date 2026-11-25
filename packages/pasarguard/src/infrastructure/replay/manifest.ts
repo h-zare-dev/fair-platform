@@ -4,6 +4,7 @@ import { integer, object, parseJson, utcDate } from './json.js';
 export interface Manifest {
   manifest_version?: 1;
   source: 'legacy-pasarjew-postgresql';
+  identity?: 'source-webhook';
   window_days: number;
   cutoff_utc: string;
   distinct_payload_groups: number;
@@ -27,7 +28,10 @@ const required = [
   'action_counts',
   'sha256_gzip',
 ];
-export function manifestFrom(text: string): Manifest {
+export function manifestFrom(
+  text: string,
+  allowSourceIdentity = false,
+): Manifest {
   const integerFields = new Set([
     'window_days',
     'distinct_payload_groups',
@@ -57,12 +61,15 @@ export function manifestFrom(text: string): Manifest {
     fail('UNSUPPORTED_MANIFEST_VERSION');
   if (
     Object.keys(data).some(
-      (key) => ![...required, 'manifest_version', 'notes'].includes(key),
+      (key) =>
+        ![...required, 'manifest_version', 'notes', 'identity'].includes(key),
     ) ||
     required.some((key) => !Object.hasOwn(data, key))
   )
     fail('INVALID_MANIFEST');
   if (
+    (Object.hasOwn(data, 'identity') &&
+      (!allowSourceIdentity || data.identity !== 'source-webhook')) ||
     data.source !== 'legacy-pasarjew-postgresql' ||
     (![1, 7, 30].includes(data.window_days as number) &&
       !integer(data.window_days, 90, 186))

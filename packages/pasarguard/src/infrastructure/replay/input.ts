@@ -81,7 +81,11 @@ export class ReplayInput {
     private readonly file: FileHandle,
     private readonly signature: string,
   ) {}
-  static async open(input: string, manifest: string): Promise<ReplayInput> {
+  static async open(
+    input: string,
+    manifest: string,
+    allowSourceIdentity = false,
+  ): Promise<ReplayInput> {
     let file: FileHandle | undefined;
     try {
       const manifestPath = await outsideWorktree(manifest);
@@ -106,7 +110,7 @@ export class ReplayInput {
         } catch {
           return fail('INVALID_MANIFEST');
         }
-        parsed = manifestFrom(text);
+        parsed = manifestFrom(text, allowSourceIdentity);
       } finally {
         await mf.close();
       }

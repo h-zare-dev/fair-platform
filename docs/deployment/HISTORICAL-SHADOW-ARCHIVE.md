@@ -9,38 +9,45 @@ the configured deletion-credit policy. Completed runs remain selectable on
 
 ## Export and import
 
-1. On the legacy host, use the same private replay exporter and anonymization
-   configuration used for the previous archive. A rolling 90-day import and
-   four complete Jalali months are different windows. In Asia/Tehran the
-   complete Mordad–Aban 1405 window is 122 days, from
-   `2026-07-22T20:30:00Z` through the exclusive cutoff
-   `2026-11-21T20:30:00Z`. For the previously reviewed exporter with a
-   positional `days` argument and a constant `CUTOFF`, the wrapper substitutes
-   those two parameters in a disposable copy and keeps the original exporter.
+1. On the legacy host, export the original webhook fields for the desired window.
+   The exporter preserves PasarGuard IDs and usernames for billing admins,
+   accounts and actors. It reads the legacy database in read-only mode and
+   includes the fields needed by replay. Subscription URLs, proxy credentials
+   and arbitrary raw payload fields are excluded. The files contain real names
+   and belong in a private directory outside Git.
+
+   The four full Jalali months Mordad–Aban 1405 span 122 days in Asia/Tehran.
+   The start is `2026-07-22T20:30:00Z` and the exclusive cutoff is
+   `2026-11-21T20:30:00Z`.
 
    ```sh
-   python3 scripts/replay/export-legacy-window.py --source /root/fair_replay_export.py \
-     --days 122 --cutoff 2026-11-21T20:30:00+00:00
+   python3 scripts/replay/export-source-archive.py \
+     --days 122 --cutoff 2026-11-21T20:30:00+00:00 \
+     --output-dir /root/fair-source-replay
    ```
 
-2. Stage the resulting matching `.jsonl.gz` and `.manifest.json` in a private
-   directory outside Git. After the Owner reviews and deploys the
-   password-change and archive migration proofs, invoke the import from a
-   trusted operator shell on Staging. From the protected `development` workflow
-   list, the Owner runs **Staging password and archive migration approval
-   (Owner only)** with `APPROVE_PASSWORD_AND_ARCHIVE_STAGE`. The approval uses
-   the published API image for that exact `development` commit. Wait for its
-   success, then rerun the failed Deploy job from the same commit and verify
-   that deployment finishes before importing the archive.
-   The example assumes the files are readable by the one-shot container user.
+   Run the exporter separately for any earlier report window that still needs
+   the original IDs. Use that archive's actual receipt cutoff and duration.
+   Keep the original export and its manifest paired during the private transfer.
+
+2. After Owner merge and CI Publish, run **Staging source archive identity
+   migration approval (Owner only)** on protected `development` with
+   `APPROVE_SOURCE_ARCHIVE_IDENTITY_STAGE`. It approves the exact migration
+   that records the identity mode for each archive. Rerun the failed Deploy
+   job for that same commit and verify it succeeded before importing.
+
+   On Staging, place the new matched gzip and manifest in a private operator
+   directory readable by the one-shot migration container's UID. From
+   `/opt/fair-staging`, substitute the actual filename printed by the exporter:
 
    ```sh
-   docker compose --env-file current.env -f compose.yml run --rm --no-deps -T \
+   docker compose --env-file current.env -f compose.yml --profile tools \
+     run --rm --no-deps -T \
      -e FAIR_SHADOW_ENABLED=true \
      -e FAIR_TIME_ZONE=Asia/Tehran \
      -v /private/archive:/private/archive:ro \
      migrate node dist/owner/cli.js import-replay-archive \
-     /private/archive/pasarjew-replay-122d.jsonl.gz
+     /private/archive/pasarjew-source-122d-REPLACE_WITH_SHA256.jsonl.gz
    ```
 
 3. The command validates the gzip checksum, record totals and receipt window,
@@ -58,6 +65,12 @@ the configured deletion-credit policy. Completed runs remain selectable on
    run and appears in the advanced tool as
    `REPLAY_SHADOW_ARCHIVE_EVENT_COUNT_MISMATCH`.
 
+Daily, weekly and monthly statements show sold package volume next to the
+amount. Volume sums the bytes of recorded charge entries from the same ready
+days as the money subtotal. A deletion credit is a money adjustment and does
+not reduce the gross volume. When the period is incomplete, the volume is
+labeled as the subtotal of ready days.
+
 ## Approved manual operations without a confirmed price
 
 The Owner can review individual archive rows in the Ambiguities tab and put
@@ -72,12 +85,16 @@ amount. A priced operation on the same day can be recorded if no other genuine
 hold remains. Normal verified monthly resets are processed by the ordinary
 calculator. Manager names alone never approve an operation.
 
-When the export uses the same anonymization configuration, Reports uses the
-existing private identity import to display historical names for exact matches
-of role, archived ID and archived username. Coverage counts are calculated
-against the selected archive. Managers absent from the private mapping, and
-changed aliases without an exact match, remain marked as unverified. The
-mapping establishes historical names only.
+The new import creates an independent SHADOW run. The normalized events store
+the original IDs and usernames, and the calculator and report filters use those
+IDs. Reports defaults to a completed source-webhook run when available. Check
+the matching window, receipt and event counts, ledger totals, held operations
+and a few known PasarGuard IDs before relying on the new report. Review keys
+include source IDs and must be regenerated from the new evidence.
+
+Older pseudonymized runs remain selectable under their legacy label for audit.
+They are immutable and are replaced for reporting by re-exporting and replaying
+each required window. The import does not run against live balances.
 
 A simultaneous matching renewal gets a review marker in Transactions. Confirm
 the two source event pairs before drawing a conclusion about whether both

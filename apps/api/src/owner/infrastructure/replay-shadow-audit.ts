@@ -34,6 +34,7 @@ interface RunRow {
   status: string;
   time_zone: string;
   source_instance_id: string;
+  source_identity: boolean;
   correlation_window_seconds: number;
   delete_credit_enabled: boolean;
   catalog_hash: string | null;
@@ -100,18 +101,21 @@ export class PostgresReplayShadowAudit {
   private async runs(): Promise<RunRow[]> {
     return this.db.query<
       RunRow[]
-    >(`SELECT id::text,status,time_zone,source_instance_id,
+    >(`SELECT r.id::text,r.status,r.time_zone,r.source_instance_id,
+      COALESCE(a.source_identity,false) AS source_identity,
       correlation_window_seconds,delete_credit_enabled,catalog_hash,
       event_count,entry_count,held_count,held_candidate_count,ignored_count,
       created_at,finished_at
-      FROM fair_replay_shadow_runs ORDER BY id DESC LIMIT 30`);
+      FROM fair_replay_shadow_runs r LEFT JOIN fair_replay_archives a USING(source_instance_id)
+      ORDER BY r.id DESC LIMIT 30`);
   }
 
   private async resolve(runId?: string): Promise<RunRow> {
     const runs = await this.runs();
     const chosen = runId
       ? runs.find((r) => r.id === runId)
-      : runs.find((r) => r.status === 'COMPLETE');
+      : (runs.find((r) => r.status === 'COMPLETE' && r.source_identity) ??
+        runs.find((r) => r.status === 'COMPLETE'));
     if (!chosen) throw new ShadowAuditNotFound('SHADOW_AUDIT_RUN_NOT_FOUND');
     if (chosen.status !== 'COMPLETE')
       throw new ShadowAuditIncomplete('SHADOW_AUDIT_RUN_NOT_COMPLETE');
@@ -458,11 +462,13 @@ export class PostgresReplayShadowAudit {
       runs: runs.map((r) => ({
         id: r.id,
         status: r.status,
+        sourceIdentity: r.source_identity,
         createdAt: r.created_at.toISOString(),
       })),
       run: {
         id: run.id,
         source: run.source_instance_id,
+        sourceIdentity: run.source_identity,
         status: run.status,
         catalogHash: run.catalog_hash,
         correlationWindowSeconds: run.correlation_window_seconds,
@@ -496,9 +502,9 @@ export class PostgresReplayShadowAudit {
         note: 'Internal journal consistency only; not independent proof of historical identity or LIVE charges.',
       },
       historicalIdentityVerified: false,
-      historicalSourceIdentity: await this.historicalIdentityCoverage(
-        run.source_instance_id,
-      ),
+      historicalSourceIdentity: run.source_identity
+        ? null
+        : await this.historicalIdentityCoverage(run.source_instance_id),
     };
   }
 
@@ -560,7 +566,7 @@ export class PostgresReplayShadowAudit {
         search,
         filters.limit + 1,
         filters.offset,
-        identitySource(run.source_instance_id),
+        run.source_identity ? null : identitySource(run.source_instance_id),
       ],
     );
     const candidatesByAdmin = new Map<string, number>();
@@ -587,8 +593,9 @@ export class PostgresReplayShadowAudit {
       ...page(
         rows.map((r) => ({
           ...r,
-          adminName:
-            Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
+          adminName: run.source_identity
+            ? (r.names?.join(' / ') ?? null)
+            : Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
               ? r.verifiedNames[0]
               : r.verifiedIds?.length ||
                   run.source_instance_id !==
@@ -599,17 +606,20 @@ export class PostgresReplayShadowAudit {
                   : null,
           historicalAdminId:
             r.verifiedIds?.length === 1 ? r.verifiedIds[0] : null,
-          nameStatus: r.verifiedIds?.length
-            ? Number(r.unmatchedAliases) > 0
-              ? 'PARTIAL_SOURCE_MATCH'
-              : r.verifiedNames?.length === 1
-                ? 'SOURCE_VERIFIED_HISTORICAL'
-                : r.verifiedNames?.length
-                  ? 'HISTORICAL_NAME_CONFLICT'
-                  : 'SOURCE_VERIFIED_ID_ONLY'
-            : run.source_instance_id !== identitySource(run.source_instance_id)
-              ? 'ARCHIVE_PSEUDONYMIZED'
-              : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
+          nameStatus: run.source_identity
+            ? 'SOURCE_WEBHOOK'
+            : r.verifiedIds?.length
+              ? Number(r.unmatchedAliases) > 0
+                ? 'PARTIAL_SOURCE_MATCH'
+                : r.verifiedNames?.length === 1
+                  ? 'SOURCE_VERIFIED_HISTORICAL'
+                  : r.verifiedNames?.length
+                    ? 'HISTORICAL_NAME_CONFLICT'
+                    : 'SOURCE_VERIFIED_ID_ONLY'
+              : run.source_instance_id !==
+                  identitySource(run.source_instance_id)
+                ? 'ARCHIVE_PSEUDONYMIZED'
+                : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
           heldCandidateCount: candidatesByAdmin.get(r.billingAdminId) ?? 0,
           status: Number(r.pendingDays) > 0 ? 'PENDING_REVIEW' : 'RECONCILED',
         })),
@@ -617,6 +627,35 @@ export class PostgresReplayShadowAudit {
         filters.offset,
       ),
     };
+  }
+
+  private async chargeVolumes(run: RunRow, billingAdminId: string) {
+    let prices = new Map<string, { packageId: string; bytes: string }>();
+    try {
+      prices = await this.pricesForRun(run);
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        ![
+          'HISTORICAL_CATALOG_UNAVAILABLE',
+          'SHADOW_AUDIT_ARCHIVE_DRIFT',
+        ].includes(error.message)
+      )
+        throw error;
+    }
+    const rows = await this.db.query<
+      { localDay: string; bytes: string | null }[]
+    >(
+      `SELECT e.local_day AS "localDay",
+        CASE WHEN COUNT(*) = COUNT(p.bytes) THEN SUM(p.bytes::numeric)::text END AS bytes
+       FROM fair_replay_shadow_entries e LEFT JOIN
+         jsonb_to_recordset($3::jsonb) AS p("packageId" text,bytes text)
+         ON p."packageId"=e.package_id::text
+       WHERE e.run_id=$1 AND e.billing_admin_id=$2 AND e.entry_type='CHARGE'
+       GROUP BY e.local_day`,
+      [run.id, billingAdminId, JSON.stringify([...prices.values()])],
+    );
+    return new Map(rows.map((row) => [row.localDay, row.bytes]));
   }
 
   async periods(filters: AuditPageFilters, period: ReportPeriod) {
@@ -643,8 +682,12 @@ export class PostgresReplayShadowAudit {
     );
     if (rows.length > 4000)
       throw new RangeError('SHADOW_AUDIT_DATE_RANGE_TOO_WIDE');
+    const volumes = await this.chargeVolumes(run, filters.billingAdminId);
     const grouped = groupShadowReportDays(
-      rows,
+      rows.map((row) => {
+        const bytes = volumes.get(row.localDay);
+        return { ...row, chargeBytes: bytes === undefined ? '0' : bytes };
+      }),
       period,
       this.weekStartDay,
       archive.from,
@@ -804,7 +847,8 @@ export class PostgresReplayShadowAudit {
       occurredAt: string;
       code?: string;
     },
-  >(source: string, rows: T[], includePrecedingContext = false) {
+  >(run: RunRow, rows: T[], includePrecedingContext = false) {
+    const source = run.source_instance_id;
     const byId = await this.eventsFor(
       source,
       rows.flatMap((r) => r.eventIds),
@@ -813,10 +857,12 @@ export class PostgresReplayShadowAudit {
     const context = includePrecedingContext
       ? await this.precedingContext(source, rows)
       : new Map<string, Array<Record<string, unknown>>>();
-    const identities = await this.privateEventNames(source, [
-      ...byId.values(),
-      ...[...context.values()].flat(),
-    ]);
+    const identities = run.source_identity
+      ? null
+      : await this.privateEventNames(source, [
+          ...byId.values(),
+          ...[...context.values()].flat(),
+        ]);
     const verified = (
       event: Record<string, unknown>,
       role: string,
@@ -827,7 +873,7 @@ export class PostgresReplayShadowAudit {
       const alias = event[nameKey];
       if (typeof archivedId !== 'string') return null;
       return (
-        identities.get(
+        identities?.get(
           JSON.stringify([
             role,
             archivedId,
@@ -879,15 +925,21 @@ export class PostgresReplayShadowAudit {
         historicalBillingAdminId: admin?.id ?? null,
         historicalAccountId: account?.id ?? null,
         historicalActorId: actor?.id ?? null,
-        billingAdminNameStatus: admin?.name
-          ? 'SOURCE_VERIFIED_HISTORICAL'
-          : 'ARCHIVE_PSEUDONYMIZED',
-        accountNameStatus: account?.name
-          ? 'SOURCE_VERIFIED_HISTORICAL'
-          : 'ARCHIVE_PSEUDONYMIZED',
-        actorNameStatus: actor?.name
-          ? 'SOURCE_VERIFIED_HISTORICAL'
-          : 'ARCHIVE_PSEUDONYMIZED',
+        billingAdminNameStatus: run.source_identity
+          ? 'SOURCE_WEBHOOK'
+          : admin?.name
+            ? 'SOURCE_VERIFIED_HISTORICAL'
+            : 'ARCHIVE_PSEUDONYMIZED',
+        accountNameStatus: run.source_identity
+          ? 'SOURCE_WEBHOOK'
+          : account?.name
+            ? 'SOURCE_VERIFIED_HISTORICAL'
+            : 'ARCHIVE_PSEUDONYMIZED',
+        actorNameStatus: run.source_identity
+          ? 'SOURCE_WEBHOOK'
+          : actor?.name
+            ? 'SOURCE_VERIFIED_HISTORICAL'
+            : 'ARCHIVE_PSEUDONYMIZED',
       };
     };
     return rows.map((row) => {
@@ -942,19 +994,22 @@ export class PostgresReplayShadowAudit {
         contextEvents: (context.get(row.operationKey) ?? [])
           .filter((e) => !row.eventIds.includes(e.id as string))
           .map(enriched),
-        adminName:
-          adminNames.length === 1 &&
-          (adminFullyMatched ||
-            (source === identitySource(source) && !adminPartiallyMatched))
+        adminName: run.source_identity
+          ? adminNames.join(' / ') || null
+          : adminNames.length === 1 &&
+              (adminFullyMatched ||
+                (source === identitySource(source) && !adminPartiallyMatched))
             ? adminNames[0]
             : null,
-        accountName:
-          accountNames.length === 1 &&
-          (accountFullyMatched || !accountPartiallyMatched)
+        accountName: run.source_identity
+          ? accountNames.join(' / ') || null
+          : accountNames.length === 1 &&
+              (accountFullyMatched || !accountPartiallyMatched)
             ? accountNames[0]
             : null,
-        adminNameStatus:
-          adminFullyMatched && adminNames.length === 1
+        adminNameStatus: run.source_identity
+          ? 'SOURCE_WEBHOOK'
+          : adminFullyMatched && adminNames.length === 1
             ? 'SOURCE_VERIFIED_HISTORICAL'
             : adminFullyMatched && adminNames.length > 1
               ? 'HISTORICAL_NAME_CONFLICT'
@@ -963,8 +1018,9 @@ export class PostgresReplayShadowAudit {
                 : source !== identitySource(source)
                   ? 'ARCHIVE_PSEUDONYMIZED'
                   : archivedAdminNameStatus(adminNames, 'SOURCE'),
-        accountNameStatus:
-          accountFullyMatched && accountNames.length === 1
+        accountNameStatus: run.source_identity
+          ? 'SOURCE_WEBHOOK'
+          : accountFullyMatched && accountNames.length === 1
             ? 'SOURCE_VERIFIED_HISTORICAL'
             : accountFullyMatched && accountNames.length > 1
               ? 'HISTORICAL_NAME_CONFLICT'
@@ -1024,7 +1080,7 @@ export class PostgresReplayShadowAudit {
     }));
     return {
       runId: run.id,
-      rows: await this.decorate(run.source_instance_id, enriched),
+      rows: await this.decorate(run, enriched),
       nextOffset:
         rows.length > filters.limit ? filters.offset + filters.limit : null,
     };
@@ -1073,11 +1129,7 @@ export class PostgresReplayShadowAudit {
     );
     return {
       runId: run.id,
-      rows: await this.decorate(
-        run.source_instance_id,
-        rows.slice(0, filters.limit),
-        true,
-      ),
+      rows: await this.decorate(run, rows.slice(0, filters.limit), true),
       nextOffset:
         rows.length > filters.limit ? filters.offset + filters.limit : null,
     };
@@ -1141,10 +1193,7 @@ export class PostgresReplayShadowAudit {
     return {
       runId: run.id,
       bookingStatus: 'NOT_BOOKED' as const,
-      rows: await this.decorate(
-        run.source_instance_id,
-        rows.slice(0, filters.limit),
-      ),
+      rows: await this.decorate(run, rows.slice(0, filters.limit)),
       nextOffset:
         rows.length > filters.limit ? filters.offset + filters.limit : null,
     };

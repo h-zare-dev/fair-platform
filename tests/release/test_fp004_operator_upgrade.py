@@ -397,6 +397,23 @@ class UpgradeTests(unittest.TestCase):
                                         {**new_hashes, upgrade.REPLAY_AUDIT_FILE: '9' * 64}),
                                  'private-identity')
 
+    def test_source_archive_approval_is_exact_and_owner_only(self):
+        mode = 'replay-source-identity'
+        hashes = {**OLD_HASHES, upgrade.REPLAY_SOURCE_IDENTITY_FILE: 'c' * 64}
+        names = OLD + [upgrade.REPLAY_SOURCE_IDENTITY_MIGRATION]
+        approved = {'configuredMigrations': sorted(OLD), 'hashes': OLD_HASHES}
+        old = report(OLD, OLD_HASHES)
+        proposed = report(names, hashes)
+        self.assertEqual(upgrade.check_proofs(approved, old, proposed, mode)['hashes'], hashes)
+        with self.assertRaises(upgrade.UpgradeError):
+            upgrade.check_proofs(approved, old, report(names, {**hashes, 'old-a.js': 'd' * 64}), mode)
+        with self.assertRaises(upgrade.UpgradeError):
+            upgrade.check_compose(b'current', b'changed', mode)
+        workflow = (REPO / '.github/workflows/staging-replay-source-identity-approval.yml').read_text()
+        for gate in ('workflow_dispatch:', "github.actor == 'h-zare-dev'", 'github.ref_protected',
+                     "github.ref == 'refs/heads/development'", '$GITHUB_SHA replay-source-identity'):
+            self.assertIn(gate, workflow)
+
     def test_private_identity_workflow_is_manual_owner_only(self):
         workflow = (REPO / '.github/workflows/staging-private-identity-approval.yml').read_text()
         for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",

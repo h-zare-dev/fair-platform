@@ -66,6 +66,9 @@ jobs:
           python3 -m unittest discover -s tests/release -p test_fp004_operator_upgrade.py
           python3 -m unittest discover -s tests/release -p test_password_runtime_grant_approval.py
 
+      - name: Historical source archive exporter regression
+        run: python3 -m unittest discover -s tests/release -p test_legacy_source_replay.py
+
       - name: Build
         run: pnpm build
 

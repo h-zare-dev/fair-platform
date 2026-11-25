@@ -320,3 +320,58 @@ it('calculates a separately imported full Jalali archive and preserves the legac
     }),
   ).toMatchObject({ rows: [] });
 });
+
+it('allows a runtime rerun to copy an existing review only within the same archive', async () => {
+  await db.transaction(async (tx) => {
+    const sources = [
+      ['COMPLETE', 'e'],
+      ['PENDING', 'e'],
+      ['PENDING', 'f'],
+    ] as const;
+    const runIds: string[] = [];
+    for (const [status, suffix] of sources) {
+      const [run] = await tx.query<Array<{ id: string }>>(
+        `INSERT INTO fair_replay_shadow_runs
+          (request_key,source_instance_id,status,time_zone,correlation_window_seconds,delete_credit_enabled)
+         VALUES($1,$2,$3,'Asia/Tehran',600,false) RETURNING id::text`,
+        [crypto.randomUUID(), 'replay-archive-' + suffix.repeat(64), status],
+      );
+      runIds.push(run!.id);
+    }
+    const [prior, target, otherArchive] = runIds;
+    await tx.query(
+      'INSERT INTO fair_replay_shadow_manual_reviews(run_id,review_key) VALUES($1,$2)',
+      [prior, 'a'.repeat(64)],
+    );
+    await tx.query('CREATE ROLE fair_review_copy_test');
+    await tx.query('GRANT USAGE ON SCHEMA public TO fair_review_copy_test');
+    await tx.query(
+      'GRANT EXECUTE ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) TO fair_review_copy_test',
+    );
+    await tx.query('SET LOCAL ROLE fair_review_copy_test');
+    await tx.query('SAVEPOINT wrong_archive');
+    await expect(
+      tx.query('SELECT fair_replay_copy_manual_reviews($1,$2)', [
+        prior,
+        otherArchive,
+      ]),
+    ).rejects.toThrow('REPLAY_MANUAL_REVIEW_COPY_INVALID');
+    await tx.query('ROLLBACK TO SAVEPOINT wrong_archive');
+    await tx.query('SELECT fair_replay_copy_manual_reviews($1,$2)', [
+      prior,
+      target,
+    ]);
+    await tx.query('RESET ROLE');
+    expect(
+      await tx.query(
+        'SELECT review_key FROM fair_replay_shadow_manual_reviews WHERE run_id=$1',
+        [target],
+      ),
+    ).toEqual([{ review_key: 'a'.repeat(64) }]);
+    await tx.query(
+      'REVOKE EXECUTE ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) FROM fair_review_copy_test',
+    );
+    await tx.query('REVOKE USAGE ON SCHEMA public FROM fair_review_copy_test');
+    await tx.query('DROP ROLE fair_review_copy_test');
+  });
+});

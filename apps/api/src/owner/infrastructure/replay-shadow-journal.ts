@@ -68,6 +68,7 @@ export class PostgresReplayShadowJournal {
     requestKey: string = randomUUID(),
     source = SOURCE,
     manualReviewKeys: readonly string[] = [],
+    copyReviewsFrom?: string,
   ) {
     // A retry must always refer to the original immutable run, even if
     // the archive/catalog changed after the first successful request.
@@ -118,7 +119,12 @@ export class PostgresReplayShadowJournal {
           ],
         );
         if (!created) throw new Error('REPLAY_SHADOW_START_FAILED');
-        if (manualReviewKeys.length)
+        if (copyReviewsFrom)
+          await tx.query('SELECT fair_replay_copy_manual_reviews($1,$2)', [
+            copyReviewsFrom,
+            created.id,
+          ]);
+        else if (manualReviewKeys.length)
           await tx.query(
             `INSERT INTO fair_replay_shadow_manual_reviews(run_id,review_key)
              SELECT $1,unnest($2::text[])`,
@@ -148,15 +154,7 @@ export class PostgresReplayShadowJournal {
       [runId],
     );
     if (!run) throw new ReplayShadowNotReady();
-    const approvals = await this.db.query<Array<{ review_key: string }>>(
-      'SELECT review_key FROM fair_replay_shadow_manual_reviews WHERE run_id=$1 ORDER BY review_key',
-      [runId],
-    );
-    return this.start(
-      requestKey,
-      run.source_instance_id,
-      approvals.map((row) => row.review_key),
-    );
+    return this.start(requestKey, run.source_instance_id, [], runId);
   }
 
   async summary() {

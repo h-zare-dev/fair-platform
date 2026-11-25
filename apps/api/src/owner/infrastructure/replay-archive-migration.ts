@@ -49,10 +49,36 @@ export class ReplayArchive1792200000000 implements MigrationInterface {
       await r.query(`CREATE TRIGGER replay_manual_immutable
         BEFORE UPDATE OR DELETE OR TRUNCATE ON ${table}
         FOR EACH STATEMENT EXECUTE FUNCTION fair_replay_shadow_evidence_immutable()`);
+    // HTTP reruns may reuse approvals; only the privileged import CLI can
+    // supply new keys. Never grant the runtime direct INSERT on approvals.
+    await r.query(`CREATE FUNCTION fair_replay_copy_manual_reviews(
+      previous_run bigint, target_run bigint
+    ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.fair_replay_shadow_runs prior
+        JOIN public.fair_replay_shadow_runs target
+          ON target.source_instance_id=prior.source_instance_id
+        WHERE prior.id=previous_run AND prior.status IN ('COMPLETE','FAILED')
+          AND target.id=target_run AND target.status='PENDING'
+          AND NOT EXISTS (
+            SELECT 1 FROM public.fair_replay_shadow_manual_reviews WHERE run_id=target_run
+          )
+      ) THEN
+        RAISE EXCEPTION 'REPLAY_MANUAL_REVIEW_COPY_INVALID';
+      END IF;
+      INSERT INTO public.fair_replay_shadow_manual_reviews(run_id,review_key)
+      SELECT target_run, review_key FROM public.fair_replay_shadow_manual_reviews
+      WHERE run_id=previous_run;
+    END $$`);
+    await r.query(
+      `REVOKE ALL ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) FROM PUBLIC`,
+    );
     await r.query(`DO $$ BEGIN IF EXISTS (
       SELECT 1 FROM pg_roles WHERE rolname='fair_owner_runtime') THEN
       GRANT SELECT ON fair_replay_archives,fair_replay_shadow_manual_reviews TO fair_owner_runtime;
       GRANT SELECT,INSERT ON fair_replay_shadow_manual_operations TO fair_owner_runtime;
+      GRANT EXECUTE ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) TO fair_owner_runtime;
     END IF; END $$`);
   }
 
@@ -61,6 +87,9 @@ export class ReplayArchive1792200000000 implements MigrationInterface {
       DROP CONSTRAINT fair_replay_shadow_runs_source_instance_id_check,
       ADD CONSTRAINT fair_replay_shadow_runs_source_instance_id_check
         CHECK (source_instance_id='replay-30d')`);
+    await r.query(
+      'DROP FUNCTION fair_replay_copy_manual_reviews(bigint,bigint)',
+    );
     await r.query('DROP INDEX replay_shadow_renewal_review');
     await r.query('DROP TABLE fair_replay_shadow_manual_operations');
     await r.query('DROP TABLE fair_replay_shadow_manual_reviews');

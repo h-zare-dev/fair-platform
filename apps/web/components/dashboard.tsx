@@ -270,7 +270,7 @@ export function Dashboard() {
           <a href="#overview">نمای کلی</a>
           <a href="#events">تاریخچهٔ رویدادها</a>
           <a href="#issues">خطاهای پردازش</a>
-          <a href="/accounting/ambiguities">ابهامات حسابداری</a>
+          <a href="/accounting/ambiguities">ابهامات ثبت شبانه</a>
         </nav>
         <form
           className="filters"

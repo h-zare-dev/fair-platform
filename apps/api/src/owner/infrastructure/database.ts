@@ -11,6 +11,8 @@ import { ReplayShadowJournal1791900000000 } from './replay-shadow-journal-migrat
 import { ReplayShadowAudit1792000000000 } from './replay-shadow-audit-migration.js';
 import { PrivateReplayIdentity1792100000000 } from './private-replay-identity-migration.js';
 
+import { ReplayArchive1792200000000 } from './replay-archive-migration.js';
+
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
   database.setOptions({
@@ -27,6 +29,7 @@ export function createOwnerDataSource(url: string) {
       ReplayShadowJournal1791900000000,
       ReplayShadowAudit1792000000000,
       PrivateReplayIdentity1792100000000,
+      ReplayArchive1792200000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

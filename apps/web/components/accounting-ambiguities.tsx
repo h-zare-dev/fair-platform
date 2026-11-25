@@ -107,14 +107,14 @@ export function AccountingAmbiguities() {
         <div className="intro">
           <div>
             <p className="eyebrow">FP-005 / ثبت شبانه</p>
-            <h1>ابهامات حسابداری</h1>
+            <h1>ابهامات ثبت شبانه</h1>
             <p className="muted">
-              این فهرست جدا از خطاهای دریافت وبهوک است. موارد بدون قیمت معتبر تا
-              بررسی متوقف می‌مانند.
+              این صفحه موارد ثبت شبانه را نشان می‌دهد. برای بررسی آرشیو تاریخی،
+              تب ابهامات را در گزارش‌های حسابداری باز کنید.
             </p>
           </div>
-          <a className="secondary" href="/dashboard">
-            بازگشت به داشبورد
+          <a className="secondary" href="/reports?view=holds">
+            ابهامات آرشیو تاریخی
           </a>
         </div>
         <form

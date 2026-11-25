@@ -6,7 +6,11 @@ import { ReplayShadowJournal } from '../../components/replay-shadow-journal';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ReportsPage() {
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const session = await ownerSession();
   if (session === 'anonymous') redirect('/login');
   if (session === 'unavailable')
@@ -17,6 +21,7 @@ export default async function ReportsPage() {
         <a href="/reports">تلاش دوباره</a>
       </main>
     );
+  const { view } = await searchParams;
   return (
     <>
       <OwnerHeader active="reports" />
@@ -37,7 +42,9 @@ export default async function ReportsPage() {
           </p>
           <ReplayShadowJournal />
         </details>
-        <ShadowAuditReports />
+        <ShadowAuditReports
+          initialView={view === 'holds' ? 'holds' : 'admins'}
+        />
       </main>
     </>
   );

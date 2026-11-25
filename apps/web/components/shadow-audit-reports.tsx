@@ -15,6 +15,7 @@ type Tab =
   | 'month'
   | 'entries'
   | 'holds'
+  | 'manual'
   | 'candidates'
   | 'ignored';
 type Run = { id: string; status: string; createdAt: string };
@@ -110,6 +111,8 @@ type OperationRow = {
   accountNameStatus: string;
   historicalAdminId?: string | null;
   eventEvidenceComplete: boolean;
+  reviewKey?: string | null;
+  similarRenewal?: boolean;
   amountToman?: string;
   packageId?: string;
   packageBytes?: string | null;
@@ -164,6 +167,7 @@ const TABS: ReadonlyArray<{ value: Tab; label: string }> = [
   { value: 'month', label: 'ماهانه' },
   { value: 'entries', label: 'ریز تراکنش‌ها' },
   { value: 'holds', label: 'ابهامات' },
+  { value: 'manual', label: 'دستیِ بدون مبلغ' },
   { value: 'candidates', label: 'عملیات متوقف‌شده' },
   { value: 'ignored', label: 'غیرمالی' },
 ];
@@ -257,6 +261,11 @@ function Evidence({ row }: { row: OperationRow }) {
         {row.referenceOperationKey &&
           ` | credit-ref: ${row.referenceOperationKey}`}
       </p>
+      {row.reviewKey && (
+        <p className="muted" dir="ltr">
+          review: {row.reviewKey}
+        </p>
+      )}
       <div className="table-scroll">
         <table>
           <thead>
@@ -361,10 +370,14 @@ function Evidence({ row }: { row: OperationRow }) {
   );
 }
 
-export function ShadowAuditReports() {
+export function ShadowAuditReports({
+  initialView = 'admins',
+}: {
+  initialView?: 'admins' | 'holds';
+}) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [runId, setRunId] = useState('');
-  const [tab, setTab] = useState<Tab>('admins');
+  const [tab, setTab] = useState<Tab>(initialView);
   const [adminId, setAdminId] = useState('');
   const [adminName, setAdminName] = useState('');
   const [search, setSearch] = useState('');
@@ -373,8 +386,11 @@ export function ShadowAuditReports() {
   const [reason, setReason] = useState('');
   const [kind, setKind] = useState('');
   const [offset, setOffset] = useState(0);
-  const [report, setReport] = useState<PageResponse | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{
+    key: string;
+    report?: PageResponse;
+    error?: string;
+  } | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
 
@@ -402,45 +418,58 @@ export function ShadowAuditReports() {
     return () => controller.abort();
   }, [runId, refresh]);
 
-  useEffect(() => {
-    if (!overview || (runId && overview.run.id !== runId)) return;
-    if (['day', 'week', 'month'].includes(tab) && !adminId) {
-      setReport(null);
-      return;
-    }
-    const controller = new AbortController();
-    setBusy(true);
-    setReport(null);
+  const periodTab = tab === 'day' || tab === 'week' || tab === 'month';
+  const visibleRun =
+    overview && (!runId || overview.run.id === runId) ? overview.run : null;
+  const view = periodTab ? 'periods' : tab;
+  let query = '';
+  if (visibleRun && (!periodTab || adminId)) {
     const params = new URLSearchParams({
-      runId: overview.run.id,
+      runId: visibleRun.id,
       limit: '25',
       offset: String(offset),
     });
-    if (adminId && tab !== 'admins') params.set('billingAdminId', adminId);
-    if (from) params.set('from', from);
-    if (to) params.set('to', to);
+    if (periodTab) params.set('period', tab);
     if (tab === 'admins' || tab === 'ignored') {
       if (search) params.set('search', search);
+    } else {
+      if (adminId) params.set('billingAdminId', adminId);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
     }
     if (reason && tab === 'holds') params.set('reason', reason);
     if (kind && (tab === 'entries' || tab === 'candidates'))
       params.set('kind', kind);
-    const view = ['day', 'week', 'month'].includes(tab) ? 'periods' : tab;
-    if (view === 'periods') params.set('period', tab);
-    void getAudit<PageResponse>(view, params, controller.signal)
+    query = params.toString();
+  }
+  // A response is renderable only for the view and filters that requested it.
+  const requestKey = query ? `${refresh}:${view}?${query}` : '';
+  const current = requestKey && result?.key === requestKey ? result : null;
+  const report = current?.report ?? null;
+  const busy = Boolean(requestKey && !current);
+  const visibleError = error || current?.error;
+
+  useEffect(() => {
+    if (!requestKey) return;
+    const controller = new AbortController();
+    void getAudit<PageResponse>(
+      view,
+      new URLSearchParams(query),
+      controller.signal,
+    )
       .then((data) => {
-        setReport(data);
-        setError('');
+        if (!controller.signal.aborted)
+          setResult({ key: requestKey, report: data });
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : 'خطای گزارش');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBusy(false);
+          setResult({
+            key: requestKey,
+            error: cause instanceof Error ? cause.message : 'خطای گزارش',
+          });
       });
     return () => controller.abort();
-  }, [overview, runId, tab, adminId, from, to, search, reason, kind, offset]);
+  }, [requestKey, view, query]);
 
   const switchTab = (next: Tab) => {
     setTab(next);
@@ -499,7 +528,6 @@ export function ShadowAuditReports() {
             onChange={(e) => {
               setRunId(e.target.value);
               setOffset(0);
-              setReport(null);
             }}
           >
             {overview?.runs
@@ -519,7 +547,7 @@ export function ShadowAuditReports() {
         <div className="audit-overview">
           <div className="audit-kpis">
             <div>
-              <small>رویدادهای آرشیو</small>
+              <small>رویدادهای خام آرشیو</small>
               <b>{formatInteger(overview.run.eventCount)}</b>
             </div>
             <div>
@@ -555,11 +583,18 @@ export function ShadowAuditReports() {
             </div>
           </div>
           <p className="muted">
-            آرشیو: {overview.coverage.from ?? 'نامشخص'} تا{' '}
+            {overview.coverage.verifiedBoundaries
+              ? 'روزهای کامل آرشیو'
+              : 'روزهای مشاهده‌شده در آرشیو'}
+            : {overview.coverage.from ?? 'نامشخص'} تا{' '}
             {overview.coverage.to ?? 'نامشخص'} · منطقهٔ زمانی:{' '}
             {overview.timeZone} · شروع هفته:{' '}
             {labelFor(overview.weekStartDay, WEEK_NAMES)} · بستانکاری حذف:{' '}
             {overview.run.deleteCreditEnabled ? 'فعال' : 'غیرفعال'}
+          </p>
+          <p className="muted">
+            شمار تراکنش‌ها بر اساس عملیات مالی است. شواهد هر تراکنش، رویدادهای
+            خامِ تشکیل‌دهندهٔ آن را نشان می‌دهد.
           </p>
           <p
             className={
@@ -596,6 +631,19 @@ export function ShadowAuditReports() {
         ))}
       </nav>
       <div className="audit-toolbar audit-filters">
+        {tab !== 'admins' && tab !== 'ignored' && (from || to) && (
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => {
+              setFrom('');
+              setTo('');
+              setOffset(0);
+            }}
+          >
+            کل بازهٔ آرشیو
+          </button>
+        )}
         {tab !== 'admins' && tab !== 'ignored' && (
           <label>
             شناسهٔ مدیر تاریخی
@@ -699,9 +747,9 @@ export function ShadowAuditReports() {
           <span dir="ltr">{adminId}</span>
         </p>
       )}
-      {error && (
+      {visibleError && (
         <p className="error-banner" role="alert">
-          {error}
+          {visibleError}
         </p>
       )}
       {busy && (
@@ -868,10 +916,10 @@ export function ShadowAuditReports() {
                           {formatInteger(r.entryCount)} /{' '}
                           {formatInteger(r.holdCount)}
                         </td>
-                        <td>{money(r.readyChargeToman)}</td>
-                        <td>{money(r.readyCreditToman)}</td>
+                        <td>{r.readyDays ? money(r.readyChargeToman) : '—'}</td>
+                        <td>{r.readyDays ? money(r.readyCreditToman) : '—'}</td>
                         <td>
-                          {money(r.readyNetToman)}
+                          {r.readyDays ? money(r.readyNetToman) : '—'}
                           {r.netToman === null && (
                             <small> · جمع نهایی ندارد</small>
                           )}
@@ -915,7 +963,11 @@ export function ShadowAuditReports() {
                       <th>مدیر تاریخی</th>
                       <th>اکانت</th>
                       <th>زمان / روز</th>
-                      <th>{tab === 'holds' ? 'علت توقف' : 'نوع عملیات'}</th>
+                      <th>
+                        {tab === 'holds' || tab === 'manual'
+                          ? 'علت بررسی'
+                          : 'نوع عملیات'}
+                      </th>
                       <th>پکیج / مدت</th>
                       <th>مبلغ</th>
                       <th>رویدادهای مستند</th>
@@ -960,10 +1012,15 @@ export function ShadowAuditReports() {
                           <small>{formatUtc(r.occurredAt)}</small>
                         </td>
                         <td>
-                          {tab === 'holds'
+                          {tab === 'holds' || tab === 'manual'
                             ? labelFor(r.code ?? '', REASONS)
                             : labelFor(r.kind, KINDS)}
                           <small dir="ltr">{r.code ?? r.entryType}</small>
+                          {r.similarRenewal && (
+                            <small className="audit-pending">
+                              تمدید هم‌زمان مشابه · نیازمند بررسی منبع
+                            </small>
+                          )}
                         </td>
                         <td>
                           {r.packageBytes
@@ -976,9 +1033,11 @@ export function ShadowAuditReports() {
                           </small>
                         </td>
                         <td>
-                          {tab === 'holds'
-                            ? 'محاسبه نشده'
-                            : money(r.amountToman)}
+                          {tab === 'manual'
+                            ? 'بدون مبلغ تأییدشده'
+                            : tab === 'holds'
+                              ? 'محاسبه نشده'
+                              : money(r.amountToman)}
                           {tab === 'candidates' && (
                             <small>ثبت نشده / NOT_BOOKED</small>
                           )}

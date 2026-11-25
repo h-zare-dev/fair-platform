@@ -209,3 +209,69 @@ describe('FP-006/007 archival SHADOW financial journal', () => {
     ).toBe(false);
   });
 });
+
+it('calculates a separately imported full Jalali archive and preserves the legacy source', async () => {
+  const source = 'replay-archive-' + 'd'.repeat(64);
+  const [batch] = await db.query<Array<{ id: string }>>(
+    `INSERT INTO pasarguard_webhook_batches
+      (source_instance_id,received_at,payload_hash,event_count,processing_status)
+      VALUES($1,'2026-11-20T12:00:00Z',repeat('a',64),2,'RECEIVED') RETURNING id::text`,
+    [source],
+  );
+  await db.query(
+    `INSERT INTO fair_replay_archives(source_instance_id,starts_at,cutoff_at,batch_count,expected_children)
+      VALUES($1,'2026-07-22T20:30:00Z','2026-11-21T20:30:00Z',1,2)`,
+    [source],
+  );
+  const [run] = await db.query<Array<{ id: string }>>(
+    `INSERT INTO fair_replay_shadow_runs
+      (request_key,source_instance_id,time_zone,correlation_window_seconds,delete_credit_enabled)
+      VALUES($1,$2,'Asia/Tehran',600,false) RETURNING id::text`,
+    [crypto.randomUUID(), source],
+  );
+  const journal = new PostgresReplayShadowJournal(
+    db,
+    'Asia/Tehran',
+    600,
+    false,
+  );
+  expect(await journal.runNext()).toBe(false);
+  await db.query(
+    `INSERT INTO pasarguard_events
+     (batch_id,batch_index,source_instance_id,semantic_fingerprint,action,
+      external_user_id,username,user_status,data_limit_bytes,used_traffic_bytes,
+      lifetime_used_bytes,billing_admin_id,billing_admin_username,
+      source_enqueued_at,event_status,first_seen_at,last_seen_at,
+      on_hold_expire_duration_seconds,occurrence_count)
+     VALUES($1,0,$2,repeat('b',64),'user_created',901,'account','on_hold',
+      53687091200,0,0,18,'admin','2026-11-20T12:00:00Z','READY_FOR_ACCOUNTING',now(),now(),2592000,2)`,
+    [batch!.id, source],
+  );
+  await db.query(
+    "UPDATE pasarguard_webhook_batches SET processing_status='NORMALIZED' WHERE id=$1",
+    [batch!.id],
+  );
+  expect(await journal.runNext()).toBe(true);
+  const audit = new PostgresReplayShadowAudit(db, journal, 'SATURDAY');
+  expect(await audit.overview(run!.id)).toMatchObject({
+    coverage: {
+      from: '1405-05-01',
+      to: '1405-08-30',
+      verifiedBoundaries: true,
+    },
+    run: { source, eventCount: 1, entryCount: 1 },
+    totals: { chargesToman: '100000' },
+    integrity: { status: 'RECONCILED' },
+  });
+  expect(
+    await audit.entries({ runId: run!.id, limit: 25, offset: 0 }),
+  ).toMatchObject({
+    rows: [
+      {
+        billingAdminId: '18',
+        externalUserId: '901',
+        eventEvidenceComplete: true,
+      },
+    ],
+  });
+});

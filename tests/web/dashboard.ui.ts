@@ -106,7 +106,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   ).toHaveAttribute('href', '/reports');
   await expect(page.locator('.quick-nav a')).toHaveCount(4);
   await expect(
-    page.getByRole('link', { name: 'ابهامات حسابداری' }),
+    page.getByRole('link', { name: 'ابهامات ثبت شبانه' }),
   ).toHaveAttribute('href', '/accounting/ambiguities');
   await expect(
     page.getByRole('navigation', { name: 'بخش‌های پنل' }).getByRole('link', {
@@ -448,4 +448,95 @@ test('server-rendered login cannot submit a password through a GET URL before hy
   } finally {
     await context.close();
   }
+});
+
+test('switching report tabs never renders stale administrator rows as event evidence', async ({
+  page,
+}) => {
+  await page.goto('/login');
+  await page
+    .getByLabel('گذرواژهٔ مدیر اصلی')
+    .fill('synthetic-browser-test-password');
+  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.route(/\/audit\/overview(?:\?.*)?$/, (route) =>
+    route.fulfill({
+      json: {
+        mode: 'HISTORICAL_SHADOW_AUDIT',
+        postingScope: 'SHADOW',
+        liveBalanceMutated: false,
+        run: {
+          id: '1',
+          eventCount: 1,
+          entryCount: 0,
+          heldCount: 0,
+          deleteCreditEnabled: false,
+        },
+        runs: [
+          { id: '1', status: 'COMPLETE', createdAt: '2026-01-01T00:00:00Z' },
+        ],
+        coverage: {
+          from: '1405-05-01',
+          to: '1405-08-30',
+          verifiedBoundaries: true,
+        },
+        timeZone: 'Asia/Tehran',
+        weekStartDay: 'SATURDAY',
+        totals: {
+          chargesToman: '0',
+          creditsToman: '0',
+          netToman: '0',
+          heldCandidates: 0,
+          pendingDays: 0,
+          ignoredEvents: 1,
+        },
+        integrity: { status: 'RECONCILED', errors: [] },
+        historicalSourceIdentity: {
+          status: 'NOT_IMPORTED',
+          mappedBillingAdmins: 0,
+          mappedAccounts: 0,
+          mappedActorAdmins: 0,
+          unmatchedArchiveAdminPairs: null,
+          unmatchedArchiveAccountPairs: null,
+        },
+      },
+    }),
+  );
+  await page.route(/\/audit\/admins(?:\?.*)?$/, (route) =>
+    route.fulfill({
+      json: {
+        runId: '1',
+        nextOffset: null,
+        rows: [
+          {
+            billingAdminId: '1',
+            adminName: 'Test admin',
+            nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+            names: ['Test admin'],
+            observedDays: '1',
+            readyDays: '1',
+            pendingDays: '0',
+            chargeToman: '0',
+            creditToman: '0',
+            netToman: '0',
+            holdCount: '0',
+            heldCandidateCount: 0,
+            entryCount: '0',
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(/\/audit\/holds(?:\?.*)?$/, (route) =>
+    route.fulfill({
+      json: { runId: '1', nextOffset: null, rows: [] },
+    }),
+  );
+  await page.goto('/reports');
+  await expect(page.getByText('Test admin', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'ابهامات', exact: true }).click();
+  await expect(
+    page.getByRole('columnheader', { name: 'علت بررسی' }),
+  ).toBeVisible();
+  await expect(page.getByText('Test admin', { exact: true })).toHaveCount(0);
 });

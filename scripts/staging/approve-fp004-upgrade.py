@@ -33,6 +33,8 @@ REPLAY_AUDIT_MIGRATION = 'ReplayShadowAudit1792000000000'
 REPLAY_AUDIT_FILE = 'dist/owner/infrastructure/replay-shadow-audit-migration.js'
 PRIVATE_IDENTITY_MIGRATION = 'PrivateReplayIdentity1792100000000'
 PRIVATE_IDENTITY_FILE = 'dist/owner/infrastructure/private-replay-identity-migration.js'
+REPLAY_ARCHIVE_MIGRATION = 'ReplayArchive1792200000000'
+REPLAY_ARCHIVE_FILE = 'dist/owner/infrastructure/replay-archive-migration.js'
 SHADOW_CREDIT_ANCHOR = b"      FAIR_SHADOW_CLOSE_TIME: '02:10'\n"
 SHADOW_CREDIT_ADDITION = b'      FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}\n'
 REPORT_WEEK_ANCHOR = SHADOW_CREDIT_ADDITION
@@ -46,7 +48,7 @@ class UpgradeError(Exception):
 
 def check_compose(previous, proposed, mode='initial'):
     """Only the one exact reviewed environment mapping may be added."""
-    if mode in ('group-delete', 'opening-baseline', 'private-identity'):
+    if mode in ('group-delete', 'opening-baseline', 'private-identity', 'replay-archive'):
         if proposed != previous:
             raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
         return
@@ -82,6 +84,7 @@ def check_proofs(approved, old, new, mode='initial'):
         ],
         'shadow-audit': [(REPLAY_AUDIT_MIGRATION, REPLAY_AUDIT_FILE)],
         'private-identity': [(PRIVATE_IDENTITY_MIGRATION, PRIVATE_IDENTITY_FILE)],
+        'replay-archive': [(REPLAY_ARCHIVE_MIGRATION, REPLAY_ARCHIVE_FILE)],
     }
     added = additions[mode]
     for proof in (old, new):
@@ -223,7 +226,8 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
              'opening-baseline': 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED',
              'accounting-shadow': 'STAGING_ACCOUNTING_SHADOW_MIGRATIONS_APPROVED',
              'shadow-audit': 'STAGING_SHADOW_AUDIT_MIGRATION_APPROVED',
-             'private-identity': 'STAGING_PRIVATE_IDENTITY_MIGRATION_APPROVED'}
+             'private-identity': 'STAGING_PRIVATE_IDENTITY_MIGRATION_APPROVED',
+             'replay-archive': 'STAGING_REPLAY_ARCHIVE_MIGRATION_APPROVED'}
             .get(mode, 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED'))
 
 
@@ -233,7 +237,7 @@ def main():
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
     if mode not in ('initial', 'group-delete', 'opening-baseline', 'accounting-shadow',
-                    'shadow-audit', 'private-identity'):
+                    'shadow-audit', 'private-identity', 'replay-archive'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)
     if len(proposed) > 30000:

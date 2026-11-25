@@ -51,6 +51,7 @@ async function main() {
       'dist/owner/infrastructure/replay-shadow-journal-migration.js',
       'dist/owner/infrastructure/replay-shadow-audit-migration.js',
       'dist/owner/infrastructure/private-replay-identity-migration.js',
+      'dist/owner/infrastructure/replay-archive-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

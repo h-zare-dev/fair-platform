@@ -17,6 +17,8 @@ import { OwnerPasswordRuntimeGrant1792400000000 } from './password-runtime-grant
 
 import { ReplaySourceIdentity1792500000000 } from './replay-source-identity-migration.js';
 
+import { ShadowReview1792600000000 } from './shadow-review-migration.js';
+
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
   database.setOptions({
@@ -37,6 +39,7 @@ export function createOwnerDataSource(url: string) {
       ReplayArchive1792300000000,
       OwnerPasswordRuntimeGrant1792400000000,
       ReplaySourceIdentity1792500000000,
+      ShadowReview1792600000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

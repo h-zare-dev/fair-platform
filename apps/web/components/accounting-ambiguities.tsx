@@ -60,11 +60,27 @@ export function AccountingAmbiguities() {
   const [offset, setOffset] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [page, setPage] = useState<Page>({ rows: [], nextOffset: null });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [packageId, setPackageId] = useState('');
+  const [packages, setPackages] = useState<{ id: string; name: string }[]>([]);
+  const [days, setDays] = useState<
+    {
+      source: string;
+      admin: string;
+      day: string;
+      amountToman: string;
+      soldBytes: string;
+      pending: number;
+    }[]
+  >([]);
+  const [revision, setRevision] = useState(0);
+  const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
     setBusy(true);
+    setSelected([]);
     setError('');
     const params = new URLSearchParams({
       ...Object.fromEntries(Object.entries(applied).filter(([, v]) => v)),
@@ -77,9 +93,15 @@ export function AccountingAmbiguities() {
     void Promise.all([
       get<Summary>(`/api/v1/owner/operations/accounting/summary?${counts}`),
       get<Page>(`/api/v1/owner/operations/accounting/ambiguities?${params}`),
+      get<typeof days>(`/api/v1/owner/operations/accounting/days?${params}`),
+      get<{ packages: { id: string; name: string }[] }>(
+        `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || 'primary')}`,
+      ),
     ])
-      .then(([s, p]) => {
+      .then(([s, p, daily, catalog]) => {
         if (active) {
+          setDays(daily);
+          setPackages(catalog.packages);
           setSummary(s);
           setPage(p);
         }
@@ -96,7 +118,33 @@ export function AccountingAmbiguities() {
     return () => {
       active = false;
     };
-  }, [applied, offset]);
+  }, [applied, offset, revision]);
+  async function decide(chosen: string | null) {
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch(
+        '/api/v1/owner/operations/accounting/review',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-fair-csrf': '1' },
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            eventIds: selected,
+            packageId: chosen,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error();
+      setRevision((v) => v + 1);
+    } catch {
+      setError(
+        'تصمیم ثبت نشد. رویدادهای یک حساب، یک مدیر و یک روز را انتخاب کنید.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <>
       <OwnerHeader active="dashboard" />
@@ -193,9 +241,63 @@ export function AccountingAmbiguities() {
           ))}
         </div>
         <section className="table-card">
+          <h2>صورتحساب روزانهٔ وبهوک</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>روز</th>
+                <th>مدیر</th>
+                <th>حجم تأییدشده</th>
+                <th>مبلغ (تومان)</th>
+                <th>وضعیت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {days.map((d) => (
+                <tr key={JSON.stringify([d.source, d.admin, d.day])}>
+                  <td>{d.day}</td>
+                  <td>{formatInteger(d.admin)}</td>
+                  <td>{formatGiB(d.soldBytes)}</td>
+                  <td>{formatInteger(d.amountToman)}</td>
+                  <td>
+                    {d.pending
+                      ? `جمع موقت · ${formatInteger(String(d.pending))} مورد در انتظار تصمیم`
+                      : 'آمادهٔ ارسال'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+        <section className="table-card">
           <div className="section-heading">
             <h2>موارد نیازمند بررسی</h2>
-            <span className="badge">فقط خواندنی</span>
+            <label>
+              بسته{' '}
+              <select
+                value={packageId}
+                onChange={(e) => setPackageId(e.target.value)}
+              >
+                <option value="">انتخاب بسته</option>
+                {packages.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              disabled={busy || saving || !selected.length || !packageId}
+              onClick={() => void decide(packageId)}
+            >
+              ثبت یک بسته
+            </button>
+            <button
+              disabled={busy || saving || !selected.length}
+              onClick={() => void decide(null)}
+            >
+              بدون اثر مالی
+            </button>
           </div>
           {busy ? (
             <p className="empty">در حال بارگیری…</p>
@@ -209,6 +311,7 @@ export function AccountingAmbiguities() {
               <table>
                 <thead>
                   <tr>
+                    <th>انتخاب</th>
                     <th>نوع ابهام</th>
                     <th>روز و مدیر</th>
                     <th>پکیج</th>
@@ -219,6 +322,20 @@ export function AccountingAmbiguities() {
                 <tbody>
                   {page.rows.map((item) => (
                     <tr key={item.eventId}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`انتخاب رویداد ${item.eventId}`}
+                          checked={selected.includes(item.eventId)}
+                          onChange={(e) =>
+                            setSelected(
+                              e.target.checked
+                                ? [...selected, item.eventId]
+                                : selected.filter((id) => id !== item.eventId),
+                            )
+                          }
+                        />
+                      </td>
                       <td>
                         <strong>{names[item.code] ?? item.code}</strong>
                         <small dir="ltr">{item.code}</small>

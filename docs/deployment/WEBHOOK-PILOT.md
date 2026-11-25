@@ -40,3 +40,18 @@ Compare each local date and billing admin with the legacy bot, including bytes, 
 ## Ambiguity decision
 
 Hold the affected admin/day. Present the contributing event IDs, source timestamps, account, package changes and eligible pairings. Where the evidence establishes one operation, the Owner records the selected IDs, reason and decision timestamp. Unresolved cases remain pending; a missing source fact must not be replaced with a guessed amount. Recompute a held day once against its original tariffs; retain the decision and publish the resulting daily, weekly and monthly totals. This decision workflow remains implementation work.
+
+### Seven-day parallel run
+
+Keep the existing PasarGuard destination active and add the Staging URL as its
+second destination. Keep SHADOW enabled for seven full local days. The end of
+the observation window does not enable delivery. Verify receipt on the dashboard
+with a controlled account before starting the window.
+
+At night, open Accounting ambiguities to inspect confirmed bytes and Toman for
+each admin and original local day. Select ambiguous events from the same account
+and day, then choose one catalog package for the selection or mark it without
+financial effect. Review the original day's subtotal after saving. A pending day
+for one admin does not block other admins or dates. Record any discrepancy with
+the existing bot during the seven-day comparison. Telegram delivery is a later
+Owner decision.

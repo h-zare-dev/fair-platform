@@ -366,6 +366,75 @@ export class PostgresShadowReader {
     };
   }
 
+  async review(id: string, eventIds: string[], packageId: string | null) {
+    const ids = [...new Set(eventIds)].sort();
+    return this.db.transaction(async (tx) => {
+      await tx.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('fair-shadow-review',0))",
+      );
+      const existing = await tx.query<
+        { eventIds: string[]; packageId: string | null }[]
+      >(
+        `SELECT r.package_id::text AS "packageId", array_agg(e.event_id::text) AS "eventIds"
+         FROM fair_shadow_reviews r JOIN fair_shadow_review_events e ON e.review_id=r.id
+         WHERE r.id=$1 GROUP BY r.id`,
+        [id],
+      );
+      if (existing[0])
+        return (
+          existing[0].packageId === packageId &&
+          JSON.stringify(existing[0].eventIds.sort()) === JSON.stringify(ids)
+        );
+      const [result] = await tx.query<{ id: string }[]>(
+        `WITH eligible AS (
+           SELECT day_id,event_id,source_instance_id FROM fair_shadow_items WHERE reason_code IS NOT NULL AND reason_code<>'RENEWAL_EVIDENCE'
+           UNION ALL SELECT day_id,event_id,source_instance_id FROM fair_shadow_late_events
+         ), chosen AS (
+           SELECT min(c.day_id) AS day_id,min(c.source_instance_id) AS source
+           FROM eligible c JOIN pasarguard_events e ON e.id=c.event_id
+           WHERE c.event_id=ANY($2::bigint[]) AND NOT EXISTS
+             (SELECT FROM fair_shadow_review_events v WHERE v.event_id=c.event_id)
+           HAVING count(*)=cardinality($2::bigint[]) AND count(DISTINCT c.day_id)=1
+             AND count(DISTINCT e.external_user_id)=1
+         )
+         INSERT INTO fair_shadow_reviews(id,day_id,package_id,amount_toman,package_bytes)
+         SELECT $1,c.day_id,p.id,coalesce(p.amount_toman,0),coalesce(p.package_bytes,0)
+         FROM chosen c LEFT JOIN fair_atomic_packages p ON p.id=$3 AND p.source_instance_id=c.source
+         WHERE $3::bigint IS NULL OR p.id IS NOT NULL RETURNING id`,
+        [id, ids, packageId],
+      );
+      if (!result) return false;
+      await tx.query(
+        `INSERT INTO fair_shadow_review_events(review_id,event_id)
+        SELECT $1,unnest($2::bigint[])`,
+        [id, ids],
+      );
+      return true;
+    });
+  }
+
+  async dayReports(filter: ShadowFilter) {
+    return this.db.query(
+      `SELECT d.source_instance_id AS source,d.billing_admin_id::text AS admin,d.local_day AS day,
+         (i.amount+r.amount)::text AS "amountToman",(i.bytes+r.bytes)::text AS "soldBytes",
+         (i.pending+l.pending)::integer AS pending
+       FROM fair_shadow_days d
+       CROSS JOIN LATERAL (SELECT coalesce(sum(amount_toman),0) AS amount,
+         coalesce(sum(data_limit_bytes) FILTER(WHERE amount_toman IS NOT NULL),0) AS bytes,
+         count(*) FILTER(WHERE reason_code IS NOT NULL AND reason_code<>'RENEWAL_EVIDENCE' AND v.event_id IS NULL) AS pending
+         FROM fair_shadow_items i LEFT JOIN fair_shadow_review_events v USING(event_id)
+         WHERE i.day_id=d.id) i
+       CROSS JOIN LATERAL (SELECT count(*) AS pending FROM fair_shadow_late_events l
+         WHERE l.day_id=d.id AND NOT EXISTS(SELECT FROM fair_shadow_review_events v WHERE v.event_id=l.event_id)) l
+       CROSS JOIN LATERAL (SELECT coalesce(sum(amount_toman),0) AS amount,coalesce(sum(package_bytes),0) AS bytes
+         FROM fair_shadow_reviews WHERE day_id=d.id) r
+       WHERE ($1::text IS NULL OR d.source_instance_id=$1) AND ($2::bigint IS NULL OR d.billing_admin_id=$2)
+         AND ($3::text IS NULL OR d.local_day=$3)
+       ORDER BY d.local_day DESC,d.id DESC LIMIT $4 OFFSET $5`,
+      [filter.source, filter.admin, filter.date, filter.limit, filter.offset],
+    );
+  }
+
   async ambiguities(filter: ShadowFilter) {
     const rows = await this.db.query<
       {
@@ -384,7 +453,7 @@ export class PostgresShadowReader {
          SELECT i.event_id,i.reason_code,i.source_instance_id,i.billing_admin_id,
            i.local_day,i.data_limit_bytes,i.duration_days,i.source_enqueued_at,
            i.recorded_at AS detected_at
-         FROM fair_shadow_items i WHERE i.reason_code IS NOT NULL
+         FROM fair_shadow_items i WHERE i.reason_code IS NOT NULL AND i.reason_code<>'RENEWAL_EVIDENCE'
          UNION ALL
          SELECT l.event_id,l.reason_code,l.source_instance_id,l.billing_admin_id,
            l.local_day,e.data_limit_bytes,
@@ -400,7 +469,8 @@ export class PostgresShadowReader {
          duration_days AS "durationDays",source_enqueued_at AS "sourceTimestamp",
          detected_at AS "detectedAt"
        FROM cases
-       WHERE ($1::text IS NULL OR source_instance_id=$1)
+       WHERE NOT EXISTS (SELECT FROM fair_shadow_review_events v WHERE v.event_id=cases.event_id)
+         AND ($1::text IS NULL OR source_instance_id=$1)
          AND ($2::bigint IS NULL OR billing_admin_id=$2)
          AND ($3::text IS NULL OR reason_code=$3)
          AND ($4::text IS NULL OR local_day=$4)

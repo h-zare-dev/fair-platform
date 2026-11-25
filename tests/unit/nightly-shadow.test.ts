@@ -105,18 +105,11 @@ describe('nightly-only SHADOW create classification', () => {
     const shadow = new NightlyShadow({} as never, 'Asia/Tehran');
     await (
       shadow as unknown as { rules: (...args: unknown[]) => Promise<unknown> }
-    ).rules(
-      { query },
-      'primary',
-      '9001',
-      '42',
-      '2026-11-20T20:30:00Z',
-      '2026-11-21T20:30:00Z',
-    );
+    ).rules({ query }, 'primary', '9001', '42', '2026-11-21T20:30:00Z');
     const sql = String(query.mock.calls[0]?.[0]);
-    expect(sql).toContain('a.created_at < $4');
-    expect(sql).toContain('a.effective_from < $4');
-    expect(sql).toContain('a.effective_until >= $4');
+    expect(sql).toContain('a.created_at < $3');
+    expect(sql).toContain('a.effective_from < $3');
+    expect(sql).toContain('a.effective_until >= $3');
     expect(sql).not.toContain('a.effective_until > $3');
   });
   it('never classifies pre-existing synthetic dashboard events as live Shadow', async () => {

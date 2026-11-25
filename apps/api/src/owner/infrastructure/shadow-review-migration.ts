@@ -4,7 +4,7 @@ export class ShadowReview1792600000000 implements MigrationInterface {
   async up(r: QueryRunner): Promise<void> {
     await r.query(`CREATE TABLE fair_shadow_reviews (
       id uuid PRIMARY KEY, day_id bigint NOT NULL REFERENCES fair_shadow_days,
-      package_id bigint REFERENCES fair_atomic_packages,
+      package_id bigint, package_name text,
       amount_toman bigint NOT NULL, package_bytes bigint NOT NULL,
       decided_at timestamptz NOT NULL DEFAULT now(),
       CHECK ((package_id IS NULL AND amount_toman=0 AND package_bytes=0)

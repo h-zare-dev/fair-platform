@@ -404,8 +404,8 @@ export class PostgresShadowReader {
            HAVING count(*)=cardinality($2::bigint[]) AND count(DISTINCT c.day_id)=1
              AND count(DISTINCT e.external_user_id)=1
          )
-         INSERT INTO fair_shadow_reviews(id,day_id,package_id,amount_toman,package_bytes)
-         SELECT $1,c.day_id,p.id,coalesce(p.amount_toman,0),coalesce(p.package_bytes,0)
+         INSERT INTO fair_shadow_reviews(id,day_id,package_id,package_name,amount_toman,package_bytes)
+         SELECT $1,c.day_id,p.id,p.name,coalesce(p.amount_toman,0),coalesce(p.package_bytes,0)
          FROM chosen c LEFT JOIN fair_atomic_packages p ON p.id=$3 AND p.source_instance_id=c.source
          WHERE $3::bigint IS NULL OR p.id IS NOT NULL RETURNING id`,
         [id, ids, packageId],

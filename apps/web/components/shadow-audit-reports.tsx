@@ -503,7 +503,7 @@ export function ShadowAuditReports({
                   ? 'تطبیق منبع تاریخی ناقص است'
                   : 'هنوز فایل خصوصی هویت وارد نشده'}
             </strong>
-            {' · '}مدیران ثبت‌شده در فایل خصوصی:{' '}
+            {' · '}مدیران با تطبیق تاریخی:{' '}
             {formatInteger(
               overview.historicalSourceIdentity.mappedBillingAdmins,
             )}

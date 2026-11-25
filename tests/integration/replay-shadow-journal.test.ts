@@ -252,6 +252,17 @@ it('calculates a separately imported full Jalali archive and preserves the legac
     [batch!.id],
   );
   expect(await journal.runNext()).toBe(true);
+  await db.query(`INSERT INTO fair_replay_private_identity_imports
+    (source_instance_id,manifest_sha256,map_sha256,replay_plaintext_sha256,source_script_sha256,
+      event_count,mapped_admins,mapped_accounts,mapped_actor_admins,
+      unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs)
+    VALUES('replay-30d',repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),64135,1,1,0,0,0,0)`);
+  await db.query(`INSERT INTO fair_replay_private_identity_aliases
+    (source_instance_id,role,archived_id,archived_username,original_id,original_username)
+    VALUES
+      ('replay-30d','billing_admin',18,'admin',208,'verified-legacy-admin'),
+      ('replay-30d','billing_admin',18,'different-alias',208,'incorrect-name'),
+      ('replay-30d','account',901,'different-alias',1901,'incorrect-account')`);
   const audit = new PostgresReplayShadowAudit(db, journal, 'SATURDAY');
   expect(await audit.overview(run!.id)).toMatchObject({
     coverage: {
@@ -261,6 +272,13 @@ it('calculates a separately imported full Jalali archive and preserves the legac
     },
     run: { source, eventCount: 1, entryCount: 1 },
     totals: { chargesToman: '100000' },
+    historicalSourceIdentity: {
+      status: 'SOURCE_VERIFIED',
+      mappedBillingAdmins: 1,
+      mappedAccounts: 0,
+      unmatchedArchiveAdminPairs: 0,
+      unmatchedArchiveAccountPairs: 1,
+    },
     integrity: { status: 'RECONCILED' },
   });
   expect(
@@ -268,10 +286,37 @@ it('calculates a separately imported full Jalali archive and preserves the legac
   ).toMatchObject({
     rows: [
       {
+        adminName: 'verified-legacy-admin',
+        events: [{ historicalBillingAdminId: '208' }],
+        accountName: 'account',
         billingAdminId: '18',
         externalUserId: '901',
         eventEvidenceComplete: true,
       },
     ],
   });
+  expect(
+    await audit.admins({
+      runId: run!.id,
+      search: 'verified-legacy-admin',
+      limit: 25,
+      offset: 0,
+    }),
+  ).toMatchObject({
+    rows: [
+      {
+        adminName: 'verified-legacy-admin',
+        historicalAdminId: '208',
+        nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+      },
+    ],
+  });
+  expect(
+    await audit.admins({
+      runId: run!.id,
+      search: 'incorrect-name',
+      limit: 25,
+      offset: 0,
+    }),
+  ).toMatchObject({ rows: [] });
 });

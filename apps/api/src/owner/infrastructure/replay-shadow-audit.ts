@@ -18,6 +18,14 @@ import {
   fullArchiveDays,
   replayReviewFingerprintSql,
 } from './replay-archive.js';
+const LEGACY_IDENTITY_SOURCE = 'replay-30d';
+
+function identitySource(source: string): string {
+  // Extended exports reuse the legacy exporter's anonymization. Match each
+  // role, archived ID and alias before presenting any historical identity.
+  return source.startsWith('replay-archive-') ? LEGACY_IDENTITY_SOURCE : source;
+}
+
 export class ShadowAuditNotFound extends Error {}
 export class ShadowAuditIncomplete extends Error {}
 
@@ -172,10 +180,37 @@ export class PostgresReplayShadowAudit {
         imported_at: Date;
       }>
     >(
-      `SELECT mapped_admins,mapped_accounts,mapped_actor_admins,
-        unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs,imported_at
-      FROM fair_replay_private_identity_imports WHERE source_instance_id=$1`,
-      [source],
+      source === identitySource(source)
+        ? `SELECT mapped_admins,mapped_accounts,mapped_actor_admins,
+            unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs,imported_at
+           FROM fair_replay_private_identity_imports WHERE source_instance_id=$1`
+        : `WITH aliases AS (
+            SELECT DISTINCT a.role,a.id,a.name
+            FROM pasarguard_events e CROSS JOIN LATERAL (VALUES
+              ('billing_admin',e.billing_admin_id,e.billing_admin_username),
+              ('account',e.external_user_id,e.username),
+              ('actor_admin',e.actor_admin_id,e.actor_admin_username)
+            ) a(role,id,name)
+            WHERE e.source_instance_id=$2 AND a.id IS NOT NULL
+          ), matches AS (
+            SELECT a.role,a.id,m.original_id,
+                   NULLIF(m.original_username,'') AS original_username
+            FROM aliases a LEFT JOIN fair_replay_private_identity_aliases m
+              ON m.source_instance_id=$1 AND m.role=a.role AND m.archived_id=a.id
+              AND m.archived_username=COALESCE(a.name,'')
+          )
+          SELECT COUNT(DISTINCT id) FILTER(WHERE role='billing_admin' AND original_username IS NOT NULL)::int AS mapped_admins,
+            COUNT(DISTINCT id) FILTER(WHERE role='account' AND original_id IS NOT NULL)::int AS mapped_accounts,
+            COUNT(DISTINCT id) FILTER(WHERE role='actor_admin' AND original_id IS NOT NULL)::int AS mapped_actor_admins,
+            COUNT(*) FILTER(WHERE role='billing_admin' AND original_username IS NULL)::int AS unmatched_admin_pairs,
+            COUNT(*) FILTER(WHERE role='account' AND original_id IS NULL)::int AS unmatched_account_pairs,
+            COUNT(*) FILTER(WHERE role='actor_admin' AND original_id IS NULL)::int AS unmatched_actor_pairs,
+            i.imported_at
+          FROM fair_replay_private_identity_imports i LEFT JOIN matches ON TRUE
+          WHERE i.source_instance_id=$1 GROUP BY i.imported_at`,
+      source === identitySource(source)
+        ? [source]
+        : [identitySource(source), source],
     );
     return record
       ? {
@@ -498,7 +533,7 @@ export class PostgresReplayShadowAudit {
           COUNT(DISTINCT (e.billing_admin_id,e.billing_admin_username))
             FILTER(WHERE m.archived_id IS NULL)::text AS "unmatchedAliases"
         FROM pasarguard_events e LEFT JOIN fair_replay_private_identity_aliases m
-          ON m.source_instance_id=e.source_instance_id AND m.role='billing_admin'
+          ON m.source_instance_id=$6 AND m.role='billing_admin'
           AND m.archived_id=e.billing_admin_id
           AND m.archived_username=COALESCE(e.billing_admin_username,'')
         WHERE e.source_instance_id=$2 GROUP BY e.billing_admin_id),
@@ -525,6 +560,7 @@ export class PostgresReplayShadowAudit {
         search,
         filters.limit + 1,
         filters.offset,
+        identitySource(run.source_instance_id),
       ],
     );
     const candidatesByAdmin = new Map<string, number>();
@@ -554,7 +590,9 @@ export class PostgresReplayShadowAudit {
           adminName:
             Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
               ? r.verifiedNames[0]
-              : r.verifiedIds?.length
+              : r.verifiedIds?.length ||
+                  run.source_instance_id !==
+                    identitySource(run.source_instance_id)
                 ? null
                 : r.names?.length === 1
                   ? r.names[0]
@@ -569,7 +607,9 @@ export class PostgresReplayShadowAudit {
                 : r.verifiedNames?.length
                   ? 'HISTORICAL_NAME_CONFLICT'
                   : 'SOURCE_VERIFIED_ID_ONLY'
-            : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
+            : run.source_instance_id !== identitySource(run.source_instance_id)
+              ? 'ARCHIVE_PSEUDONYMIZED'
+              : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
           heldCandidateCount: candidatesByAdmin.get(r.billingAdminId) ?? 0,
           status: Number(r.pendingDays) > 0 ? 'PENDING_REVIEW' : 'RECONCILED',
         })),
@@ -745,7 +785,7 @@ export class PostgresReplayShadowAudit {
       original_id::text AS "originalId",original_username AS "originalUsername"
       FROM fair_replay_private_identity_aliases
       WHERE source_instance_id=$1 AND archived_id=ANY($2::bigint[])`,
-      [source, [...ids]],
+      [identitySource(source), [...ids]],
     );
     for (const row of rows)
       results.set(
@@ -904,7 +944,8 @@ export class PostgresReplayShadowAudit {
           .map(enriched),
         adminName:
           adminNames.length === 1 &&
-          (adminFullyMatched || !adminPartiallyMatched)
+          (adminFullyMatched ||
+            (source === identitySource(source) && !adminPartiallyMatched))
             ? adminNames[0]
             : null,
         accountName:
@@ -919,7 +960,9 @@ export class PostgresReplayShadowAudit {
               ? 'HISTORICAL_NAME_CONFLICT'
               : adminPartiallyMatched
                 ? 'PARTIAL_SOURCE_MATCH'
-                : archivedAdminNameStatus(adminNames, 'SOURCE'),
+                : source !== identitySource(source)
+                  ? 'ARCHIVE_PSEUDONYMIZED'
+                  : archivedAdminNameStatus(adminNames, 'SOURCE'),
         accountNameStatus:
           accountFullyMatched && accountNames.length === 1
             ? 'SOURCE_VERIFIED_HISTORICAL'

@@ -65,9 +65,14 @@ overlapping window. An unrecognized review key fails the new calculation.
 Approved operations are listed in the manual tab with source evidence and no
 amount. A priced operation on the same day can be recorded if no other genuine
 hold remains. Normal verified monthly resets are processed by the ordinary
-calculator. Manager names alone never approve an operation. Aliases in a new
-archive are shown as supplied; the private identity mapping for an earlier
-archive remains scoped to that earlier archive.
+calculator. Manager names alone never approve an operation.
+
+When the export uses the same anonymization configuration, Reports uses the
+existing private identity import to display historical names for exact matches
+of role, archived ID and archived username. Coverage counts are calculated
+against the selected archive. Managers absent from the private mapping, and
+changed aliases without an exact match, remain marked as unverified. The
+mapping establishes historical names only.
 
 A simultaneous matching renewal gets a review marker in Transactions. Confirm
 the two source event pairs before drawing a conclusion about whether both

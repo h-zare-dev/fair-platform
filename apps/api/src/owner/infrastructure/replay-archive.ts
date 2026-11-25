@@ -83,9 +83,11 @@ export async function importReplayArchive(db: DataSource, path: string) {
   const input = await ReplayInput.open(
     path,
     path.replace(/\.jsonl\.gz$/, '.manifest.json'),
+    true,
   );
   try {
     const manifest = input.manifest;
+    const sourceIdentity = manifest.identity === 'source-webhook';
     if (manifest.replay_event_children > MAX_ARCHIVE_EVENTS)
       throw new Error('REPLAY_ARCHIVE_TOO_MANY_EVENTS');
     const source = `replay-archive-${manifest.sha256_gzip}`;
@@ -111,9 +113,10 @@ export async function importReplayArchive(db: DataSource, path: string) {
           cutoff_at: Date;
           batch_count: number;
           expected_children: number;
+          source_identity: boolean;
         }>
       >(
-        'SELECT starts_at,cutoff_at,batch_count,expected_children FROM fair_replay_archives WHERE source_instance_id=$1',
+        'SELECT starts_at,cutoff_at,batch_count,expected_children,source_identity FROM fair_replay_archives WHERE source_instance_id=$1',
         [source],
       );
       if (prior) {
@@ -121,7 +124,8 @@ export async function importReplayArchive(db: DataSource, path: string) {
           prior.starts_at.getTime() !== start.getTime() ||
           prior.cutoff_at.getTime() !== cutoff.getTime() ||
           prior.batch_count !== counts.groups ||
-          prior.expected_children !== counts.children
+          prior.expected_children !== counts.children ||
+          prior.source_identity !== sourceIdentity
         )
           throw new Error('REPLAY_ARCHIVE_MANIFEST_CONFLICT');
         return false;
@@ -134,9 +138,9 @@ export async function importReplayArchive(db: DataSource, path: string) {
       }
       await tx.query(
         `INSERT INTO fair_replay_archives
-         (source_instance_id,starts_at,cutoff_at,batch_count,expected_children)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [source, start, cutoff, counts.groups, counts.children],
+         (source_instance_id,starts_at,cutoff_at,batch_count,expected_children,source_identity)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [source, start, cutoff, counts.groups, counts.children, sourceIdentity],
       );
       return true;
     });

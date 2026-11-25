@@ -18,7 +18,12 @@ type Tab =
   | 'manual'
   | 'candidates'
   | 'ignored';
-type Run = { id: string; status: string; createdAt: string };
+type Run = {
+  id: string;
+  status: string;
+  createdAt: string;
+  sourceIdentity?: boolean;
+};
 type Overview = {
   mode: 'HISTORICAL_SHADOW_AUDIT';
   postingScope: 'SHADOW';
@@ -40,6 +45,7 @@ type Overview = {
     ignoredCount: number;
     createdAt: string;
     finishedAt: string | null;
+    sourceIdentity?: boolean;
   };
   coverage: {
     from: string | null;
@@ -68,7 +74,7 @@ type Overview = {
     unmatchedArchiveActorPairs: number | null;
     importedAt: string | null;
     currentDirectoryMatched: false;
-  };
+  } | null;
 };
 type EventEvidence = {
   id: string;
@@ -148,6 +154,8 @@ type PeriodRow = {
   readyChargeToman: string;
   readyCreditToman: string;
   readyNetToman: string;
+  readyChargeBytes: string | null;
+  chargeBytes: string | null;
   chargeToman: string | null;
   creditToman: string | null;
   netToman: string | null;
@@ -196,6 +204,7 @@ const REASONS: Record<string, string> = {
   ALREADY_CREDITED: 'خرید قبلاً بستانکار شده',
 };
 const ADMIN_NAME_STATUS: Record<string, string> = {
+  SOURCE_WEBHOOK: 'نام ثبت‌شده در وب‌هوک پاسارگارد',
   SOURCE_VERIFIED_HISTORICAL:
     'نام تاریخی از منبع اصلی آرشیو تأیید شده؛ تطبیق با مدیر فعلی انجام نشده',
   SOURCE_VERIFIED_ID_ONLY: 'شناسهٔ تاریخی تأیید شده اما نام اصلی موجود نیست',
@@ -488,11 +497,14 @@ export function ShadowAuditReports({
         <b>فقط آزمایش SHADOW — بدون تغییر موجودی واقعی</b>
         <p>
           این محاسبات بر اساس آرشیو تاریخی و فرض قیمت‌های ثابت انجام شده‌اند.
-          نام‌های تاریخی فقط پس از ورود خصوصی و تطبیق با آرشیو اصلی نمایش داده
-          می‌شوند؛ شناسهٔ تاریخی به‌صورت خودکار معادل مدیر فعلی PasarGuard نیست.
           روز مبهم بدهیِ صفر ندارد؛ مبلغش هنوز ثبت نشده است.
         </p>
-        {overview && (
+        {overview?.run.sourceIdentity && (
+          <p className="muted" data-testid="identity-coverage">
+            نام‌ها و شناسه‌ها از وب‌هوک‌های اصلی پاسارگارد آمده‌اند.
+          </p>
+        )}
+        {overview?.historicalSourceIdentity && (
           <p className="muted" data-testid="identity-coverage">
             وضعیت نام‌های تاریخی:{' '}
             <strong>
@@ -527,6 +539,8 @@ export function ShadowAuditReports({
             value={runId || selectedRun?.id || ''}
             onChange={(e) => {
               setRunId(e.target.value);
+              setAdminId('');
+              setAdminName('');
               setOffset(0);
             }}
           >
@@ -535,6 +549,7 @@ export function ShadowAuditReports({
               .map((r) => (
                 <option key={r.id} value={r.id}>
                   اجرای {r.id} — {formatUtc(r.createdAt)}
+                  {r.sourceIdentity ? ' · وب‌هوک اصلی' : ' · آرشیو قدیمی'}
                 </option>
               ))}
           </select>
@@ -646,7 +661,9 @@ export function ShadowAuditReports({
         )}
         {tab !== 'admins' && tab !== 'ignored' && (
           <label>
-            شناسهٔ مدیر تاریخی
+            {visibleRun?.sourceIdentity
+              ? 'شناسهٔ مدیر در پاسارگارد'
+              : 'شناسهٔ مدیر تاریخی'}
             <input
               value={adminId}
               dir="ltr"
@@ -743,7 +760,8 @@ export function ShadowAuditReports({
       </div>
       {adminId && (
         <p className="muted">
-          گزارش مدیر تاریخی: <b>{adminName || `#${adminId}`}</b> · شناسهٔ آرشیوی{' '}
+          گزارش مدیر تاریخی: <b>{adminName || `#${adminId}`}</b> ·{' '}
+          {visibleRun?.sourceIdentity ? 'شناسهٔ پاسارگارد' : 'شناسهٔ آرشیوی'}{' '}
           <span dir="ltr">{adminId}</span>
         </p>
       )}
@@ -788,7 +806,9 @@ export function ShadowAuditReports({
                     {(report.rows as AdminRow[]).map((r) => (
                       <tr key={r.billingAdminId}>
                         <td>
-                          {r.adminName && !isAnonymizedReplayName(r.adminName)
+                          {r.adminName &&
+                          (r.nameStatus === 'SOURCE_WEBHOOK' ||
+                            !isAnonymizedReplayName(r.adminName))
                             ? r.adminName
                             : 'نام واقعی مدیر هنوز تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
@@ -799,6 +819,7 @@ export function ShadowAuditReports({
                             </small>
                           )}
                           {r.adminName &&
+                            r.nameStatus !== 'SOURCE_WEBHOOK' &&
                             isAnonymizedReplayName(r.adminName) && (
                               <small dir="ltr">
                                 شناسهٔ ناشناس آرشیو: {r.adminName}
@@ -837,7 +858,8 @@ export function ShadowAuditReports({
                               setAdminId(r.billingAdminId);
                               setAdminName(
                                 r.adminName &&
-                                  !isAnonymizedReplayName(r.adminName)
+                                  (r.nameStatus === 'SOURCE_WEBHOOK' ||
+                                    !isAnonymizedReplayName(r.adminName))
                                   ? r.adminName
                                   : 'مدیر تاریخی بدون تطبیق هویت',
                               );
@@ -864,6 +886,7 @@ export function ShadowAuditReports({
                       <th>بدهکاری آماده</th>
                       <th>بستانکاری آماده</th>
                       <th>خالص آماده</th>
+                      <th>جمع حجم ثبت‌شده</th>
                       <th>ریزگزارش</th>
                     </tr>
                   </thead>
@@ -925,6 +948,16 @@ export function ShadowAuditReports({
                           )}
                         </td>
                         <td>
+                          {r.readyDays && r.readyChargeBytes != null
+                            ? formatGiB(r.readyChargeBytes)
+                            : '—'}
+                          {r.readyDays > 0 &&
+                            r.readyChargeBytes != null &&
+                            r.chargeBytes === null && (
+                              <small> · جمع بخش آماده</small>
+                            )}
+                        </td>
+                        <td>
                           <button
                             type="button"
                             className="secondary"
@@ -977,7 +1010,9 @@ export function ShadowAuditReports({
                     {(report.rows as OperationRow[]).map((r) => (
                       <tr key={r.operationKey}>
                         <td>
-                          {r.adminName && !isAnonymizedReplayName(r.adminName)
+                          {r.adminName &&
+                          (r.adminNameStatus === 'SOURCE_WEBHOOK' ||
+                            !isAnonymizedReplayName(r.adminName))
                             ? r.adminName
                             : 'نام واقعی مدیر تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
@@ -989,13 +1024,15 @@ export function ShadowAuditReports({
                             </small>
                           )}
                           {r.adminName &&
+                            r.adminNameStatus !== 'SOURCE_WEBHOOK' &&
                             isAnonymizedReplayName(r.adminName) && (
                               <small dir="ltr">{r.adminName}</small>
                             )}
                         </td>
                         <td>
                           {r.accountName &&
-                          !isAnonymizedReplayName(r.accountName)
+                          (r.accountNameStatus === 'SOURCE_WEBHOOK' ||
+                            !isAnonymizedReplayName(r.accountName))
                             ? r.accountName
                             : 'نام واقعی اکانت هنوز تطبیق نشده'}
                           <small dir="ltr"> #{r.externalUserId}</small>

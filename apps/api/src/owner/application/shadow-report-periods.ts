@@ -70,6 +70,7 @@ export interface StoredShadowDay {
   localDay: string;
   status: 'SHADOW_READY' | 'PENDING_REVIEW';
   chargeToman: string | null;
+  chargeBytes: string | null;
   creditToman: string | null;
   netToman: string | null;
   entryCount: number;
@@ -89,6 +90,8 @@ export interface ShadowPeriodRow {
   readyChargeToman: string;
   readyCreditToman: string;
   readyNetToman: string;
+  readyChargeBytes: string | null;
+  chargeBytes: string | null;
   chargeToman: string | null;
   creditToman: string | null;
   netToman: string | null;
@@ -115,6 +118,8 @@ export function groupShadowReportDays(
     .sort((a, b) => a.bounds.start.localeCompare(b.bounds.start))
     .map(({ bounds, days: records }) => {
       let charges = 0n;
+      let chargeBytes = 0n;
+      let volumeKnown = true;
       let credits = 0n;
       let readyDays = 0;
       let pendingDays = 0;
@@ -143,6 +148,8 @@ export function groupShadowReportDays(
           )
             throw new Error('SHADOW_DAY_AMOUNT_INTEGRITY_ERROR');
           charges += BigInt(row.chargeToman);
+          if (row.chargeBytes === null) volumeKnown = false;
+          else chargeBytes += BigInt(row.chargeBytes);
           credits += BigInt(row.creditToman);
           entryCount += row.entryCount;
           readyDays++;
@@ -170,6 +177,11 @@ export function groupShadowReportDays(
         readyChargeToman: charges.toString(),
         readyCreditToman: credits.toString(),
         readyNetToman: net.toString(),
+        readyChargeBytes: volumeKnown ? chargeBytes.toString() : null,
+        chargeBytes:
+          volumeKnown && status === 'RECONCILED'
+            ? chargeBytes.toString()
+            : null,
         chargeToman: status === 'RECONCILED' ? charges.toString() : null,
         creditToman: status === 'RECONCILED' ? credits.toString() : null,
         netToman: status === 'RECONCILED' ? net.toString() : null,

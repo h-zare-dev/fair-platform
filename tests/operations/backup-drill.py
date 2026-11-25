@@ -73,6 +73,7 @@ try:
         'PricingEngine1791200000000',
         'PrivateReplayIdentity1792100000000',
         'ReplayArchive1792300000000',
+        'ReplaySourceIdentity1792500000000',
         'ReplayShadowAudit1792000000000',
         'ReplayShadowJournal1791900000000',
     ]

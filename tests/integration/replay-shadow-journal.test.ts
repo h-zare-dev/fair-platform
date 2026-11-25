@@ -1,9 +1,16 @@
-import { beforeAll, afterAll, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { startPostgres } from '../helpers/postgres.js';
 import { createOwnerDataSource } from '../../apps/api/dist/owner/infrastructure/database.js';
 import { PostgresReplayShadowJournal } from '../../apps/api/dist/owner/infrastructure/replay-shadow-journal.js';
 import { PostgresReplayShadowAudit } from '../../apps/api/dist/owner/infrastructure/replay-shadow-audit.js';
+
+import {
+  BatchProcessor,
+  PayloadEncryption,
+} from '@fair-platform/pasarguard/infrastructure';
+import { importReplayArchive } from '../../apps/api/dist/owner/infrastructure/replay-archive.js';
+import { syntheticLine, syntheticReplay } from '../helpers/replay.js';
 
 let container: StartedPostgreSqlContainer;
 let db: ReturnType<typeof createOwnerDataSource>;
@@ -185,6 +192,20 @@ describe('FP-006/007 archival SHADOW financial journal', () => {
     );
     expect(lines.map((line) => line.entry_type)).toEqual(['CHARGE', 'CREDIT']);
     expect(lines[1]?.reference_operation_key).toBeTruthy();
+    const audit = new PostgresReplayShadowAudit(
+      db,
+      new PostgresReplayShadowJournal(db, 'Asia/Tehran', 600, true),
+      'SATURDAY',
+    );
+    expect(
+      await audit.periods(
+        { runId: run, billingAdminId: '17', offset: 0, limit: 10 },
+        'day',
+      ),
+    ).toMatchObject({
+      rows: [{ readyChargeBytes: '53687091200', netToman: '0' }],
+    });
+
     const [other] = await db.query<{ count: string }[]>(
       `SELECT COUNT(*)::text AS count FROM fair_replay_shadow_entries
        WHERE run_id<>$1 AND entry_type='CREDIT'`,
@@ -319,6 +340,128 @@ it('calculates a separately imported full Jalali archive and preserves the legac
       offset: 0,
     }),
   ).toMatchObject({ rows: [] });
+});
+
+it('imports the original webhook identities into normalized events and the SHADOW report', async () => {
+  const encryptionKey = '11'.repeat(32);
+  vi.stubEnv('APP_ENCRYPTION_KEY', encryptionKey);
+  vi.stubEnv('DATABASE_URL', 'postgresql://unused');
+  const files = await syntheticReplay([
+    syntheticLine(
+      [
+        {
+          action: 'user_created',
+          enqueued_at: Date.parse('2026-11-20T12:00:00Z') / 1000,
+          user: {
+            id: 901,
+            username: 'original-account',
+            admin: { id: 208, username: 'original-billing-admin' },
+            status: 'on_hold',
+            data_limit: 53687091200,
+            used_traffic: 0,
+            lifetime_used_traffic: 0,
+            on_hold_expire_duration: 2592000,
+          },
+          by: { id: 309, username: 'original-actor' },
+        },
+      ],
+      '2026-11-20T12:00:00Z',
+    ),
+  ]);
+  try {
+    const manifest = {
+      ...files.metadata,
+      cutoff_utc: '2026-11-21T20:30:00Z',
+      window_days: 122,
+    };
+    await files.writeManifest({ ...manifest, identity: 'source-webhook' });
+    const archive = await importReplayArchive(db, files.input);
+    expect(archive.imported).toBe(true);
+    expect((await importReplayArchive(db, files.input)).imported).toBe(false);
+    await files.writeManifest(manifest);
+    await expect(importReplayArchive(db, files.input)).rejects.toThrow(
+      'REPLAY_ARCHIVE_MANIFEST_CONFLICT',
+    );
+    await new BatchProcessor(
+      db,
+      new PayloadEncryption(encryptionKey),
+      3,
+    ).processNext();
+    expect(
+      await db.query(
+        `SELECT billing_admin_id::text,billing_admin_username,
+        external_user_id::text,username,actor_admin_id::text,actor_admin_username
+        FROM pasarguard_events WHERE source_instance_id=$1`,
+        [archive.source],
+      ),
+    ).toEqual([
+      {
+        billing_admin_id: '208',
+        billing_admin_username: 'original-billing-admin',
+        external_user_id: '901',
+        username: 'original-account',
+        actor_admin_id: '309',
+        actor_admin_username: 'original-actor',
+      },
+    ]);
+    const [run] = await db.query<Array<{ id: string }>>(
+      `INSERT INTO fair_replay_shadow_runs
+        (request_key,source_instance_id,time_zone,correlation_window_seconds,delete_credit_enabled)
+        VALUES($1,$2,'Asia/Tehran',600,false) RETURNING id::text`,
+      [crypto.randomUUID(), archive.source],
+    );
+    const journal = new PostgresReplayShadowJournal(
+      db,
+      'Asia/Tehran',
+      600,
+      false,
+    );
+    expect(await journal.runNext()).toBe(true);
+    const audit = new PostgresReplayShadowAudit(db, journal, 'SATURDAY');
+    expect(await audit.overview()).toMatchObject({
+      run: { id: run!.id, sourceIdentity: true, entryCount: 1 },
+      totals: { chargesToman: '100000' },
+      historicalSourceIdentity: null,
+    });
+    const filters = {
+      runId: run!.id,
+      billingAdminId: '208',
+      offset: 0,
+      limit: 10,
+    };
+    expect(
+      await audit.admins({ ...filters, search: 'original-billing-admin' }),
+    ).toMatchObject({
+      rows: [
+        {
+          adminName: 'original-billing-admin',
+          billingAdminId: '208',
+          nameStatus: 'SOURCE_WEBHOOK',
+        },
+      ],
+    });
+    for (const period of ['day', 'week', 'month'] as const) {
+      expect(await audit.periods(filters, period)).toMatchObject({
+        rows: [{ readyChargeBytes: '53687091200', readyNetToman: '100000' }],
+      });
+    }
+    expect(await audit.entries(filters)).toMatchObject({
+      rows: [
+        {
+          adminName: 'original-billing-admin',
+          accountName: 'original-account',
+          billingAdminId: '208',
+          externalUserId: '901',
+          events: [
+            { actorAdminId: '309', actorAdminUsername: 'original-actor' },
+          ],
+        },
+      ],
+    });
+  } finally {
+    await files.cleanup();
+    vi.unstubAllEnvs();
+  }
 });
 
 it('allows a runtime rerun to copy an existing review only within the same archive', async () => {

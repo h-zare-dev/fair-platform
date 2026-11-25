@@ -1,5 +1,16 @@
 # Second webhook and one-week SHADOW pilot
 
+## Release to the existing test host
+
+After the Owner merges into protected development, CI verifies the merge,
+publishes the scanned images and deploys their digests to Staging. The webhook
+settings and dashboard changes use the existing receiver route, mounted
+webhook secret and database schema. They require no additional migration or
+post-publish approval workflow. Verify Deploy succeeded before opening
+Settings → Initialization to copy the address and secret. If the host has
+never provisioned the receiver, follow the original FP-005 provisioning
+procedure before adding the second destination.
+
 ## Smoke on the existing test host
 
 Preserve the first destination. Configure the second destination and its independent secret using the [FP-005 operator procedure](../tasks/FP-005-STAGING-SHADOW-TEST.md). Capture the UTC start on Test-Bot before generating one or two known test events:

@@ -35,7 +35,18 @@ export function WebhookSettings() {
           );
           return;
         }
-        value = (await response.json()).secret;
+        const credential: unknown = await response.json();
+        if (
+          typeof credential !== 'object' ||
+          credential === null ||
+          !('secret' in credential) ||
+          typeof credential.secret !== 'string' ||
+          !credential.secret
+        ) {
+          setStatus('پاسخ سرور شامل رمز وب‌هوک معتبر نیست.');
+          return;
+        }
+        value = credential.secret;
       }
       await navigator.clipboard.writeText(value);
       setStatus(secret ? 'رمز وب‌هوک کپی شد.' : 'آدرس وب‌هوک کپی شد.');

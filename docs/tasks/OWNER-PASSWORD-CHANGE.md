@@ -10,3 +10,13 @@ Implementation requirements:
 - Expire the browser cookie, return to login, and never include passwords in application logs or audit.
 - Add regression coverage for invalid/missing session, CSRF, wrong existing password, weak/mismatched replacement, successful login with replacement, old-password rejection, and session revocation.
 - Draft PR to `development`; no deployment, Ready transition, or merge by assistant.
+
+## Staging regression correction (Owner authorized 2026-11-25)
+
+The feature reached Staging but password change failed because `fair_owner_runtime`
+had `SELECT` only on `fair_owner`. Grant `UPDATE (password_hash)` exclusively,
+both to fresh role provisioning and to the already-provisioned Staging role via
+a forward migration. Do not grant full-table UPDATE or change session/CLI reset
+semantics. Regression-test password rotation using the actual restricted runtime
+database role; keep other Owner fields and DELETE protected. The Owner must
+review the migration approval and merge/deployment through the normal gates.

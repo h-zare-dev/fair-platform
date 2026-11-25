@@ -615,6 +615,8 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // The runtime password grant is a separate, reversible additive migration.
+  await db.undoLastMigration({ transaction: 'all' });
   // The archive migration adds immutable input metadata and manual reviews.
   // Reversal is exercised only on this disposable database.
   for (const table of [
@@ -751,8 +753,14 @@ it('runtime role can ingest while core event fields and Owner credentials remain
     const runtimeAuth = new OwnerAuth(runtimeStore, passwords, hash);
     const result = await runtimeAuth.login(password, null);
     expect(result.kind).toBe('ok');
-    if (result.kind === 'ok')
+    if (result.kind === 'ok') {
       expect(await runtimeAuth.authenticated(result.token)).toBe(true);
+      expect(await runtimeAuth.changePassword('wrong-current', 'Newpass123', result.token)).toBe('denied');
+      expect(await runtimeAuth.changePassword(password, 'Newpass123', result.token)).toBe('ok');
+      expect(await runtimeAuth.authenticated(result.token)).toBe(false);
+      expect((await runtimeAuth.login(password, null)).kind).toBe('denied');
+      expect((await runtimeAuth.login('Newpass123', null)).kind).toBe('ok');
+    }
     const runtimeReader = new PostgresOwnerOperations(runtime);
     await runtimeReader.ready();
     expect(
@@ -765,7 +773,8 @@ it('runtime role can ingest while core event fields and Owner credentials remain
       'UPDATE pasarguard_events SET data_limit_bytes=2',
       "UPDATE pasarguard_events SET username='not-allowed'",
       'DELETE FROM pasarguard_webhook_batches',
-      "UPDATE fair_owner SET password_hash='x'",
+      'UPDATE fair_owner SET id=2',
+      'DELETE FROM fair_owner',
     ])
       await expect(runtime.query(sql)).rejects.toThrow();
   } finally {

@@ -13,6 +13,7 @@ import { PrivateReplayIdentity1792100000000 } from './private-replay-identity-mi
 import { OwnerPasswordChange1792200000000 } from './password-change-migration.js';
 
 import { ReplayArchive1792300000000 } from './replay-archive-migration.js';
+import { OwnerPasswordRuntimeGrant1792400000000 } from './password-runtime-grant-migration.js';
 
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
@@ -32,6 +33,7 @@ export function createOwnerDataSource(url: string) {
       PrivateReplayIdentity1792100000000,
       OwnerPasswordChange1792200000000,
       ReplayArchive1792300000000,
+      OwnerPasswordRuntimeGrant1792400000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

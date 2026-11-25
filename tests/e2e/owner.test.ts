@@ -615,10 +615,30 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
-  // Password-change audit allowlist was added after the identity sidecar.
+  // The archive migration adds immutable input metadata and manual reviews.
+  // Reversal is exercised only on this disposable database.
+  for (const table of [
+    'fair_replay_archives',
+    'fair_replay_shadow_manual_reviews',
+    'fair_replay_shadow_manual_operations',
+  ]) {
+    expect(
+      await db.query('SELECT to_regclass($1)::text AS name', [table]),
+    ).toEqual([{ name: table }]);
+  }
   await db.undoLastMigration({ transaction: 'all' });
-  // The private historical identity sidecar is the newest additive migration.
-  // Undo it first so the legacy SHADOW migration ordering remains unchanged.
+  for (const table of [
+    'fair_replay_archives',
+    'fair_replay_shadow_manual_reviews',
+    'fair_replay_shadow_manual_operations',
+  ]) {
+    expect(
+      await db.query('SELECT to_regclass($1)::text AS name', [table]),
+    ).toEqual([{ name: null }]);
+  }
+  // Undo the password-change allowlist before the earlier identity sidecar.
+  await db.undoLastMigration({ transaction: 'all' });
+  // Undo the private historical identity sidecar before the audit migration.
   await db.undoLastMigration({ transaction: 'all' });
   expect(
     await db.query(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateReplayShadow,
+  replayManualReviewKey,
   type ReplayFixedPrice,
   type ReplaySourceEvent,
 } from '../../apps/api/dist/owner/infrastructure/replay-shadow-calculator.js';
@@ -304,4 +305,43 @@ describe('Owner-attested historical SHADOW journal', () => {
       run([event(1, 'user_created'), event(1, 'user_created')]),
     ).toThrow('INVALID_REPLAY_EVENT');
   });
+});
+
+it('separates an explicitly approved manual operation without inventing money or blocking priced work', () => {
+  const manual = event(1, 'user_created', 50n * GIB, {
+    durationSeconds: null,
+    fingerprint: 'a'.repeat(64),
+  });
+  const priced = event(2, 'user_created', 50n * GIB, { externalUserId: '901' });
+  const monthlyReset = event(3, 'data_usage_reset', 50n * GIB, {
+    externalUserId: '902',
+  });
+  const otherAdmin = event(4, 'user_created', 50n * GIB, {
+    billingAdminId: '18',
+    durationSeconds: null,
+    fingerprint: manual.fingerprint!,
+  });
+  const key = replayManualReviewKey('MISSING_DURATION', '17', '900', [
+    manual.fingerprint,
+  ]);
+  expect(key).toBeTruthy();
+  const result = calculateReplayShadow(
+    [manual, priced, monthlyReset, otherAdmin],
+    prices,
+    {
+      ...options,
+      manualReviewKeys: new Set([key!]),
+    },
+  );
+  expect(result.manual).toMatchObject([
+    { billingAdminId: '17', reviewKey: key },
+  ]);
+  expect(result.holds).toMatchObject([
+    { billingAdminId: '18', code: 'MISSING_DURATION' },
+  ]);
+  expect(result.entries.map((line) => line.kind)).toEqual(['CREATE', 'RESET']);
+  expect(result.days).toMatchObject([
+    { billingAdminId: '17', status: 'SHADOW_READY', netToman: '200000' },
+    { billingAdminId: '18', status: 'PENDING_REVIEW', netToman: null },
+  ]);
 });

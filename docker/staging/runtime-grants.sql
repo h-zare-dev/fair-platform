@@ -25,6 +25,9 @@ GRANT SELECT,INSERT ON fair_shadow_days,fair_shadow_items,fair_shadow_late_event
 -- identity migration grants SELECT itself when upgrading an existing staging.
 GRANT SELECT ON fair_replay_private_identity_imports,
   fair_replay_private_identity_aliases TO fair_owner_runtime;
+GRANT SELECT ON fair_replay_archives,fair_replay_shadow_manual_reviews TO fair_owner_runtime;
+GRANT SELECT,INSERT ON fair_replay_shadow_manual_operations TO fair_owner_runtime;
+GRANT EXECUTE ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) TO fair_owner_runtime;
 -- Opening baseline is staging SHADOW evidence, not a financial ledger write.
 GRANT SELECT,INSERT,UPDATE ON fair_opening_baseline_runs,fair_opening_baseline_users TO fair_owner_runtime;
 GRANT USAGE ON SEQUENCE fair_opening_baseline_runs_id_seq TO fair_owner_runtime;

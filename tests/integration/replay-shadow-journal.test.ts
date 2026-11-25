@@ -209,3 +209,169 @@ describe('FP-006/007 archival SHADOW financial journal', () => {
     ).toBe(false);
   });
 });
+
+it('calculates a separately imported full Jalali archive and preserves the legacy source', async () => {
+  const source = 'replay-archive-' + 'd'.repeat(64);
+  const [batch] = await db.query<Array<{ id: string }>>(
+    `INSERT INTO pasarguard_webhook_batches
+      (source_instance_id,received_at,payload_hash,event_count,processing_status)
+      VALUES($1,'2026-11-20T12:00:00Z',repeat('a',64),2,'RECEIVED') RETURNING id::text`,
+    [source],
+  );
+  await db.query(
+    `INSERT INTO fair_replay_archives(source_instance_id,starts_at,cutoff_at,batch_count,expected_children)
+      VALUES($1,'2026-07-22T20:30:00Z','2026-11-21T20:30:00Z',1,2)`,
+    [source],
+  );
+  const [run] = await db.query<Array<{ id: string }>>(
+    `INSERT INTO fair_replay_shadow_runs
+      (request_key,source_instance_id,time_zone,correlation_window_seconds,delete_credit_enabled)
+      VALUES($1,$2,'Asia/Tehran',600,false) RETURNING id::text`,
+    [crypto.randomUUID(), source],
+  );
+  const journal = new PostgresReplayShadowJournal(
+    db,
+    'Asia/Tehran',
+    600,
+    false,
+  );
+  expect(await journal.runNext()).toBe(false);
+  await db.query(
+    `INSERT INTO pasarguard_events
+     (batch_id,batch_index,source_instance_id,semantic_fingerprint,action,
+      external_user_id,username,user_status,data_limit_bytes,used_traffic_bytes,
+      lifetime_used_bytes,billing_admin_id,billing_admin_username,
+      source_enqueued_at,event_status,first_seen_at,last_seen_at,
+      on_hold_expire_duration_seconds,occurrence_count)
+     VALUES($1,0,$2,repeat('b',64),'user_created',901,'account','on_hold',
+      53687091200,0,0,18,'admin','2026-11-20T12:00:00Z','READY_FOR_ACCOUNTING',now(),now(),2592000,2)`,
+    [batch!.id, source],
+  );
+  await db.query(
+    "UPDATE pasarguard_webhook_batches SET processing_status='NORMALIZED' WHERE id=$1",
+    [batch!.id],
+  );
+  expect(await journal.runNext()).toBe(true);
+  await db.query(`INSERT INTO fair_replay_private_identity_imports
+    (source_instance_id,manifest_sha256,map_sha256,replay_plaintext_sha256,source_script_sha256,
+      event_count,mapped_admins,mapped_accounts,mapped_actor_admins,
+      unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs)
+    VALUES('replay-30d',repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),64135,1,1,0,0,0,0)`);
+  await db.query(`INSERT INTO fair_replay_private_identity_aliases
+    (source_instance_id,role,archived_id,archived_username,original_id,original_username)
+    VALUES
+      ('replay-30d','billing_admin',18,'admin',208,'verified-legacy-admin'),
+      ('replay-30d','billing_admin',18,'different-alias',208,'incorrect-name'),
+      ('replay-30d','account',901,'different-alias',1901,'incorrect-account')`);
+  const audit = new PostgresReplayShadowAudit(db, journal, 'SATURDAY');
+  expect(await audit.overview(run!.id)).toMatchObject({
+    coverage: {
+      from: '1405-05-01',
+      to: '1405-08-30',
+      verifiedBoundaries: true,
+    },
+    run: { source, eventCount: 1, entryCount: 1 },
+    totals: { chargesToman: '100000' },
+    historicalSourceIdentity: {
+      status: 'SOURCE_VERIFIED',
+      mappedBillingAdmins: 1,
+      mappedAccounts: 0,
+      unmatchedArchiveAdminPairs: 0,
+      unmatchedArchiveAccountPairs: 1,
+    },
+    integrity: { status: 'RECONCILED' },
+  });
+  expect(
+    await audit.entries({ runId: run!.id, limit: 25, offset: 0 }),
+  ).toMatchObject({
+    rows: [
+      {
+        adminName: 'verified-legacy-admin',
+        events: [{ historicalBillingAdminId: '208' }],
+        accountName: 'account',
+        billingAdminId: '18',
+        externalUserId: '901',
+        eventEvidenceComplete: true,
+      },
+    ],
+  });
+  expect(
+    await audit.admins({
+      runId: run!.id,
+      search: 'verified-legacy-admin',
+      limit: 25,
+      offset: 0,
+    }),
+  ).toMatchObject({
+    rows: [
+      {
+        adminName: 'verified-legacy-admin',
+        historicalAdminId: '208',
+        nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+      },
+    ],
+  });
+  expect(
+    await audit.admins({
+      runId: run!.id,
+      search: 'incorrect-name',
+      limit: 25,
+      offset: 0,
+    }),
+  ).toMatchObject({ rows: [] });
+});
+
+it('allows a runtime rerun to copy an existing review only within the same archive', async () => {
+  await db.transaction(async (tx) => {
+    const sources = [
+      ['COMPLETE', 'e'],
+      ['PENDING', 'e'],
+      ['PENDING', 'f'],
+    ] as const;
+    const runIds: string[] = [];
+    for (const [status, suffix] of sources) {
+      const [run] = await tx.query<Array<{ id: string }>>(
+        `INSERT INTO fair_replay_shadow_runs
+          (request_key,source_instance_id,status,time_zone,correlation_window_seconds,delete_credit_enabled)
+         VALUES($1,$2,$3,'Asia/Tehran',600,false) RETURNING id::text`,
+        [crypto.randomUUID(), 'replay-archive-' + suffix.repeat(64), status],
+      );
+      runIds.push(run!.id);
+    }
+    const [prior, target, otherArchive] = runIds;
+    await tx.query(
+      'INSERT INTO fair_replay_shadow_manual_reviews(run_id,review_key) VALUES($1,$2)',
+      [prior, 'a'.repeat(64)],
+    );
+    await tx.query('CREATE ROLE fair_review_copy_test');
+    await tx.query('GRANT USAGE ON SCHEMA public TO fair_review_copy_test');
+    await tx.query(
+      'GRANT EXECUTE ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) TO fair_review_copy_test',
+    );
+    await tx.query('SET LOCAL ROLE fair_review_copy_test');
+    await tx.query('SAVEPOINT wrong_archive');
+    await expect(
+      tx.query('SELECT fair_replay_copy_manual_reviews($1,$2)', [
+        prior,
+        otherArchive,
+      ]),
+    ).rejects.toThrow('REPLAY_MANUAL_REVIEW_COPY_INVALID');
+    await tx.query('ROLLBACK TO SAVEPOINT wrong_archive');
+    await tx.query('SELECT fair_replay_copy_manual_reviews($1,$2)', [
+      prior,
+      target,
+    ]);
+    await tx.query('RESET ROLE');
+    expect(
+      await tx.query(
+        'SELECT review_key FROM fair_replay_shadow_manual_reviews WHERE run_id=$1',
+        [target],
+      ),
+    ).toEqual([{ review_key: 'a'.repeat(64) }]);
+    await tx.query(
+      'REVOKE EXECUTE ON FUNCTION fair_replay_copy_manual_reviews(bigint,bigint) FROM fair_review_copy_test',
+    );
+    await tx.query('REVOKE USAGE ON SCHEMA public FROM fair_review_copy_test');
+    await tx.query('DROP ROLE fair_review_copy_test');
+  });
+});

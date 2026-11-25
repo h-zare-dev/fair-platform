@@ -87,12 +87,7 @@ export function ReplayShadowJournal() {
 
   async function start() {
     if (!status || busy || status.run?.status === 'PENDING') return;
-    if (
-      !window.confirm(
-        'حسابداری آزمایشی آرشیو ۳۰روزه اجرا شود؟ این عملیات فقط دفتر SHADOW جدید می‌سازد؛ هیچ موجودی واقعی، وب‌هوک یا صورت‌حسابی تغییر نمی‌کند.',
-      )
-    )
-      return;
+    if (!window.confirm('محاسبهٔ آزمایشی برای این آرشیو اجرا شود؟')) return;
     setBusy(true);
     setError('');
     try {
@@ -103,7 +98,10 @@ export function ReplayShadowJournal() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Fair-CSRF': '1' },
           cache: 'no-store',
-          body: JSON.stringify({ requestKey: pendingRequestKey.current }),
+          body: JSON.stringify({
+            requestKey: pendingRequestKey.current,
+            ...(status.run ? { rerunOf: status.run.id } : {}),
+          }),
           signal: AbortSignal.timeout(30000),
         },
       );
@@ -129,10 +127,14 @@ export function ReplayShadowJournal() {
   }
 
   const run = status?.run;
+  const title =
+    !run || run.source === 'replay-30d'
+      ? 'تست دفتر حسابداری آرشیو ۳۰روزه'
+      : 'دفتر حسابداری آرشیو تاریخی';
   return (
-    <section className="table-card" aria-label="دفتر مالی آزمایشی آرشیو ۳۰روزه">
+    <section className="table-card" aria-label={title}>
       <div className="section-heading">
-        <h2>تست دفتر حسابداری آرشیو ۳۰روزه</h2>
+        <h2>{title}</h2>
         <span className="badge">فقط SHADOW · بدون تغییر موجودی واقعی</span>
       </div>
       <p className="muted">

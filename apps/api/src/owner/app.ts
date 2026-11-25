@@ -513,6 +513,8 @@ export async function createOwnerApi(
             return await replayAudit.entries(q);
           case 'holds':
             return await replayAudit.holds(q);
+          case 'manual':
+            return await replayAudit.holds(q, true);
           case 'candidates':
             return await replayAudit.candidates(q);
           case 'ignored':
@@ -542,13 +544,20 @@ export async function createOwnerApi(
       csrf(req);
       await requireOwner(req);
       const request = input(
-        z.object({ requestKey: z.string().uuid() }).strict(),
+        z
+          .object({
+            requestKey: z.string().uuid(),
+            rerunOf: positive.optional(),
+          })
+          .strict(),
         req.body,
       );
       if (!replayShadow)
         throw new HttpException('REPLAY_SHADOW_UNAVAILABLE', 503);
       try {
-        return await replayShadow.start(request.requestKey);
+        return request.rerunOf
+          ? await replayShadow.rerun(request.requestKey, request.rerunOf)
+          : await replayShadow.start(request.requestKey);
       } catch (error) {
         if (error instanceof ReplayShadowBusy)
           throw new HttpException('REPLAY_SHADOW_ALREADY_RUNNING', 409);

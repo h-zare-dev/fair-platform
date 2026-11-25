@@ -9,9 +9,23 @@ import {
 } from '../application/shadow-report-periods.js';
 import { archivedAdminNameStatus } from '../application/archive-admin-name.js';
 import type { PostgresReplayShadowJournal } from './replay-shadow-journal.js';
-import type { ReplayLedgerLine } from './replay-shadow-calculator.js';
+import {
+  replayManualReviewKey,
+  type ReplayLedgerLine,
+} from './replay-shadow-calculator.js';
 
-const SOURCE = 'replay-30d';
+import {
+  fullArchiveDays,
+  replayReviewFingerprintSql,
+} from './replay-archive.js';
+const LEGACY_IDENTITY_SOURCE = 'replay-30d';
+
+function identitySource(source: string): string {
+  // Extended exports reuse the legacy exporter's anonymization. Match each
+  // role, archived ID and alias before presenting any historical identity.
+  return source.startsWith('replay-archive-') ? LEGACY_IDENTITY_SOURCE : source;
+}
+
 export class ShadowAuditNotFound extends Error {}
 export class ShadowAuditIncomplete extends Error {}
 
@@ -43,6 +57,7 @@ interface EntryRow {
   amountToman: string;
   packageId: string;
   referenceOperationKey: string | null;
+  similarRenewal?: boolean;
   packageBytes: string | null;
   durationDays: number | null;
 }
@@ -103,9 +118,33 @@ export class PostgresReplayShadowAudit {
     return chosen;
   }
 
-  private async coverage(
-    zone: string,
-  ): Promise<{ from: string | null; to: string | null; eventCount: number }> {
+  private async coverage(run: RunRow): Promise<{
+    from: string | null;
+    to: string | null;
+    eventCount: number;
+    verifiedBoundaries: boolean;
+  }> {
+    const zone = run.time_zone;
+    if (run.source_instance_id !== 'replay-30d') {
+      const [archive] = await this.db.query<
+        Array<{
+          starts_at: Date;
+          cutoff_at: Date;
+          event_count: string;
+        }>
+      >(
+        `SELECT starts_at,cutoff_at,
+          (SELECT COUNT(*)::text FROM pasarguard_events WHERE source_instance_id=$1) AS event_count
+         FROM fair_replay_archives WHERE source_instance_id=$1`,
+        [run.source_instance_id],
+      );
+      if (!archive) throw new ShadowAuditIncomplete('SHADOW_ARCHIVE_NOT_FOUND');
+      return {
+        ...fullArchiveDays(archive.starts_at, archive.cutoff_at, zone),
+        eventCount: Number(archive.event_count),
+        verifiedBoundaries: true,
+      };
+    }
     const [row] = await this.db.query<
       {
         min_at: Date | null;
@@ -115,12 +154,13 @@ export class PostgresReplayShadowAudit {
     >(
       `SELECT MIN(source_enqueued_at) AS min_at,MAX(source_enqueued_at) AS max_at,
       COUNT(*)::text AS count FROM pasarguard_events WHERE source_instance_id=$1`,
-      [SOURCE],
+      [run.source_instance_id],
     );
     return {
       from: row?.min_at ? localJalaliDate(row.min_at, zone) : null,
       to: row?.max_at ? localJalaliDate(row.max_at, zone) : null,
       eventCount: Number(row?.count ?? 0),
+      verifiedBoundaries: false,
     };
   }
 
@@ -128,7 +168,7 @@ export class PostgresReplayShadowAudit {
     return this.journal.legacyAuditEvidence(run.id);
   }
 
-  private async historicalIdentityCoverage() {
+  private async historicalIdentityCoverage(source: string) {
     const [record] = await this.db.query<
       Array<{
         mapped_admins: number;
@@ -140,10 +180,37 @@ export class PostgresReplayShadowAudit {
         imported_at: Date;
       }>
     >(
-      `SELECT mapped_admins,mapped_accounts,mapped_actor_admins,
-        unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs,imported_at
-      FROM fair_replay_private_identity_imports WHERE source_instance_id=$1`,
-      [SOURCE],
+      source === identitySource(source)
+        ? `SELECT mapped_admins,mapped_accounts,mapped_actor_admins,
+            unmatched_admin_pairs,unmatched_account_pairs,unmatched_actor_pairs,imported_at
+           FROM fair_replay_private_identity_imports WHERE source_instance_id=$1`
+        : `WITH aliases AS (
+            SELECT DISTINCT a.role,a.id,a.name
+            FROM pasarguard_events e CROSS JOIN LATERAL (VALUES
+              ('billing_admin',e.billing_admin_id,e.billing_admin_username),
+              ('account',e.external_user_id,e.username),
+              ('actor_admin',e.actor_admin_id,e.actor_admin_username)
+            ) a(role,id,name)
+            WHERE e.source_instance_id=$2 AND a.id IS NOT NULL
+          ), matches AS (
+            SELECT a.role,a.id,m.original_id,
+                   NULLIF(m.original_username,'') AS original_username
+            FROM aliases a LEFT JOIN fair_replay_private_identity_aliases m
+              ON m.source_instance_id=$1 AND m.role=a.role AND m.archived_id=a.id
+              AND m.archived_username=COALESCE(a.name,'')
+          )
+          SELECT COUNT(DISTINCT id) FILTER(WHERE role='billing_admin' AND original_username IS NOT NULL)::int AS mapped_admins,
+            COUNT(DISTINCT id) FILTER(WHERE role='account' AND original_id IS NOT NULL)::int AS mapped_accounts,
+            COUNT(DISTINCT id) FILTER(WHERE role='actor_admin' AND original_id IS NOT NULL)::int AS mapped_actor_admins,
+            COUNT(*) FILTER(WHERE role='billing_admin' AND original_username IS NULL)::int AS unmatched_admin_pairs,
+            COUNT(*) FILTER(WHERE role='account' AND original_id IS NULL)::int AS unmatched_account_pairs,
+            COUNT(*) FILTER(WHERE role='actor_admin' AND original_id IS NULL)::int AS unmatched_actor_pairs,
+            i.imported_at
+          FROM fair_replay_private_identity_imports i LEFT JOIN matches ON TRUE
+          WHERE i.source_instance_id=$1 GROUP BY i.imported_at`,
+      source === identitySource(source)
+        ? [source]
+        : [identitySource(source), source],
     );
     return record
       ? {
@@ -184,7 +251,7 @@ export class PostgresReplayShadowAudit {
   async overview(runId?: string) {
     const runs = await this.runs();
     const run = await this.resolve(runId);
-    const coverage = await this.coverage(run.time_zone);
+    const coverage = await this.coverage(run);
     const [
       days,
       lines,
@@ -261,7 +328,7 @@ export class PostgresReplayShadowAudit {
         LEFT JOIN pasarguard_events p ON p.id=eid.id AND p.source_instance_id=$2
         WHERE e.run_id=$1 AND (p.id IS NULL OR p.billing_admin_id<>e.billing_admin_id
           OR p.external_user_id<>e.external_user_id)`,
-        [run.id, SOURCE],
+        [run.id, run.source_instance_id],
       ),
       this.db.query<{ count: string }[]>(
         `SELECT COUNT(*)::text AS count FROM fair_replay_shadow_entries e
@@ -411,7 +478,7 @@ export class PostgresReplayShadowAudit {
       coverage: {
         from: coverage.from,
         to: coverage.to,
-        verifiedBoundaries: false,
+        verifiedBoundaries: coverage.verifiedBoundaries,
       },
       totals: {
         observedDays: Number(stats.days),
@@ -429,7 +496,9 @@ export class PostgresReplayShadowAudit {
         note: 'Internal journal consistency only; not independent proof of historical identity or LIVE charges.',
       },
       historicalIdentityVerified: false,
-      historicalSourceIdentity: await this.historicalIdentityCoverage(),
+      historicalSourceIdentity: await this.historicalIdentityCoverage(
+        run.source_instance_id,
+      ),
     };
   }
 
@@ -464,7 +533,7 @@ export class PostgresReplayShadowAudit {
           COUNT(DISTINCT (e.billing_admin_id,e.billing_admin_username))
             FILTER(WHERE m.archived_id IS NULL)::text AS "unmatchedAliases"
         FROM pasarguard_events e LEFT JOIN fair_replay_private_identity_aliases m
-          ON m.source_instance_id=e.source_instance_id AND m.role='billing_admin'
+          ON m.source_instance_id=$6 AND m.role='billing_admin'
           AND m.archived_id=e.billing_admin_id
           AND m.archived_username=COALESCE(e.billing_admin_username,'')
         WHERE e.source_instance_id=$2 GROUP BY e.billing_admin_id),
@@ -485,7 +554,14 @@ export class PostgresReplayShadowAudit {
         EXISTS(SELECT 1 FROM unnest(n."verifiedNames") name WHERE POSITION(LOWER($3) IN LOWER(name))>0) OR
         EXISTS(SELECT 1 FROM unnest(n."verifiedIds") id WHERE POSITION($3 IN id)>0))
       ORDER BY t.billing_admin_id LIMIT $4 OFFSET $5`,
-      [run.id, SOURCE, search, filters.limit + 1, filters.offset],
+      [
+        run.id,
+        run.source_instance_id,
+        search,
+        filters.limit + 1,
+        filters.offset,
+        identitySource(run.source_instance_id),
+      ],
     );
     const candidatesByAdmin = new Map<string, number>();
     if (await this.hasSnapshot(run.id)) {
@@ -514,7 +590,9 @@ export class PostgresReplayShadowAudit {
           adminName:
             Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
               ? r.verifiedNames[0]
-              : r.verifiedIds?.length
+              : r.verifiedIds?.length ||
+                  run.source_instance_id !==
+                    identitySource(run.source_instance_id)
                 ? null
                 : r.names?.length === 1
                   ? r.names[0]
@@ -529,7 +607,9 @@ export class PostgresReplayShadowAudit {
                 : r.verifiedNames?.length
                   ? 'HISTORICAL_NAME_CONFLICT'
                   : 'SOURCE_VERIFIED_ID_ONLY'
-            : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
+            : run.source_instance_id !== identitySource(run.source_instance_id)
+              ? 'ARCHIVE_PSEUDONYMIZED'
+              : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
           heldCandidateCount: candidatesByAdmin.get(r.billingAdminId) ?? 0,
           status: Number(r.pendingDays) > 0 ? 'PENDING_REVIEW' : 'RECONCILED',
         })),
@@ -542,7 +622,7 @@ export class PostgresReplayShadowAudit {
   async periods(filters: AuditPageFilters, period: ReportPeriod) {
     if (!filters.billingAdminId) throw new RangeError('BILLING_ADMIN_REQUIRED');
     const run = await this.resolve(filters.runId);
-    const archive = await this.coverage(run.time_zone);
+    const archive = await this.coverage(run);
     const rows = await this.db.query<
       Array<{
         localDay: string;
@@ -584,7 +664,7 @@ export class PostgresReplayShadowAudit {
       coverage: {
         from: archive.from,
         to: archive.to,
-        verifiedBoundaries: false,
+        verifiedBoundaries: archive.verifiedBoundaries,
       },
       ...page(
         chosen.slice(filters.offset, filters.offset + filters.limit + 1),
@@ -595,14 +675,18 @@ export class PostgresReplayShadowAudit {
   }
 
   private async eventsFor(
+    source: string,
     ids: string[],
+    withReviewEvidence: boolean,
   ): Promise<Map<string, Record<string, unknown>>> {
     const unique = [...new Set(ids)];
     if (!unique.length) return new Map();
     const rows = await this.db.query<
       Array<Record<string, unknown> & { id: string }>
     >(
-      `SELECT id::text,action,billing_admin_id::text AS "billingAdminId",
+      `SELECT id::text,
+        ${withReviewEvidence ? `${replayReviewFingerprintSql} AS fingerprint,` : ''}
+        action,billing_admin_id::text AS "billingAdminId",
         billing_admin_username AS "billingAdminUsername",external_user_id::text AS "externalUserId",
         username AS "accountUsername",actor_admin_id::text AS "actorAdminId",
         actor_admin_username AS "actorAdminUsername",
@@ -613,12 +697,13 @@ export class PostgresReplayShadowAudit {
         to_char(source_user_expire_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "expiresAt",
         user_status AS "userStatus",event_status AS "eventStatus"
        FROM pasarguard_events WHERE source_instance_id=$1 AND id=ANY($2::bigint[])`,
-      [SOURCE, unique],
+      [source, unique],
     );
     return new Map(rows.map((r) => [r.id, r]));
   }
 
   private async precedingContext(
+    source: string,
     rows: Array<
       Pick<
         HoldRow,
@@ -663,7 +748,7 @@ export class PostgresReplayShadowAudit {
             before_at: r.occurredAt,
           })),
         ),
-        SOURCE,
+        source,
       ],
     );
     const grouped = new Map<string, Array<Record<string, unknown>>>();
@@ -675,7 +760,10 @@ export class PostgresReplayShadowAudit {
     return grouped;
   }
 
-  private async privateEventNames(events: Array<Record<string, unknown>>) {
+  private async privateEventNames(
+    source: string,
+    events: Array<Record<string, unknown>>,
+  ) {
     const ids = new Set<string>();
     for (const event of events)
       for (const key of ['billingAdminId', 'externalUserId', 'actorAdminId']) {
@@ -697,7 +785,7 @@ export class PostgresReplayShadowAudit {
       original_id::text AS "originalId",original_username AS "originalUsername"
       FROM fair_replay_private_identity_aliases
       WHERE source_instance_id=$1 AND archived_id=ANY($2::bigint[])`,
-      [SOURCE, [...ids]],
+      [identitySource(source), [...ids]],
     );
     for (const row of rows)
       results.set(
@@ -714,13 +802,18 @@ export class PostgresReplayShadowAudit {
       externalUserId: string;
       operationKey: string;
       occurredAt: string;
+      code?: string;
     },
-  >(rows: T[], includePrecedingContext = false) {
-    const byId = await this.eventsFor(rows.flatMap((r) => r.eventIds));
+  >(source: string, rows: T[], includePrecedingContext = false) {
+    const byId = await this.eventsFor(
+      source,
+      rows.flatMap((r) => r.eventIds),
+      includePrecedingContext,
+    );
     const context = includePrecedingContext
-      ? await this.precedingContext(rows)
+      ? await this.precedingContext(source, rows)
       : new Map<string, Array<Record<string, unknown>>>();
-    const identities = await this.privateEventNames([
+    const identities = await this.privateEventNames(source, [
       ...byId.values(),
       ...[...context.values()].flat(),
     ]);
@@ -765,7 +858,18 @@ export class PostgresReplayShadowAudit {
         'actorAdminUsername',
       );
       return {
-        ...event,
+        id: event.id,
+        action: event.action,
+        sourceTimestamp: event.sourceTimestamp,
+        billingAdminId: event.billingAdminId,
+        externalUserId: event.externalUserId,
+        actorAdminId: event.actorAdminId,
+        dataLimitBytes: event.dataLimitBytes,
+        durationSeconds: event.durationSeconds,
+        eventStatus: event.eventStatus,
+        userStatus: event.userStatus,
+        createdAt: event.createdAt,
+        expiresAt: event.expiresAt,
         archivedBillingAdminUsername: event.billingAdminUsername,
         archivedAccountUsername: event.accountUsername,
         archivedActorAdminUsername: event.actorAdminUsername,
@@ -823,13 +927,25 @@ export class PostgresReplayShadowAudit {
       );
       return {
         ...row,
+        reviewKey:
+          row.code && sourceEvents.length === row.eventIds.length
+            ? replayManualReviewKey(
+                row.code,
+                row.billingAdminId,
+                row.externalUserId,
+                sourceEvents.map((e) =>
+                  typeof e.fingerprint === 'string' ? e.fingerprint : undefined,
+                ),
+              )
+            : null,
         events,
         contextEvents: (context.get(row.operationKey) ?? [])
           .filter((e) => !row.eventIds.includes(e.id as string))
           .map(enriched),
         adminName:
           adminNames.length === 1 &&
-          (adminFullyMatched || !adminPartiallyMatched)
+          (adminFullyMatched ||
+            (source === identitySource(source) && !adminPartiallyMatched))
             ? adminNames[0]
             : null,
         accountName:
@@ -844,7 +960,9 @@ export class PostgresReplayShadowAudit {
               ? 'HISTORICAL_NAME_CONFLICT'
               : adminPartiallyMatched
                 ? 'PARTIAL_SOURCE_MATCH'
-                : archivedAdminNameStatus(adminNames, 'SOURCE'),
+                : source !== identitySource(source)
+                  ? 'ARCHIVE_PSEUDONYMIZED'
+                  : archivedAdminNameStatus(adminNames, 'SOURCE'),
         accountNameStatus:
           accountFullyMatched && accountNames.length === 1
             ? 'SOURCE_VERIFIED_HISTORICAL'
@@ -866,6 +984,15 @@ export class PostgresReplayShadowAudit {
     const run = await this.resolve(filters.runId);
     const rows = await this.db.query<EntryRow[]>(
       `SELECT e.operation_key AS "operationKey",e.kind,
+      (e.kind='RENEWAL' AND EXISTS (
+        SELECT 1 FROM fair_replay_shadow_entries duplicate
+        WHERE duplicate.run_id=e.run_id AND duplicate.operation_key<>e.operation_key
+          AND duplicate.kind=e.kind AND duplicate.billing_admin_id=e.billing_admin_id
+          AND duplicate.external_user_id=e.external_user_id AND duplicate.local_day=e.local_day
+          AND duplicate.package_id=e.package_id AND duplicate.amount_toman=e.amount_toman
+          AND duplicate.occurred_at>=date_trunc('second',e.occurred_at)
+          AND duplicate.occurred_at<date_trunc('second',e.occurred_at)+interval '1 second'
+      )) AS "similarRenewal",
       e.entry_type AS "entryType",e.billing_admin_id::text AS "billingAdminId",
       e.external_user_id::text AS "externalUserId",e.local_day AS "localDay",
       to_char(e.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "occurredAt",
@@ -897,7 +1024,7 @@ export class PostgresReplayShadowAudit {
     }));
     return {
       runId: run.id,
-      rows: await this.decorate(enriched),
+      rows: await this.decorate(run.source_instance_id, enriched),
       nextOffset:
         rows.length > filters.limit ? filters.offset + filters.limit : null,
     };
@@ -921,7 +1048,7 @@ export class PostgresReplayShadowAudit {
     );
   }
 
-  async holds(filters: AuditPageFilters) {
+  async holds(filters: AuditPageFilters, approvedManual = false) {
     const run = await this.resolve(filters.runId);
     const rows = await this.db.query<HoldRow[]>(
       `SELECT operation_key AS "operationKey",reason_code AS code,
@@ -929,7 +1056,7 @@ export class PostgresReplayShadowAudit {
       local_day AS "localDay",
       to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "occurredAt",
       source_event_ids::text[] AS "eventIds"
-      FROM fair_replay_shadow_holds WHERE run_id=$1
+      FROM ${approvedManual ? 'fair_replay_shadow_manual_operations' : 'fair_replay_shadow_holds'} WHERE run_id=$1
       AND ($2::bigint IS NULL OR billing_admin_id=$2)
       AND ($3::text IS NULL OR local_day>=$3) AND ($4::text IS NULL OR local_day<=$4)
       AND ($5::text IS NULL OR reason_code=$5)
@@ -946,7 +1073,11 @@ export class PostgresReplayShadowAudit {
     );
     return {
       runId: run.id,
-      rows: await this.decorate(rows.slice(0, filters.limit), true),
+      rows: await this.decorate(
+        run.source_instance_id,
+        rows.slice(0, filters.limit),
+        true,
+      ),
       nextOffset:
         rows.length > filters.limit ? filters.offset + filters.limit : null,
     };
@@ -1010,7 +1141,10 @@ export class PostgresReplayShadowAudit {
     return {
       runId: run.id,
       bookingStatus: 'NOT_BOOKED' as const,
-      rows: await this.decorate(rows.slice(0, filters.limit)),
+      rows: await this.decorate(
+        run.source_instance_id,
+        rows.slice(0, filters.limit),
+      ),
       nextOffset:
         rows.length > filters.limit ? filters.offset + filters.limit : null,
     };

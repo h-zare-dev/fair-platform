@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { localJalaliDate, validateTimeZone } from '@fair-platform/calendar';
 
 const HALF_GIB = 536870912n;
@@ -5,6 +6,7 @@ const SECONDS_PER_DAY = 86400n;
 
 export interface ReplaySourceEvent {
   id: string;
+  fingerprint?: string;
   action: string;
   billingAdminId: string;
   externalUserId: string;
@@ -66,6 +68,7 @@ export interface ReplayCalculation {
   /** Provable candidates on held admin/days: review evidence, NEVER booked. */
   heldCandidates: ReplayLedgerLine[];
   holds: ReplayHold[];
+  manual: Array<ReplayHold & { reviewKey: string }>;
   analyzedEvents: number;
   ignoredEvents: number;
   ignoredByAction: Array<{ action: string; reason: string; count: number }>;
@@ -80,6 +83,39 @@ const accountKey = (event: ReplaySourceEvent): string =>
 const eventKey = (kind: string, ids: string[]): string =>
   `${kind}:${ids.join(':')}`;
 
+const manualReasons = new Set([
+  'MISSING_DURATION',
+  'PRICING_MISSING',
+  'PREVIOUS_STATE_MISSING',
+  'CORRELATION_OUTSIDE_WINDOW',
+  'DURATION_CONFLICT',
+  'AMBIGUOUS_CORRELATION',
+]);
+
+export function replayManualReviewKey(
+  code: string,
+  billingAdminId: string,
+  externalUserId: string,
+  fingerprints: Array<string | undefined>,
+): string | null {
+  if (
+    !manualReasons.has(code) ||
+    !fingerprints.length ||
+    !fingerprints.every((value) => value && /^[a-f0-9]{64}$/.test(value))
+  )
+    return null;
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        code,
+        billingAdminId,
+        externalUserId,
+        fingerprints.sort(),
+      ]),
+    )
+    .digest('hex');
+}
+
 /** A strict, deterministic, Owner-attested historical SHADOW calculation.
  * It has no database, ledger, PasarGuard mutation or network dependency.
  * This is NOT a live source identity mapping or a financial cutover. */
@@ -90,6 +126,7 @@ export function calculateReplayShadow(
     timeZone: string;
     correlationWindowSeconds: number;
     deleteCreditEnabled: boolean;
+    manualReviewKeys?: ReadonlySet<string>;
   },
 ): ReplayCalculation {
   const zone = validateTimeZone(options.timeZone);
@@ -115,6 +152,7 @@ export function calculateReplayShadow(
   if (!priceLookup.size) throw new Error('EMPTY_REPLAY_PRICES');
   const accounts = new Map<string, ReplaySourceEvent[]>();
   const seenIds = new Set<string>();
+  const fingerprints = new Map<string, string>();
   for (const e of events) {
     if (
       !/^[1-9]\d*$/.test(e.id) ||
@@ -126,6 +164,7 @@ export function calculateReplayShadow(
     )
       throw new Error('INVALID_REPLAY_EVENT');
     seenIds.add(e.id);
+    if (e.fingerprint) fingerprints.set(e.id, e.fingerprint);
     const key = accountKey(e);
     const existing = accounts.get(key) ?? [];
     existing.push(e);
@@ -134,6 +173,7 @@ export function calculateReplayShadow(
 
   const candidates: ReplayLedgerLine[] = [];
   const holds: ReplayHold[] = [];
+  const manual: ReplayCalculation['manual'] = [];
   const unresolvedByAccount = new Set<string>();
   let ignoredEvents = 0;
   const ignoredCounts = new Map<string, number>();
@@ -149,7 +189,7 @@ export function calculateReplayShadow(
     ids = [e.id],
   ) => {
     if (kind !== 'DELETE_CREDIT') unresolvedByAccount.add(accountKey(e));
-    holds.push({
+    const record = {
       operationKey: eventKey(kind, ids),
       code,
       billingAdminId: e.billingAdminId,
@@ -157,7 +197,18 @@ export function calculateReplayShadow(
       localDay: dateOf(e, zone),
       occurredAt: e.sourceTimestamp,
       eventIds: ids,
-    });
+    };
+    const key = options.manualReviewKeys?.size
+      ? replayManualReviewKey(
+          code,
+          e.billingAdminId,
+          e.externalUserId,
+          ids.map((id) => fingerprints.get(id)),
+        )
+      : null;
+    if (key && options.manualReviewKeys?.has(key))
+      manual.push({ ...record, reviewKey: key });
+    else holds.push(record);
   };
   const createCharge = (
     e: ReplaySourceEvent,
@@ -438,11 +489,15 @@ export function calculateReplayShadow(
   const candidatesByDay = new Map<string, ReplayLedgerLine[]>();
   for (const h of holds) {
     const key = dayKey(h.billingAdminId, h.localDay);
-    holdsByDay.set(key, [...(holdsByDay.get(key) ?? []), h]);
+    const day = holdsByDay.get(key) ?? [];
+    day.push(h);
+    holdsByDay.set(key, day);
   }
   for (const line of candidates) {
     const key = dayKey(line.billingAdminId, line.localDay);
-    candidatesByDay.set(key, [...(candidatesByDay.get(key) ?? []), line]);
+    const day = candidatesByDay.get(key) ?? [];
+    day.push(line);
+    candidatesByDay.set(key, day);
   }
   // A credit cannot be posted against a purchase on a held day. Iterate
   // until that constraint has propagated across all linked days.
@@ -526,6 +581,7 @@ export function calculateReplayShadow(
     entries,
     heldCandidates,
     holds,
+    manual,
     analyzedEvents: events.length,
     ignoredEvents,
     ignoredByAction: [...ignoredCounts]

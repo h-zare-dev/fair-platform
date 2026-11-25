@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DataSource, EntityManager } from 'typeorm';
 import { validateTimeZone } from '@fair-platform/calendar';
+import {
+  MAX_ARCHIVE_EVENTS,
+  replayReviewFingerprintSql,
+} from './replay-archive.js';
 import { PostgresShadowReader } from './shadow-reader.js';
 import {
   calculateReplayShadow,
@@ -10,7 +14,7 @@ import {
 } from './replay-shadow-calculator.js';
 
 const SOURCE = 'replay-30d';
-const MAX_EVENTS = 70000;
+const LEGACY_MAX_EVENTS = 70000;
 const INSERT_BATCH = 200;
 
 export class ReplayShadowBusy extends Error {
@@ -27,6 +31,8 @@ export class ReplayShadowNotReady extends Error {
 interface RunRow {
   id: string;
   status: 'PENDING' | 'COMPLETE' | 'FAILED';
+  source_instance_id: string;
+  expected_children?: number | null;
   time_zone: string;
   correlation_window_seconds: number;
   delete_credit_enabled: boolean;
@@ -58,7 +64,12 @@ export class PostgresReplayShadowJournal {
       throw new RangeError('INVALID_CORRELATION_WINDOW');
   }
 
-  async start(requestKey: string = randomUUID()) {
+  async start(
+    requestKey: string = randomUUID(),
+    source = SOURCE,
+    manualReviewKeys: readonly string[] = [],
+    copyReviewsFrom?: string,
+  ) {
     // A retry must always refer to the original immutable run, even if
     // the archive/catalog changed after the first successful request.
     const [prior] = await this.db.query<{ id: string; status: string }[]>(
@@ -74,8 +85,18 @@ export class PostgresReplayShadowJournal {
       this.zone,
       this.correlationWindowSeconds,
     ).replayPreview();
-    if (!preflight.configurationReady || !preflight.ingestionReady)
+    if (
+      !preflight.configurationReady ||
+      (source === SOURCE && !preflight.ingestionReady)
+    )
       throw new ReplayShadowNotReady();
+    if (source !== SOURCE) {
+      const [archive] = await this.db.query<Array<{ found: boolean }>>(
+        'SELECT EXISTS (SELECT 1 FROM fair_replay_archives WHERE source_instance_id=$1) AS found',
+        [source],
+      );
+      if (!archive?.found) throw new ReplayShadowNotReady();
+    }
     try {
       const [existing] = await this.db.query<{ id: string; status: string }[]>(
         `SELECT id::text,status FROM fair_replay_shadow_runs
@@ -83,20 +104,34 @@ export class PostgresReplayShadowJournal {
         [requestKey],
       );
       if (existing) return existing;
-      const [run] = await this.db.query<{ id: string; status: string }[]>(
-        `INSERT INTO fair_replay_shadow_runs
+      const run = await this.db.transaction(async (tx) => {
+        const [created] = await tx.query<{ id: string; status: string }[]>(
+          `INSERT INTO fair_replay_shadow_runs
           (request_key,source_instance_id,time_zone,correlation_window_seconds,
            delete_credit_enabled)
          VALUES ($1::uuid,$2,$3,$4,$5) RETURNING id::text,status`,
-        [
-          requestKey,
-          SOURCE,
-          this.zone,
-          this.correlationWindowSeconds,
-          this.deleteCreditEnabled,
-        ],
-      );
-      if (!run) throw new Error('REPLAY_SHADOW_START_FAILED');
+          [
+            requestKey,
+            source,
+            this.zone,
+            this.correlationWindowSeconds,
+            this.deleteCreditEnabled,
+          ],
+        );
+        if (!created) throw new Error('REPLAY_SHADOW_START_FAILED');
+        if (copyReviewsFrom)
+          await tx.query('SELECT fair_replay_copy_manual_reviews($1,$2)', [
+            copyReviewsFrom,
+            created.id,
+          ]);
+        else if (manualReviewKeys.length)
+          await tx.query(
+            `INSERT INTO fair_replay_shadow_manual_reviews(run_id,review_key)
+             SELECT $1,unnest($2::text[])`,
+            [created.id, manualReviewKeys],
+          );
+        return created;
+      });
       return run;
     } catch (error) {
       if ((error as { code?: string }).code === '23505') {
@@ -110,6 +145,16 @@ export class PostgresReplayShadowJournal {
       }
       throw error;
     }
+  }
+
+  async rerun(requestKey: string, runId: string) {
+    const [run] = await this.db.query<Array<{ source_instance_id: string }>>(
+      `SELECT source_instance_id FROM fair_replay_shadow_runs
+       WHERE id=$1 AND status IN ('COMPLETE','FAILED')`,
+      [runId],
+    );
+    if (!run) throw new ReplayShadowNotReady();
+    return this.start(requestKey, run.source_instance_id, [], runId);
   }
 
   async summary() {
@@ -292,18 +337,47 @@ export class PostgresReplayShadowJournal {
    * An interrupted process rolls back completely, leaving PENDING retriable. */
   async runNext(): Promise<boolean> {
     let claimedId: string | null = null;
+    let failureCode = 'REPLAY_SHADOW_CALCULATION_FAILED';
     try {
       return await this.db.transaction('SERIALIZABLE', async (tx) => {
         const [run] = await tx.query<RunRow[]>(
-          `SELECT id::text,status,time_zone,correlation_window_seconds,
-            delete_credit_enabled FROM fair_replay_shadow_runs
-           WHERE status='PENDING' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+          `SELECT r.id::text,r.status,r.time_zone,r.correlation_window_seconds,
+            r.delete_credit_enabled,r.source_instance_id,a.expected_children
+           FROM fair_replay_shadow_runs r LEFT JOIN fair_replay_archives a USING (source_instance_id)
+           WHERE r.status='PENDING' AND (
+             a.source_instance_id IS NULL OR NOT EXISTS (
+               SELECT 1 FROM pasarguard_webhook_batches b
+               WHERE b.source_instance_id=r.source_instance_id
+                 AND b.processing_status IN ('RECEIVED','NORMALIZING','FAILED_RETRYABLE')
+             )
+           )
+           ORDER BY r.id LIMIT 1 FOR UPDATE OF r SKIP LOCKED`,
         );
         if (!run) return false;
         claimedId = run.id;
         const prices = await this.readPrices(tx);
-        const sourceEvents = await this.readEvents(tx);
+        if (
+          run.expected_children != null &&
+          !(await this.archiveNormalized(
+            tx,
+            run.source_instance_id,
+            run.expected_children,
+          ))
+        ) {
+          failureCode = 'REPLAY_SHADOW_ARCHIVE_EVENT_COUNT_MISMATCH';
+          throw new ReplayShadowNotReady();
+        }
+        const approvals = await tx.query<Array<{ review_key: string }>>(
+          'SELECT review_key FROM fair_replay_shadow_manual_reviews WHERE run_id=$1',
+          [run.id],
+        );
+        const sourceEvents = await this.readEvents(
+          tx,
+          run.source_instance_id,
+          approvals.length > 0,
+        );
         const priced = calculateReplayShadow(sourceEvents, prices, {
+          manualReviewKeys: new Set(approvals.map((row) => row.review_key)),
           timeZone: run.time_zone,
           correlationWindowSeconds: run.correlation_window_seconds,
           deleteCreditEnabled: run.delete_credit_enabled,
@@ -429,6 +503,37 @@ export class PostgresReplayShadowJournal {
             source_event_ids: h.eventIds,
           })),
         );
+        if (
+          priced.manual.length !== approvals.length ||
+          new Set(priced.manual.map((row) => row.reviewKey)).size !==
+            approvals.length
+        ) {
+          failureCode = 'REPLAY_SHADOW_MANUAL_REVIEW_KEY_NOT_MATCHED';
+          throw new ReplayShadowNotReady();
+        }
+        await this.batchInsert(
+          tx,
+          `INSERT INTO fair_replay_shadow_manual_operations
+            (run_id,operation_key,reason_code,review_key,billing_admin_id,external_user_id,
+             local_day,occurred_at,source_event_ids)
+           SELECT $1,v.operation_key,v.reason_code,v.review_key,v.billing_admin_id,
+                  v.external_user_id,v.local_day,v.occurred_at,v.source_event_ids
+           FROM jsonb_to_recordset($2::jsonb) AS v(
+             operation_key varchar(128),reason_code varchar(64),review_key char(64),
+             billing_admin_id bigint,external_user_id bigint,local_day varchar(10),
+             occurred_at timestamptz,source_event_ids bigint[])`,
+          run.id,
+          priced.manual.map((row) => ({
+            operation_key: row.operationKey,
+            reason_code: row.code,
+            review_key: row.reviewKey,
+            billing_admin_id: row.billingAdminId,
+            external_user_id: row.externalUserId,
+            local_day: row.localDay,
+            occurred_at: row.occurredAt,
+            source_event_ids: row.eventIds,
+          })),
+        );
         await this.batchInsert(
           tx,
           `INSERT INTO fair_replay_shadow_ignored_summary
@@ -466,13 +571,30 @@ export class PostgresReplayShadowJournal {
       if (claimedId !== null)
         await this.db.query(
           `UPDATE fair_replay_shadow_runs
-        SET status='FAILED',failure_code='REPLAY_SHADOW_CALCULATION_FAILED',
+        SET status='FAILED',failure_code=$2,
           finished_at=clock_timestamp()
         WHERE id=$1 AND status='PENDING'`,
-          [claimedId],
+          [claimedId, failureCode],
         );
       return true;
     }
+  }
+
+  private async archiveNormalized(
+    tx: EntityManager,
+    source: string,
+    expected: number,
+  ) {
+    const [counts] = await tx.query<
+      Array<{ occurrences: string; invalid: string }>
+    >(
+      `SELECT
+        (SELECT COALESCE(SUM(occurrence_count),0)::text FROM pasarguard_events WHERE source_instance_id=$1) AS occurrences,
+        (SELECT COUNT(*)::text FROM pasarguard_webhook_batches WHERE source_instance_id=$1
+         AND processing_status<>'NORMALIZED') AS invalid`,
+      [source],
+    );
+    return counts?.occurrences === String(expected) && counts.invalid === '0';
   }
 
   private async batchInsert(
@@ -512,9 +634,16 @@ export class PostgresReplayShadowJournal {
     return rows;
   }
 
-  private async readEvents(tx: EntityManager): Promise<ReplaySourceEvent[]> {
+  private async readEvents(
+    tx: EntityManager,
+    source = SOURCE,
+    withReviewEvidence = false,
+  ): Promise<ReplaySourceEvent[]> {
+    const maxEvents =
+      source === SOURCE ? LEGACY_MAX_EVENTS : MAX_ARCHIVE_EVENTS;
     const rows = await tx.query<ReplaySourceEvent[]>(
-      `SELECT id::text AS id,action,
+      `SELECT id::text AS id,
+         ${withReviewEvidence ? `${replayReviewFingerprintSql} AS fingerprint,` : ''}action,
          billing_admin_id::text AS "billingAdminId",
          external_user_id::text AS "externalUserId",
          to_char(source_enqueued_at AT TIME ZONE 'UTC',
@@ -528,9 +657,9 @@ export class PostgresReplayShadowJournal {
            'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "sourceUserExpiresAt"
        FROM pasarguard_events WHERE source_instance_id=$1
        ORDER BY source_enqueued_at,id LIMIT $2`,
-      [SOURCE, MAX_EVENTS + 1],
+      [source, maxEvents + 1],
     );
-    if (rows.length > MAX_EVENTS)
+    if (rows.length > maxEvents)
       throw new Error('REPLAY_SHADOW_EVENTS_EXCEED_LIMIT');
     return rows;
   }

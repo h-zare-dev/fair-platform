@@ -453,9 +453,6 @@ test('server-rendered login cannot submit a password through a GET URL before hy
 test('switching report tabs never renders stale administrator rows as event evidence', async ({
   page,
 }) => {
-  // This scenario covers two calendar modes and repeated pointer/keyboard
-  // interactions; mobile emulation needs more than the generic 45-second limit.
-  test.setTimeout(90_000);
   const pageErrors: string[] = [];
   let calendarMode: 'jalali' | 'gregorian' = 'jalali';
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -588,7 +585,8 @@ test('switching report tabs never renders stale administrator rows as event evid
   await picker.click();
   const dialog = page.getByRole('dialog', { name: 'انتخاب بازهٔ تاریخ گزارش' });
   await dialog.locator('.report-date-grid button').first().click();
-  await page.locator('.audit-warning').click();
+  // Mobile popovers are fixed overlays covering the underlying report panel.
+  await page.mouse.click(5, 5);
   await expect(dialog).toHaveCount(0);
   expect(periodRequests.at(-1)?.searchParams.get('from')).toBeNull();
 
@@ -617,7 +615,7 @@ test('switching report tabs never renders stale administrator rows as event evid
     name: 'فیلتر گزارش بر اساس مدیر',
   });
   await adminDialog.getByRole('searchbox').fill('Test');
-  await page.locator('.audit-warning').click();
+  await page.mouse.click(5, 5);
   await expect(adminDialog).toHaveCount(0);
   expect(periodRequests.at(-1)?.searchParams.get('billingAdminId')).toBeNull();
 
@@ -658,7 +656,7 @@ test('switching report tabs never renders stale administrator rows as event evid
   await expect(dialog.getByRole('combobox', { name: 'ماه تقویم' })).toHaveValue(
     '11',
   );
-  await page.locator('.audit-warning').click();
+  await page.mouse.click(5, 5);
   await expect(dialog).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });

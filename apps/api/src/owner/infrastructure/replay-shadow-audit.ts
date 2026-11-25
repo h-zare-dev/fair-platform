@@ -3,6 +3,8 @@ import type { DataSource } from 'typeorm';
 import { localJalaliDate } from '@fair-platform/calendar';
 import {
   groupShadowReportDays,
+  reportDateToJalali,
+  type ReportCalendar,
   type ReportPeriod,
   type ReportWeekStart,
   type StoredShadowDay,
@@ -96,7 +98,19 @@ export class PostgresReplayShadowAudit {
     private readonly db: DataSource,
     private readonly journal: PostgresReplayShadowJournal,
     readonly weekStartDay: ReportWeekStart,
+    readonly reportCalendar: ReportCalendar = 'jalali',
   ) {}
+
+  private storageDates(filters: AuditPageFilters) {
+    return {
+      from: filters.from
+        ? reportDateToJalali(filters.from, this.reportCalendar)
+        : null,
+      to: filters.to
+        ? reportDateToJalali(filters.to, this.reportCalendar)
+        : null,
+    };
+  }
 
   private async runs(): Promise<RunRow[]> {
     return this.db.query<
@@ -502,6 +516,7 @@ export class PostgresReplayShadowAudit {
         note: 'Internal journal consistency only; not independent proof of historical identity or LIVE charges.',
       },
       historicalIdentityVerified: false,
+      reportCalendar: this.reportCalendar,
       historicalSourceIdentity: run.source_identity
         ? null
         : await this.historicalIdentityCoverage(run.source_instance_id),
@@ -629,7 +644,7 @@ export class PostgresReplayShadowAudit {
     };
   }
 
-  private async chargeVolumes(run: RunRow, billingAdminId: string) {
+  private async chargeVolumes(run: RunRow, billingAdminId?: string) {
     let prices = new Map<string, { packageId: string; bytes: string }>();
     try {
       prices = await this.pricesForRun(run);
@@ -651,20 +666,23 @@ export class PostgresReplayShadowAudit {
        FROM fair_replay_shadow_entries e LEFT JOIN
          jsonb_to_recordset($3::jsonb) AS p("packageId" text,bytes text)
          ON p."packageId"=e.package_id::text
-       WHERE e.run_id=$1 AND e.billing_admin_id=$2 AND e.entry_type='CHARGE'
+       WHERE e.run_id=$1 AND ($2::bigint IS NULL OR e.billing_admin_id=$2)
+         AND e.entry_type='CHARGE'
        GROUP BY e.local_day`,
-      [run.id, billingAdminId, JSON.stringify([...prices.values()])],
+      [run.id, billingAdminId ?? null, JSON.stringify([...prices.values()])],
     );
     return new Map(rows.map((row) => [row.localDay, row.bytes]));
   }
 
   async periods(filters: AuditPageFilters, period: ReportPeriod) {
-    if (!filters.billingAdminId) throw new RangeError('BILLING_ADMIN_REQUIRED');
+    // Validate the selected display calendar before querying stored Jalali days.
+    this.storageDates(filters);
     const run = await this.resolve(filters.runId);
     const archive = await this.coverage(run);
     const rows = await this.db.query<
       Array<{
         localDay: string;
+        adminDays: number;
         status: StoredShadowDay['status'];
         chargeToman: string | null;
         creditToman: string | null;
@@ -673,12 +691,15 @@ export class PostgresReplayShadowAudit {
         holdCount: number;
       }>
     >(
-      `SELECT local_day AS "localDay",status,
-      charge_toman::text AS "chargeToman",credit_toman::text AS "creditToman",
-      net_toman::text AS "netToman",entry_count AS "entryCount",hold_count AS "holdCount"
-      FROM fair_replay_shadow_days WHERE run_id=$1 AND billing_admin_id=$2
-      ORDER BY local_day LIMIT 4001`,
-      [run.id, filters.billingAdminId],
+      `SELECT local_day AS "localDay",status,COUNT(*)::int AS "adminDays",
+      SUM(charge_toman)::text AS "chargeToman",
+      SUM(credit_toman)::text AS "creditToman",
+      SUM(net_toman)::text AS "netToman",
+      SUM(entry_count)::int AS "entryCount",SUM(hold_count)::int AS "holdCount"
+      FROM fair_replay_shadow_days
+      WHERE run_id=$1 AND ($2::bigint IS NULL OR billing_admin_id=$2)
+      GROUP BY local_day,status ORDER BY local_day,status LIMIT 4001`,
+      [run.id, filters.billingAdminId ?? null],
     );
     if (rows.length > 4000)
       throw new RangeError('SHADOW_AUDIT_DATE_RANGE_TOO_WIDE');
@@ -686,12 +707,21 @@ export class PostgresReplayShadowAudit {
     const grouped = groupShadowReportDays(
       rows.map((row) => {
         const bytes = volumes.get(row.localDay);
-        return { ...row, chargeBytes: bytes === undefined ? '0' : bytes };
+        return {
+          ...row,
+          chargeBytes:
+            row.status === 'PENDING_REVIEW'
+              ? null
+              : bytes === undefined
+                ? '0'
+                : bytes,
+        };
       }),
       period,
       this.weekStartDay,
       archive.from,
       archive.to,
+      this.reportCalendar,
     );
     const chosen = grouped.filter(
       (row) =>
@@ -700,8 +730,9 @@ export class PostgresReplayShadowAudit {
     );
     return {
       runId: run.id,
-      billingAdminId: filters.billingAdminId,
+      billingAdminId: filters.billingAdminId ?? null,
       period,
+      reportCalendar: this.reportCalendar,
       weekStartDay: this.weekStartDay,
       timeZone: run.time_zone,
       coverage: {
@@ -1037,6 +1068,7 @@ export class PostgresReplayShadowAudit {
   }
 
   async entries(filters: AuditPageFilters) {
+    const dates = this.storageDates(filters);
     const run = await this.resolve(filters.runId);
     const rows = await this.db.query<EntryRow[]>(
       `SELECT e.operation_key AS "operationKey",e.kind,
@@ -1064,8 +1096,8 @@ export class PostgresReplayShadowAudit {
       [
         run.id,
         filters.billingAdminId ?? null,
-        filters.from ?? null,
-        filters.to ?? null,
+        dates.from,
+        dates.to,
         filters.kind ?? null,
         filters.limit + 1,
         filters.offset,
@@ -1105,6 +1137,7 @@ export class PostgresReplayShadowAudit {
   }
 
   async holds(filters: AuditPageFilters, approvedManual = false) {
+    const dates = this.storageDates(filters);
     const run = await this.resolve(filters.runId);
     const rows = await this.db.query<HoldRow[]>(
       `SELECT operation_key AS "operationKey",reason_code AS code,
@@ -1120,8 +1153,8 @@ export class PostgresReplayShadowAudit {
       [
         run.id,
         filters.billingAdminId ?? null,
-        filters.from ?? null,
-        filters.to ?? null,
+        dates.from,
+        dates.to,
         filters.reason ?? null,
         filters.limit + 1,
         filters.offset,
@@ -1136,6 +1169,7 @@ export class PostgresReplayShadowAudit {
   }
 
   async candidates(filters: AuditPageFilters) {
+    const dates = this.storageDates(filters);
     const run = await this.resolve(filters.runId);
     const snapshot = await this.hasSnapshot(run.id);
     let rows: EntryRow[];
@@ -1157,8 +1191,8 @@ export class PostgresReplayShadowAudit {
         [
           run.id,
           filters.billingAdminId ?? null,
-          filters.from ?? null,
-          filters.to ?? null,
+          dates.from,
+          dates.to,
           filters.kind ?? null,
           filters.limit + 1,
           filters.offset,
@@ -1172,8 +1206,8 @@ export class PostgresReplayShadowAudit {
           (e) =>
             (!filters.billingAdminId ||
               e.billingAdminId === filters.billingAdminId) &&
-            (!filters.from || e.localDay >= filters.from) &&
-            (!filters.to || e.localDay <= filters.to) &&
+            (!dates.from || e.localDay >= dates.from) &&
+            (!dates.to || e.localDay <= dates.to) &&
             (!filters.kind || e.kind === filters.kind),
         )
         .sort(

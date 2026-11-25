@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { formatJalaliDate, gregorianToJalali } from '@fair-platform/calendar';
 import {
   groupShadowReportDays,
+  jalaliToReportDate,
+  parseReportCalendar,
   parseReportWeekStart,
+  reportDateToJalali,
   shadowPeriodBounds,
 } from '../../apps/api/dist/owner/application/shadow-report-periods.js';
 
@@ -10,6 +13,99 @@ const jalali = (year: number, month: number, day: number) =>
   formatJalaliDate(gregorianToJalali({ year, month, day }));
 
 describe('Owner-only SHADOW per-admin report periods', () => {
+  it('accepts an independent display calendar and uses real Gregorian months', () => {
+    expect(parseReportCalendar()).toBe('jalali');
+    expect(parseReportCalendar('GREGORIAN')).toBe('gregorian');
+    expect(() => parseReportCalendar('persian-timezone')).toThrow(
+      'INVALID_REPORT_CALENDAR',
+    );
+    expect(
+      jalaliToReportDate(
+        reportDateToJalali('2024-02-29', 'gregorian'),
+        'gregorian',
+      ),
+    ).toBe('2024-02-29');
+    expect(() => reportDateToJalali('2026-02-30', 'gregorian')).toThrow(
+      'INVALID_GREGORIAN_DATE',
+    );
+    const lastFebruary = reportDateToJalali('2024-02-29', 'gregorian');
+    const firstMarch = reportDateToJalali('2024-03-01', 'gregorian');
+    expect(
+      shadowPeriodBounds(lastFebruary, 'month', 'SATURDAY', 'gregorian'),
+    ).toEqual({
+      start: '2024-02-01',
+      end: '2024-02-29',
+    });
+    expect(
+      shadowPeriodBounds(firstMarch, 'month', 'SATURDAY', 'gregorian'),
+    ).toEqual({
+      start: '2024-03-01',
+      end: '2024-03-31',
+    });
+    expect(
+      shadowPeriodBounds(
+        reportDateToJalali('2026-11-20', 'gregorian'),
+        'week',
+        'SATURDAY',
+        'gregorian',
+      ),
+    ).toEqual({
+      start: '2026-11-14',
+      end: '2026-11-20',
+    });
+  });
+
+  it('rolls several administrators into one row per date/period without finalizing held charges', () => {
+    const localDay = reportDateToJalali('2026-11-20', 'gregorian');
+    const records = [
+      {
+        localDay,
+        adminDays: 3,
+        status: 'SHADOW_READY' as const,
+        chargeToman: '400000',
+        creditToman: '100000',
+        netToman: '300000',
+        chargeBytes: (200n * 1073741824n).toString(),
+        entryCount: 4,
+        holdCount: 0,
+      },
+      {
+        localDay,
+        adminDays: 2,
+        status: 'PENDING_REVIEW' as const,
+        chargeToman: null,
+        creditToman: null,
+        netToman: null,
+        chargeBytes: null,
+        entryCount: 0,
+        holdCount: 2,
+      },
+    ];
+    for (const period of ['day', 'week', 'month'] as const) {
+      const rows = groupShadowReportDays(
+        records,
+        period,
+        'SATURDAY',
+        localDay,
+        localDay,
+        'gregorian',
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        observedDays: 5,
+        readyDays: 3,
+        pendingDays: 2,
+        holdCount: 2,
+        readyChargeToman: '400000',
+        readyCreditToman: '100000',
+        readyNetToman: '300000',
+        readyChargeBytes: (200n * 1073741824n).toString(),
+        status: 'PENDING_REVIEW',
+        chargeToman: null,
+        netToman: null,
+      });
+    }
+  });
   it('defaults to Saturday through Friday, but honours validated ENV alternatives', () => {
     expect(parseReportWeekStart()).toBe('SATURDAY');
     expect(parseReportWeekStart('sunday')).toBe('SUNDAY');

@@ -19,7 +19,7 @@ import {
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { DurableInbox } from '@fair-platform/pasarguard/infrastructure';
 import { z } from 'zod';
-import { parseJalaliDate } from '@fair-platform/calendar';
+import { isValidGregorianDate, parseJalaliDate } from '@fair-platform/calendar';
 import { PricingError } from '@fair-platform/pricing';
 import {
   DirectoryUnavailable,
@@ -180,6 +180,9 @@ const auditDate = z
   .string()
   .regex(/^\d{4}-\d\d-\d\d$/)
   .refine((date) => {
+    const [year, month, day] = date.split('-').map(Number);
+    if (isValidGregorianDate({ year: year!, month: month!, day: day! }))
+      return true;
     try {
       parseJalaliDate(date);
       return true;

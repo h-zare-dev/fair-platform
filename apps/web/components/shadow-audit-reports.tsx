@@ -1,12 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
+import { formatGiB, formatInteger } from '../lib/traffic';
 import {
   isAnonymizedReplayName,
-  jalaliMonthLabel,
   jalaliWeekLabel,
 } from '../lib/shadow-report-labels';
+import {
+  formatReportInstant,
+  reportDateFromJalali,
+  reportMonthLabel,
+  type ReportCalendar,
+} from '../lib/report-calendar';
+import { ReportAdminFilter } from './report-admin-filter';
+import { ReportDateRangePicker } from './report-date-range-picker';
 
 type Tab =
   | 'admins'
@@ -30,6 +37,7 @@ type Overview = {
   liveBalanceMutated: false;
   weekStartDay: string;
   timeZone: string;
+  reportCalendar?: ReportCalendar;
   runs: Run[];
   run: {
     id: string;
@@ -256,7 +264,13 @@ async function getAudit<T>(
   return response.json() as Promise<T>;
 }
 
-function Evidence({ row }: { row: OperationRow }) {
+function Evidence({
+  row,
+  formatInstant,
+}: {
+  row: OperationRow;
+  formatInstant: (instant: string) => string;
+}) {
   return (
     <details className="audit-evidence">
       <summary>شواهد رویداد ({formatInteger(row.eventIds.length)})</summary>
@@ -296,7 +310,7 @@ function Evidence({ row }: { row: OperationRow }) {
                   <br />
                   {event.action}
                 </td>
-                <td>{formatUtc(event.sourceTimestamp)}</td>
+                <td>{formatInstant(event.sourceTimestamp)}</td>
                 <td>
                   {event.actorAdminUsername ?? 'عامل نامشخص'}
                   {event.actorAdminId && (
@@ -322,10 +336,10 @@ function Evidence({ row }: { row: OperationRow }) {
                     : `${formatInteger(event.durationSeconds)} ثانیه`}
                 </td>
                 <td>
-                  {event.createdAt ? formatUtc(event.createdAt) : 'نامشخص'}
+                  {event.createdAt ? formatInstant(event.createdAt) : 'نامشخص'}
                   <small>
                     {event.expiresAt
-                      ? formatUtc(event.expiresAt)
+                      ? formatInstant(event.expiresAt)
                       : 'انقضا نامشخص'}
                   </small>
                 </td>
@@ -358,7 +372,7 @@ function Evidence({ row }: { row: OperationRow }) {
                       {event.action}
                       <small dir="ltr"> #{event.id}</small>
                     </td>
-                    <td>{formatUtc(event.sourceTimestamp)}</td>
+                    <td>{formatInstant(event.sourceTimestamp)}</td>
                     <td>{formatGiB(event.dataLimitBytes)}</td>
                     <td>
                       {event.durationSeconds
@@ -366,7 +380,9 @@ function Evidence({ row }: { row: OperationRow }) {
                         : 'نامشخص'}
                     </td>
                     <td>
-                      {event.expiresAt ? formatUtc(event.expiresAt) : 'نامشخص'}
+                      {event.expiresAt
+                        ? formatInstant(event.expiresAt)
+                        : 'نامشخص'}
                     </td>
                   </tr>
                 ))}
@@ -428,11 +444,17 @@ export function ShadowAuditReports({
   }, [runId, refresh]);
 
   const periodTab = tab === 'day' || tab === 'week' || tab === 'month';
+  const reportCalendar = overview?.reportCalendar ?? 'jalali';
+  const reportTimeZone = overview?.timeZone ?? 'Asia/Tehran';
+  const formatInstant = (instant: string) =>
+    formatReportInstant(instant, reportCalendar, reportTimeZone);
+  const dateFromJalali = (date: string) =>
+    reportDateFromJalali(date, reportCalendar);
   const visibleRun =
     overview && (!runId || overview.run.id === runId) ? overview.run : null;
   const view = periodTab ? 'periods' : tab;
   let query = '';
-  if (visibleRun && (!periodTab || adminId)) {
+  if (visibleRun) {
     const params = new URLSearchParams({
       runId: visibleRun.id,
       limit: '25',
@@ -541,6 +563,8 @@ export function ShadowAuditReports({
               setRunId(e.target.value);
               setAdminId('');
               setAdminName('');
+              setFrom('');
+              setTo('');
               setOffset(0);
             }}
           >
@@ -548,7 +572,7 @@ export function ShadowAuditReports({
               .filter((r) => r.status === 'COMPLETE')
               .map((r) => (
                 <option key={r.id} value={r.id}>
-                  اجرای {r.id} — {formatUtc(r.createdAt)}
+                  اجرای {r.id} — {formatInstant(r.createdAt)}
                   {r.sourceIdentity ? ' · وب‌هوک اصلی' : ' · آرشیو قدیمی'}
                 </option>
               ))}
@@ -560,6 +584,9 @@ export function ShadowAuditReports({
       </div>
       {overview && (
         <div className="audit-overview">
+          <p className="muted">
+            خلاصهٔ کل اجرای انتخاب‌شده (مستقل از فیلتر مدیر و تاریخ)
+          </p>
           <div className="audit-kpis">
             <div>
               <small>رویدادهای خام آرشیو</small>
@@ -601,9 +628,16 @@ export function ShadowAuditReports({
             {overview.coverage.verifiedBoundaries
               ? 'روزهای کامل آرشیو'
               : 'روزهای مشاهده‌شده در آرشیو'}
-            : {overview.coverage.from ?? 'نامشخص'} تا{' '}
-            {overview.coverage.to ?? 'نامشخص'} · منطقهٔ زمانی:{' '}
-            {overview.timeZone} · شروع هفته:{' '}
+            :{' '}
+            {overview.coverage.from
+              ? dateFromJalali(overview.coverage.from)
+              : 'نامشخص'}{' '}
+            تا{' '}
+            {overview.coverage.to
+              ? dateFromJalali(overview.coverage.to)
+              : 'نامشخص'}{' '}
+            · تقویم گزارش: {reportCalendar === 'jalali' ? 'شمسی' : 'میلادی'} ·
+            منطقهٔ زمانی: {overview.timeZone} · شروع هفته:{' '}
             {labelFor(overview.weekStartDay, WEEK_NAMES)} · بستانکاری حذف:{' '}
             {overview.run.deleteCreditEnabled ? 'فعال' : 'غیرفعال'}
           </p>
@@ -646,35 +680,17 @@ export function ShadowAuditReports({
         ))}
       </nav>
       <div className="audit-toolbar audit-filters">
-        {tab !== 'admins' && tab !== 'ignored' && (from || to) && (
-          <button
-            className="secondary"
-            type="button"
-            onClick={() => {
-              setFrom('');
-              setTo('');
+        {tab !== 'admins' && tab !== 'ignored' && (
+          <ReportAdminFilter
+            runId={visibleRun?.id ?? ''}
+            selectedId={adminId}
+            selectedName={adminName}
+            onSelect={(id, name) => {
+              setAdminId(id);
+              setAdminName(name);
               setOffset(0);
             }}
-          >
-            کل بازهٔ آرشیو
-          </button>
-        )}
-        {tab !== 'admins' && tab !== 'ignored' && (
-          <label>
-            {visibleRun?.sourceIdentity
-              ? 'شناسهٔ مدیر در پاسارگارد'
-              : 'شناسهٔ مدیر تاریخی'}
-            <input
-              value={adminId}
-              dir="ltr"
-              placeholder="انتخاب از تب مدیران یا وارد کردن ID"
-              onChange={(e) => {
-                setAdminId(e.target.value.replace(/[^0-9]/g, ''));
-                setAdminName('');
-                setOffset(0);
-              }}
-            />
-          </label>
+          />
         )}
         {(tab === 'admins' || tab === 'ignored') && (
           <label>
@@ -690,32 +706,24 @@ export function ShadowAuditReports({
           </label>
         )}
         {tab !== 'admins' && tab !== 'ignored' && (
-          <>
-            <label>
-              از تاریخ شمسی
-              <input
-                value={from}
-                dir="ltr"
-                placeholder="1405-09-01"
-                onChange={(e) => {
-                  setFrom(e.target.value);
-                  setOffset(0);
-                }}
-              />
-            </label>
-            <label>
-              تا تاریخ شمسی
-              <input
-                value={to}
-                dir="ltr"
-                placeholder="1405-09-30"
-                onChange={(e) => {
-                  setTo(e.target.value);
-                  setOffset(0);
-                }}
-              />
-            </label>
-          </>
+          <ReportDateRangePicker
+            key={`${visibleRun?.id ?? ''}-${reportCalendar}`}
+            calendar={reportCalendar}
+            timeZone={reportTimeZone}
+            weekStart={overview?.weekStartDay ?? 'SATURDAY'}
+            from={from}
+            to={to}
+            archiveEnd={
+              overview?.coverage.to
+                ? dateFromJalali(overview.coverage.to)
+                : undefined
+            }
+            onChange={(first, last) => {
+              setFrom(first);
+              setTo(last);
+              setOffset(0);
+            }}
+          />
         )}
         {tab === 'holds' && (
           <label>
@@ -760,9 +768,14 @@ export function ShadowAuditReports({
       </div>
       {adminId && (
         <p className="muted">
-          گزارش مدیر تاریخی: <b>{adminName || `#${adminId}`}</b> ·{' '}
-          {visibleRun?.sourceIdentity ? 'شناسهٔ پاسارگارد' : 'شناسهٔ آرشیوی'}{' '}
-          <span dir="ltr">{adminId}</span>
+          گزارش فقط برای مدیر: <b>{adminName || 'نام مدیر تأیید نشده'}</b>
+        </p>
+      )}
+      {periodTab && !adminId && (
+        <p className="muted">
+          جمع همهٔ مدیران در هر{' '}
+          {tab === 'day' ? 'روز' : tab === 'week' ? 'هفته' : 'ماه'}؛ هر بازه فقط
+          یک ردیف دارد.
         </p>
       )}
       {visibleError && (
@@ -775,15 +788,6 @@ export function ShadowAuditReports({
           در حال دریافت ریزگزارش…
         </p>
       )}
-      {!busy &&
-        !report &&
-        ['day', 'week', 'month'].includes(tab) &&
-        !adminId && (
-          <p className="catalog-source-panel">
-            ابتدا از تب «مدیران»، مدیر موردنظر را انتخاب کن تا ریزگزارش روزانه،
-            هفتگی یا ماهانهٔ همان مدیر نمایش داده شود.
-          </p>
-        )}
       {report && (
         <>
           <div className="table-scroll audit-table">
@@ -881,7 +885,7 @@ export function ShadowAuditReports({
                     <tr>
                       <th>بازهٔ شمسی</th>
                       <th>وضعیت</th>
-                      <th>روزهای مشاهده‌شده / آماده / معلق</th>
+                      <th>روز-مدیر مشاهده‌شده / آماده / معلق</th>
                       <th>تعداد عملیات / ابهام</th>
                       <th>بدهکاری آماده</th>
                       <th>بستانکاری آماده</th>
@@ -904,7 +908,9 @@ export function ShadowAuditReports({
                             </strong>
                           )}
                           {tab === 'month' && (
-                            <strong>{jalaliMonthLabel(r.startDate)}</strong>
+                            <strong>
+                              {reportMonthLabel(r.startDate, reportCalendar)}
+                            </strong>
                           )}
                           {tab !== 'day' && <br />}
                           <span dir="ltr">{r.startDate}</span>
@@ -1045,8 +1051,8 @@ export function ShadowAuditReports({
                           )}
                         </td>
                         <td>
-                          <span dir="ltr">{r.localDay}</span>
-                          <small>{formatUtc(r.occurredAt)}</small>
+                          <span dir="ltr">{dateFromJalali(r.localDay)}</span>
+                          <small>{formatInstant(r.occurredAt)}</small>
                         </td>
                         <td>
                           {tab === 'holds' || tab === 'manual'
@@ -1080,7 +1086,7 @@ export function ShadowAuditReports({
                           )}
                         </td>
                         <td>
-                          <Evidence row={r} />
+                          <Evidence row={r} formatInstant={formatInstant} />
                         </td>
                       </tr>
                     ))}

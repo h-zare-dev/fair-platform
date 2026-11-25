@@ -79,6 +79,7 @@ class UpgradeTests(unittest.TestCase):
         # Older operator modes exercised the Compose bytes as they were
         # before the newly requested Shadow credit ENV mapping.
         candidate = (REPO / 'docker/staging/compose.yml').read_bytes().replace(
+            upgrade.REPORT_CALENDAR_ADDITION, b'').replace(
             upgrade.REPORT_WEEK_ADDITION, b'').replace(upgrade.SHADOW_CREDIT_ADDITION, b'')
         self.old_compose = candidate.replace(upgrade.ADDITION, b'')
         self.proposed = candidate
@@ -355,6 +356,40 @@ class UpgradeTests(unittest.TestCase):
                          'github.ref_protected', 'group: fair-staging-deployment',
                          'environment: staging-bootstrap', 'APPROVE_SHADOW_AUDIT_STAGE',
                          'shadow-audit'):
+            self.assertIn(required, workflow)
+        self.assertNotIn('pull_request:', workflow)
+
+    def test_report_calendar_approval_accepts_only_one_exact_env_mapping_and_no_migration(self):
+        proposed = (REPO / 'docker/staging/compose.yml').read_bytes()
+        previous = proposed.replace(upgrade.REPORT_CALENDAR_ADDITION, b'')
+        self.root.joinpath('compose.yml').write_bytes(previous)
+        self.accepted['configHash'] = release.config_hash(self.root)
+        self.root.joinpath('current.json').write_text(json.dumps(self.accepted))
+        self.commands.new = report(OLD, OLD_HASHES)
+        self.assertEqual(
+            upgrade.review_and_approve(self.root, self.settings, proposed,
+                                       self.target_sha, self.commands, 'report-calendar'),
+            'STAGING_REPORT_CALENDAR_CONFIG_APPROVED',
+        )
+        self.assertEqual(self.root.joinpath('compose.yml').read_bytes(), proposed)
+        self.assertEqual(json.loads(self.settings.joinpath('compatible-migrations.json').read_text()),
+                         {'configuredMigrations': sorted(OLD), 'hashes': OLD_HASHES})
+        for invalid in (previous, proposed.replace(b':-jalali', b':-gregorian'),
+                        proposed + b'  UNSAFE_EXTRA: true\n'):
+            with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+                upgrade.check_compose(previous, invalid, 'report-calendar')
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'UNEXPECTED_NEW_MIGRATIONS'):
+            upgrade.check_proofs({'configuredMigrations': sorted(OLD), 'hashes': OLD_HASHES},
+                                 report(OLD, OLD_HASHES),
+                                 report(OLD + ['UnapprovedMigration'], OLD_HASHES),
+                                 'report-calendar')
+
+    def test_report_calendar_workflow_is_manual_owner_only(self):
+        workflow = (REPO / '.github/workflows/staging-report-calendar-approval.yml').read_text()
+        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
+                         'github.ref_protected', 'group: fair-staging-deployment',
+                         'environment: staging-bootstrap', 'APPROVE_REPORT_CALENDAR_STAGE',
+                         'report-calendar'):
             self.assertIn(required, workflow)
         self.assertNotIn('pull_request:', workflow)
 

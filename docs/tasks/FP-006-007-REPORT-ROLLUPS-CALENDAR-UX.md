@@ -82,6 +82,25 @@ only the human Owner marks Ready, merges, or authorizes a Staging release.
   formatting, full CI, manual security review and the staging approval gate
   are required before the Owner decides on a merge.
 
+## Owner-approved report popover correction (2026-11-25)
+
+After accepting the initial Reports implementation, the Owner authorized a
+separate, single Draft PR limited to these presentation regressions:
+
+- Both the date-only range picker and name-search admin selector dismiss on
+  pointer interaction or keyboard focus **outside** their trigger/dialog
+  boundary. Interactions inside the popover must not dismiss it prematurely.
+- Escape dismisses either popover and restores focus to its trigger. Clicking
+  the already-open date trigger also dismisses it. An unapplied draft date
+  range is discarded when dismissed; the existing applied filters and chosen
+  administrator must not change.
+- All period-column captions reflect `FAIR_REPORT_CALENDAR`, including the
+  Gregorian label. Month/date arithmetic, API contracts, time zones and
+  persisted historical evidence are unchanged.
+- Browser regression covers outside pointer/focus, Escape, unchanged filters
+  after dismissal, continued administrator selection and Gregorian captions.
+  No database/schema/record changes, deployment action or PR merge are in scope.
+
 **Explicit exclusions:** CSV export, modifying SHADOW amounts or history,
 real billing, joining separate runs, PasarGuard writes, live financial
 deployment and automatic PR readiness/merge.

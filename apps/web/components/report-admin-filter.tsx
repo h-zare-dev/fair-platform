@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useReportPopoverDismiss } from '../lib/use-report-popover-dismiss';
 
 type AdminOption = {
   billingAdminId: string;
@@ -35,6 +36,7 @@ export function ReportAdminFilter({
   const [data, setData] = useState<AdminPage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const { containerRef, triggerRef } = useReportPopoverDismiss(open, setOpen);
 
   useEffect(() => {
     if (!open || !runId) return;
@@ -79,10 +81,11 @@ export function ReportAdminFilter({
   }, [open, runId, search, offset]);
 
   return (
-    <div className="report-admin-filter">
+    <div className="report-admin-filter" ref={containerRef}>
       <span className="report-filter-label">مدیر</span>
       <button
         type="button"
+        ref={triggerRef}
         className="secondary report-admin-trigger"
         aria-haspopup="dialog"
         aria-expanded={open}

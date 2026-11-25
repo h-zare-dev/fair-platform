@@ -454,6 +454,7 @@ test('switching report tabs never renders stale administrator rows as event evid
   page,
 }) => {
   const pageErrors: string[] = [];
+  let calendarMode: 'jalali' | 'gregorian' = 'jalali';
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.goto('/login');
   await page
@@ -467,7 +468,7 @@ test('switching report tabs never renders stale administrator rows as event evid
         mode: 'HISTORICAL_SHADOW_AUDIT',
         postingScope: 'SHADOW',
         liveBalanceMutated: false,
-        reportCalendar: 'jalali',
+        reportCalendar: calendarMode,
         run: {
           id: '1',
           eventCount: 1,
@@ -545,8 +546,8 @@ test('switching report tabs never renders stale administrator rows as event evid
         nextOffset: null,
         rows: [
           {
-            startDate: '1405-08-01',
-            endDate: '1405-08-30',
+            startDate: calendarMode === 'jalali' ? '1405-08-01' : '2026-11-01',
+            endDate: calendarMode === 'jalali' ? '1405-08-30' : '2026-11-30',
             status: 'RECONCILED',
             observedDays: 2,
             readyDays: 2,
@@ -584,6 +585,23 @@ test('switching report tabs never renders stale administrator rows as event evid
   await picker.click();
   const dialog = page.getByRole('dialog', { name: 'انتخاب بازهٔ تاریخ گزارش' });
   await dialog.locator('.report-date-grid button').first().click();
+  // Mobile popovers are fixed overlays covering the underlying report panel.
+  await page.mouse.click(5, 5);
+  await expect(dialog).toHaveCount(0);
+  expect(periodRequests.at(-1)?.searchParams.get('from')).toBeNull();
+
+  await picker.click();
+  await dialog.getByRole('button', { name: /تا تاریخ/ }).focus();
+  await page.locator('.report-admin-trigger').focus();
+  await expect(dialog).toHaveCount(0);
+
+  await picker.click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(picker).toBeFocused();
+
+  await picker.click();
+  await dialog.locator('.report-date-grid button').first().click();
   await dialog.locator('.report-date-grid button').last().click();
   await dialog.getByRole('button', { name: 'اعمال بازه' }).click();
   await expect
@@ -592,6 +610,24 @@ test('switching report tabs never renders stale administrator rows as event evid
   await expect
     .poll(() => periodRequests.at(-1)?.searchParams.get('to'))
     .toBe('1405-08-30');
+  await page.locator('.report-admin-trigger').click();
+  const adminDialog = page.getByRole('dialog', {
+    name: 'فیلتر گزارش بر اساس مدیر',
+  });
+  await adminDialog.getByRole('searchbox').fill('Test');
+  await page.mouse.click(5, 5);
+  await expect(adminDialog).toHaveCount(0);
+  expect(periodRequests.at(-1)?.searchParams.get('billingAdminId')).toBeNull();
+
+  await page.locator('.report-admin-trigger').click();
+  await page.locator('.report-date-trigger').focus();
+  await expect(adminDialog).toHaveCount(0);
+
+  await page.locator('.report-admin-trigger').click();
+  await page.keyboard.press('Escape');
+  await expect(adminDialog).toHaveCount(0);
+  await expect(page.locator('.report-admin-trigger')).toBeFocused();
+
   await page.locator('.report-admin-trigger').click();
   await page
     .getByRole('dialog', { name: 'فیلتر گزارش بر اساس مدیر' })
@@ -608,5 +644,19 @@ test('switching report tabs never renders stale administrator rows as event evid
   await expect
     .poll(() => periodRequests.at(-1)?.searchParams.get('billingAdminId'))
     .toBeNull();
+
+  calendarMode = 'gregorian';
+  await page.reload();
+  await page.getByRole('button', { name: 'ماهانه', exact: true }).click();
+  await expect(
+    page.getByRole('columnheader', { name: 'بازهٔ میلادی' }),
+  ).toBeVisible();
+  await expect(page.getByRole('cell', { name: /نوامبر ۲۰۲۶/ })).toBeVisible();
+  await picker.click();
+  await expect(dialog.getByRole('combobox', { name: 'ماه تقویم' })).toHaveValue(
+    '11',
+  );
+  await page.mouse.click(5, 5);
+  await expect(dialog).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });

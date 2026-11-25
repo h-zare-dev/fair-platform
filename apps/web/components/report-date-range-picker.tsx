@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { CalendarDate } from '@fair-platform/calendar';
+import { useReportPopoverDismiss } from '../lib/use-report-popover-dismiss';
 import {
   daysInReportMonth,
   formatReportDate,
@@ -51,8 +52,13 @@ export function ReportDateRangePicker({
     month: 1,
     day: 1,
   });
+  const { containerRef, triggerRef } = useReportPopoverDismiss(open, setOpen);
 
   const openPicker = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
     const initial = from || to || archiveEnd || reportToday(calendar, timeZone);
     const parsed = parseReportDate(initial, calendar);
     setMonth({ ...parsed, day: 1 });
@@ -78,12 +84,13 @@ export function ReportDateRangePicker({
   );
 
   return (
-    <div className="report-date-filter">
+    <div className="report-date-filter" ref={containerRef}>
       <span className="report-filter-label">
         بازهٔ تاریخ ({calendar === 'jalali' ? 'شمسی' : 'میلادی'})
       </span>
       <button
         type="button"
+        ref={triggerRef}
         className="secondary report-date-trigger"
         onClick={openPicker}
         aria-haspopup="dialog"
@@ -100,9 +107,6 @@ export function ReportDateRangePicker({
           className="report-date-popover"
           role="dialog"
           aria-label="انتخاب بازهٔ تاریخ گزارش"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') setOpen(false);
-          }}
         >
           <div className="report-date-boundaries">
             {(['from', 'to'] as const).map((boundary) => (

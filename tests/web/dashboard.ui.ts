@@ -453,6 +453,8 @@ test('server-rendered login cannot submit a password through a GET URL before hy
 test('switching report tabs never renders stale administrator rows as event evidence', async ({
   page,
 }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.goto('/login');
   await page
     .getByLabel('گذرواژهٔ مدیر اصلی')
@@ -533,10 +535,12 @@ test('switching report tabs never renders stale administrator rows as event evid
     }),
   );
   await page.goto('/reports');
-  await expect(page.getByText('Test admin', { exact: true })).toBeVisible();
+  const adminRow = page.getByRole('row').filter({ hasText: 'Test admin' });
+  await expect(adminRow).toBeVisible();
   await page.getByRole('button', { name: 'ابهامات', exact: true }).click();
   await expect(
     page.getByRole('columnheader', { name: 'علت بررسی' }),
   ).toBeVisible();
-  await expect(page.getByText('Test admin', { exact: true })).toHaveCount(0);
+  await expect(adminRow).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
 });

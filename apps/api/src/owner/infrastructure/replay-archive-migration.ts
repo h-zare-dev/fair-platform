@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class ReplayArchive1792200000000 implements MigrationInterface {
-  name = 'ReplayArchive1792200000000';
+export class ReplayArchive1792300000000 implements MigrationInterface {
+  name = 'ReplayArchive1792300000000';
 
   async up(r: QueryRunner): Promise<void> {
     await r.query(`CREATE TABLE fair_replay_archives (

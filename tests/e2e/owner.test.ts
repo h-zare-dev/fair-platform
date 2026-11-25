@@ -61,6 +61,71 @@ async function login(cookie?: string) {
     payload: { password },
   });
 }
+it('authenticated password change validates current password and policy, revokes every session, and audits', async () => {
+  await store.bootstrap(hash);
+  const first = cookieOf(await login());
+  const second = cookieOf(await login());
+  const change = (
+    cookie: string,
+    currentPassword: string,
+    newPassword: string,
+    requestHeaders = headers,
+  ) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/v1/owner/auth/change-password',
+      headers: { ...requestHeaders, cookie },
+      payload: { currentPassword, newPassword },
+    });
+  expect((await change('', password, 'Newpassword123')).statusCode).toBe(401);
+  expect((await change(first, password, 'short')).statusCode).toBe(400);
+  expect((await change(first, password, 'allletters')).statusCode).toBe(400);
+  expect((await change(first, password, '12345678')).statusCode).toBe(400);
+  expect((await change(first, password, password)).statusCode).toBe(400);
+  expect(
+    (
+      await change(first, password, 'Newpassword123', {
+        ...headers,
+        origin: 'https://evil.invalid',
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (await change(first, 'wrong-current', 'Newpassword123')).statusCode,
+  ).toBe(401);
+  expect((await login()).statusCode).toBe(201);
+  const success = await change(first, password, 'Newpassword123');
+  expect(success.statusCode).toBe(201);
+  expect(success.headers['set-cookie']).toContain('Max-Age=0');
+  for (const cookie of [first, second])
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/owner/auth/session',
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(401);
+  expect((await login()).statusCode).toBe(401);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/v1/owner/auth/login',
+        headers,
+        payload: { password: 'Newpassword123' },
+      })
+    ).statusCode,
+  ).toBe(201);
+  expect(
+    await db.query(
+      "SELECT event FROM fair_owner_audit WHERE event='CHANGE_PASSWORD'",
+    ),
+  ).toHaveLength(1);
+  expect(
+    (await change(second, 'Newpassword123', 'Anotherpass123')).statusCode,
+  ).toBe(401);
+});
 function cookieOf(response: { headers: Record<string, unknown> }) {
   return String(response.headers['set-cookie']).split(';')[0]!;
 }
@@ -571,6 +636,8 @@ it('additive migrations upgrade prior schema and reverse only in disposable DB',
       await db.query('SELECT to_regclass($1)::text AS name', [table]),
     ).toEqual([{ name: null }]);
   }
+  // Undo the password-change allowlist before the earlier identity sidecar.
+  await db.undoLastMigration({ transaction: 'all' });
   // Undo the private historical identity sidecar before the audit migration.
   await db.undoLastMigration({ transaction: 'all' });
   expect(

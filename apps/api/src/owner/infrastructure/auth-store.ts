@@ -36,6 +36,31 @@ export class PostgresOwnerAuth implements OwnerAuthStore {
       return true;
     });
   }
+  async changePassword(
+    expectedHash: string,
+    newHash: string,
+    sessionHash: string,
+  ): Promise<boolean> {
+    return this.db.transaction(async (m) => {
+      await m.query('SELECT pg_advisory_xact_lock(179100003)');
+      const session: unknown[] = await m.query(
+        `SELECT owner_id FROM fair_owner_sessions WHERE token_hash=$1
+         AND expires_at>clock_timestamp() AND last_seen_at>clock_timestamp()-interval '30 minutes'`,
+        [sessionHash],
+      );
+      if (!session.length) return false;
+      const changed: unknown[] = await m.query(
+        'UPDATE fair_owner SET password_hash=$1 WHERE id=1 AND password_hash=$2 RETURNING id',
+        [newHash, expectedHash],
+      );
+      if (!changed.length) return false;
+      await m.query('DELETE FROM fair_owner_sessions');
+      await m.query(
+        "INSERT INTO fair_owner_audit (event) VALUES ('CHANGE_PASSWORD')",
+      );
+      return true;
+    });
+  }
   async revoke(): Promise<void> {
     await this.db.transaction(async (m) => {
       await m.query('SELECT pg_advisory_xact_lock(179100003)');

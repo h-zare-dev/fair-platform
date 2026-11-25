@@ -4,6 +4,7 @@ import { CatalogManagement } from '../../../components/catalog';
 import { OwnerHeader } from '../../../components/owner-header';
 import { OpeningBaseline } from '../../../components/opening-baseline';
 import { CatalogBootstrap } from '../../../components/catalog-bootstrap';
+import { ChangePassword } from '../../../components/change-password';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,8 @@ export default async function SettingsSectionPage({
   if (
     section !== 'packages' &&
     section !== 'groups' &&
-    section !== 'initialization'
+    section !== 'initialization' &&
+    section !== 'security'
   )
     notFound();
   const session = await ownerSession();
@@ -33,7 +35,31 @@ export default async function SettingsSectionPage({
     <>
       <OwnerHeader active="settings" />
       <main className="dashboard settings-main">
-        {section === 'initialization' ? (
+        {section === 'security' ? (
+          <>
+            <div className="settings-heading">
+              <div>
+                <p className="eyebrow">پنل مدیریت / تنظیمات</p>
+                <h1>امنیت حساب</h1>
+              </div>
+            </div>
+            <nav className="settings-nav" aria-label="بخش‌های تنظیمات">
+              <a href="/settings/packages">
+                <b>پکیج‌ها</b>
+              </a>
+              <a href="/settings/groups">
+                <b>گروه‌ها</b>
+              </a>
+              <a href="/settings/initialization">
+                <b>راه‌اندازی اولیه</b>
+              </a>
+              <a href="/settings/security" aria-current="page">
+                <b>امنیت حساب</b>
+              </a>
+            </nav>
+            <ChangePassword />
+          </>
+        ) : section === 'initialization' ? (
           <section
             className="settings-catalog"
             aria-label="راه‌اندازی اولیه حسابداری"
@@ -63,6 +89,10 @@ export default async function SettingsSectionPage({
               <a href="/settings/initialization" aria-current="page">
                 <b>راه‌اندازی اولیه</b>
                 <small>دریافت وضعیت اکانت‌ها</small>
+              </a>
+              <a href="/settings/security">
+                <b>امنیت حساب</b>
+                <small>تغییر رمز عبور</small>
               </a>
             </nav>
             <OpeningBaseline />

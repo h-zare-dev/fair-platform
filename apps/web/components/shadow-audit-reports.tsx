@@ -136,6 +136,18 @@ type AdminRow = {
   entryCount: string;
   status: string;
 };
+
+function displayAdminName(name: string | null, status: string): string | null {
+  if (
+    name &&
+    (status === 'SOURCE_VERIFIED_HISTORICAL' ||
+      status === 'PARTIAL_SOURCE_MATCH' ||
+      !isAnonymizedReplayName(name))
+  )
+    return name;
+  return null;
+}
+
 type PeriodRow = {
   startDate: string;
   endDate: string;
@@ -788,9 +800,8 @@ export function ShadowAuditReports({
                     {(report.rows as AdminRow[]).map((r) => (
                       <tr key={r.billingAdminId}>
                         <td>
-                          {r.adminName && !isAnonymizedReplayName(r.adminName)
-                            ? r.adminName
-                            : 'نام واقعی مدیر هنوز تطبیق نشده'}
+                          {displayAdminName(r.adminName, r.nameStatus) ??
+                            'نام واقعی مدیر هنوز تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
                           {r.historicalAdminId && (
                             <small dir="ltr">
@@ -799,7 +810,7 @@ export function ShadowAuditReports({
                             </small>
                           )}
                           {r.adminName &&
-                            isAnonymizedReplayName(r.adminName) && (
+                            r.nameStatus === 'ARCHIVE_PSEUDONYMIZED' && (
                               <small dir="ltr">
                                 شناسهٔ ناشناس آرشیو: {r.adminName}
                               </small>
@@ -836,10 +847,8 @@ export function ShadowAuditReports({
                             onClick={() => {
                               setAdminId(r.billingAdminId);
                               setAdminName(
-                                r.adminName &&
-                                  !isAnonymizedReplayName(r.adminName)
-                                  ? r.adminName
-                                  : 'مدیر تاریخی بدون تطبیق هویت',
+                                displayAdminName(r.adminName, r.nameStatus) ??
+                                  'مدیر تاریخی بدون تطبیق هویت',
                               );
                               setFrom('');
                               setTo('');
@@ -977,21 +986,25 @@ export function ShadowAuditReports({
                     {(report.rows as OperationRow[]).map((r) => (
                       <tr key={r.operationKey}>
                         <td>
-                          {r.adminName && !isAnonymizedReplayName(r.adminName)
-                            ? r.adminName
-                            : 'نام واقعی مدیر تطبیق نشده'}
+                          {displayAdminName(r.adminName, r.adminNameStatus) ??
+                            'نام واقعی مدیر تطبیق نشده'}
                           <small dir="ltr"> #{r.billingAdminId}</small>
-                          {r.events[0]?.historicalBillingAdminId && (
+                          {r.historicalAdminId && (
                             <small dir="ltr">
                               {' '}
-                              شناسهٔ اصلی تاریخی: #
-                              {r.events[0].historicalBillingAdminId}
+                              شناسهٔ اصلی تاریخی: #{r.historicalAdminId}
                             </small>
                           )}
                           {r.adminName &&
-                            isAnonymizedReplayName(r.adminName) && (
+                            r.adminNameStatus === 'ARCHIVE_PSEUDONYMIZED' && (
                               <small dir="ltr">{r.adminName}</small>
                             )}
+                          {r.adminNameStatus === 'PARTIAL_SOURCE_MATCH' && (
+                            <small>
+                              {' '}
+                              · {ADMIN_NAME_STATUS.PARTIAL_SOURCE_MATCH}
+                            </small>
+                          )}
                         </td>
                         <td>
                           {r.accountName &&

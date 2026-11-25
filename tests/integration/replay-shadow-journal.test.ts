@@ -244,7 +244,9 @@ it('calculates a separately imported full Jalali archive and preserves the legac
       source_enqueued_at,event_status,first_seen_at,last_seen_at,
       on_hold_expire_duration_seconds,occurrence_count)
      VALUES($1,0,$2,repeat('b',64),'user_created',901,'account','on_hold',
-      53687091200,0,0,18,'admin','2026-11-20T12:00:00Z','READY_FOR_ACCOUNTING',now(),now(),2592000,2)`,
+      53687091200,0,0,18,'admin','2026-11-20T12:00:00Z','READY_FOR_ACCOUNTING',now(),now(),2592000,1),
+     ($1,1,$2,repeat('c',64),'user_created',902,'older-account','on_hold',
+      53687091200,0,0,18,'unmatched-admin-alias','2026-08-20T12:00:00Z','READY_FOR_ACCOUNTING',now(),now(),2592000,1)`,
     [batch!.id, source],
   );
   await db.query(
@@ -270,14 +272,14 @@ it('calculates a separately imported full Jalali archive and preserves the legac
       to: '1405-08-30',
       verifiedBoundaries: true,
     },
-    run: { source, eventCount: 1, entryCount: 1 },
-    totals: { chargesToman: '100000' },
+    run: { source, eventCount: 2, entryCount: 2 },
+    totals: { chargesToman: '200000' },
     historicalSourceIdentity: {
-      status: 'SOURCE_VERIFIED',
+      status: 'PARTIAL_SOURCE_MATCH',
       mappedBillingAdmins: 1,
       mappedAccounts: 0,
-      unmatchedArchiveAdminPairs: 0,
-      unmatchedArchiveAccountPairs: 1,
+      unmatchedArchiveAdminPairs: 1,
+      unmatchedArchiveAccountPairs: 2,
     },
     integrity: { status: 'RECONCILED' },
   });
@@ -286,7 +288,15 @@ it('calculates a separately imported full Jalali archive and preserves the legac
   ).toMatchObject({
     rows: [
       {
+        adminName: null,
+        historicalAdminId: null,
+        billingAdminId: '18',
+        externalUserId: '902',
+        adminNameStatus: 'ARCHIVE_PSEUDONYMIZED',
+      },
+      {
         adminName: 'verified-legacy-admin',
+        historicalAdminId: '208',
         events: [{ historicalBillingAdminId: '208' }],
         accountName: 'account',
         billingAdminId: '18',
@@ -307,7 +317,7 @@ it('calculates a separately imported full Jalali archive and preserves the legac
       {
         adminName: 'verified-legacy-admin',
         historicalAdminId: '208',
-        nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
+        nameStatus: 'PARTIAL_SOURCE_MATCH',
       },
     ],
   });

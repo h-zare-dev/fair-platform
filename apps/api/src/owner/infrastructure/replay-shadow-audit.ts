@@ -531,7 +531,7 @@ export class PostgresReplayShadowAudit {
           ARRAY_AGG(DISTINCT m.original_id::text ORDER BY m.original_id::text)
             FILTER(WHERE m.original_id IS NOT NULL) AS "verifiedIds",
           COUNT(DISTINCT (e.billing_admin_id,e.billing_admin_username))
-            FILTER(WHERE m.archived_id IS NULL)::text AS "unmatchedAliases"
+            FILTER(WHERE NULLIF(m.original_username,'') IS NULL)::text AS "unmatchedAliases"
         FROM pasarguard_events e LEFT JOIN fair_replay_private_identity_aliases m
           ON m.source_instance_id=$6 AND m.role='billing_admin'
           AND m.archived_id=e.billing_admin_id
@@ -588,7 +588,7 @@ export class PostgresReplayShadowAudit {
         rows.map((r) => ({
           ...r,
           adminName:
-            Number(r.unmatchedAliases) === 0 && r.verifiedNames?.length === 1
+            r.verifiedNames?.length === 1
               ? r.verifiedNames[0]
               : r.verifiedIds?.length ||
                   run.source_instance_id !==
@@ -600,13 +600,13 @@ export class PostgresReplayShadowAudit {
           historicalAdminId:
             r.verifiedIds?.length === 1 ? r.verifiedIds[0] : null,
           nameStatus: r.verifiedIds?.length
-            ? Number(r.unmatchedAliases) > 0
-              ? 'PARTIAL_SOURCE_MATCH'
-              : r.verifiedNames?.length === 1
-                ? 'SOURCE_VERIFIED_HISTORICAL'
-                : r.verifiedNames?.length
-                  ? 'HISTORICAL_NAME_CONFLICT'
-                  : 'SOURCE_VERIFIED_ID_ONLY'
+            ? r.verifiedNames?.length === 1
+              ? Number(r.unmatchedAliases) > 0
+                ? 'PARTIAL_SOURCE_MATCH'
+                : 'SOURCE_VERIFIED_HISTORICAL'
+              : r.verifiedNames?.length
+                ? 'HISTORICAL_NAME_CONFLICT'
+                : 'SOURCE_VERIFIED_ID_ONLY'
             : run.source_instance_id !== identitySource(run.source_instance_id)
               ? 'ARCHIVE_PSEUDONYMIZED'
               : archivedAdminNameStatus(r.names, 'VERIFIED_IN_ARCHIVE'),
@@ -900,23 +900,26 @@ export class PostgresReplayShadowAudit {
             e.externalUserId === row.externalUserId,
         );
       const events = sourceEvents.map(enriched);
-      const names = (field: string) => [
+      const names = (field: string, evidence = events) => [
         ...new Set(
-          events
+          evidence
             .map((e) => e[field])
             .filter((v): v is string => typeof v === 'string' && v !== ''),
         ),
       ];
+      const verifiedAdminEvents = events.filter(
+        (e) => e.billingAdminNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
+      );
+      const verifiedAdminNames = names(
+        'billingAdminUsername',
+        verifiedAdminEvents,
+      );
+      const historicalAdminIds = names('historicalBillingAdminId');
       const adminNames = names('billingAdminUsername');
       const accountNames = names('accountUsername');
       const adminFullyMatched =
-        events.length > 0 &&
-        events.every(
-          (e) => e.billingAdminNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
-        );
-      const adminPartiallyMatched = events.some(
-        (e) => e.billingAdminNameStatus === 'SOURCE_VERIFIED_HISTORICAL',
-      );
+        verifiedAdminEvents.length > 0 &&
+        verifiedAdminEvents.length === row.eventIds.length;
       const accountFullyMatched =
         events.length > 0 &&
         events.every(
@@ -943,26 +946,30 @@ export class PostgresReplayShadowAudit {
           .filter((e) => !row.eventIds.includes(e.id as string))
           .map(enriched),
         adminName:
-          adminNames.length === 1 &&
-          (adminFullyMatched ||
-            (source === identitySource(source) && !adminPartiallyMatched))
-            ? adminNames[0]
-            : null,
+          verifiedAdminNames.length === 1
+            ? verifiedAdminNames[0]
+            : verifiedAdminNames.length === 0 &&
+                source === identitySource(source) &&
+                adminNames.length === 1
+              ? adminNames[0]
+              : null,
+        historicalAdminId:
+          historicalAdminIds.length === 1 ? historicalAdminIds[0] : null,
         accountName:
           accountNames.length === 1 &&
           (accountFullyMatched || !accountPartiallyMatched)
             ? accountNames[0]
             : null,
         adminNameStatus:
-          adminFullyMatched && adminNames.length === 1
-            ? 'SOURCE_VERIFIED_HISTORICAL'
-            : adminFullyMatched && adminNames.length > 1
+          verifiedAdminNames.length === 1
+            ? adminFullyMatched
+              ? 'SOURCE_VERIFIED_HISTORICAL'
+              : 'PARTIAL_SOURCE_MATCH'
+            : verifiedAdminNames.length > 1
               ? 'HISTORICAL_NAME_CONFLICT'
-              : adminPartiallyMatched
-                ? 'PARTIAL_SOURCE_MATCH'
-                : source !== identitySource(source)
-                  ? 'ARCHIVE_PSEUDONYMIZED'
-                  : archivedAdminNameStatus(adminNames, 'SOURCE'),
+              : source !== identitySource(source)
+                ? 'ARCHIVE_PSEUDONYMIZED'
+                : archivedAdminNameStatus(adminNames, 'SOURCE'),
         accountNameStatus:
           accountFullyMatched && accountNames.length === 1
             ? 'SOURCE_VERIFIED_HISTORICAL'

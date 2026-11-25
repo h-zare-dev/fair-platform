@@ -512,9 +512,9 @@ test('switching report tabs never renders stale administrator rows as event evid
         rows: [
           {
             billingAdminId: '1',
-            adminName: 'Test admin',
-            nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
-            names: ['Test admin'],
+            adminName: 'anon-0123abcd',
+            nameStatus: 'PARTIAL_SOURCE_MATCH',
+            names: ['anon-4567abcd'],
             observedDays: '1',
             readyDays: '1',
             pendingDays: '0',
@@ -535,8 +535,11 @@ test('switching report tabs never renders stale administrator rows as event evid
     }),
   );
   await page.goto('/reports');
-  const adminRow = page.getByRole('row').filter({ hasText: 'Test admin' });
+  const adminRow = page.getByRole('row').filter({ hasText: 'anon-0123abcd' });
   await expect(adminRow).toBeVisible();
+  await expect(adminRow).toContainText(
+    'تطبیق هویت برای تمام نام‌های این مدیر کامل نیست',
+  );
   await page.getByRole('button', { name: 'ابهامات', exact: true }).click();
   await expect(
     page.getByRole('columnheader', { name: 'علت بررسی' }),

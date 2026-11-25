@@ -534,6 +534,11 @@ test('switching report tabs never renders stale administrator rows as event evid
   );
   await page.goto('/reports');
   await expect(page.getByText('Test admin', { exact: true })).toBeVisible();
+  const [reportFile] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'دریافت CSV' }).click(),
+  ]);
+  expect(reportFile.suggestedFilename()).toBe('fair-shadow-1-admins.csv');
   await page.getByRole('button', { name: 'ابهامات', exact: true }).click();
   await expect(
     page.getByRole('columnheader', { name: 'علت بررسی' }),

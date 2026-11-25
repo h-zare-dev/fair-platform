@@ -247,6 +247,13 @@ async function getAudit<T>(
   return response.json() as Promise<T>;
 }
 
+function csvCell(value: string | number | null) {
+  const raw = String(value ?? '');
+  // Prevent strings derived from admin names from becoming formulas.
+  const safe = /^\s*[=+@-]/.test(raw) && !/^-\d+$/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('"', '""')}"`;
+}
+
 function Evidence({ row }: { row: OperationRow }) {
   return (
     <details className="audit-evidence">
@@ -393,6 +400,8 @@ export function ShadowAuditReports({
   } | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -447,7 +456,7 @@ export function ShadowAuditReports({
   const current = requestKey && result?.key === requestKey ? result : null;
   const report = current?.report ?? null;
   const busy = Boolean(requestKey && !current);
-  const visibleError = error || current?.error;
+  const visibleError = error || current?.error || downloadError;
 
   useEffect(() => {
     if (!requestKey) return;
@@ -471,7 +480,107 @@ export function ShadowAuditReports({
     return () => controller.abort();
   }, [requestKey, view, query]);
 
+  async function downloadReport() {
+    if (
+      !visibleRun ||
+      !query ||
+      (!periodTab && tab !== 'admins') ||
+      downloading
+    )
+      return;
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      const params = new URLSearchParams(query);
+      params.set('limit', '100');
+      params.set('offset', '0');
+      const rows: Array<AdminRow | PeriodRow> = [];
+      for (;;) {
+        const result = await getAudit<PageResponse>(
+          view,
+          params,
+          AbortSignal.timeout(15000),
+        );
+        rows.push(...(result.rows as Array<AdminRow | PeriodRow>));
+        if (result.nextOffset === null) break;
+        if (result.nextOffset <= Number(params.get('offset')))
+          throw new Error('صفحه‌بندی گزارش کامل نشد.');
+        params.set('offset', String(result.nextOffset));
+      }
+      const headers = periodTab
+        ? [
+            'از',
+            'تا',
+            'وضعیت',
+            'روزهای آماده',
+            'روزهای معلق',
+            'تراکنش‌ها',
+            'ابهامات',
+            'بدهکاری آماده',
+            'بستانکاری آماده',
+            'خالص آماده',
+            'خالص نهایی',
+          ]
+        : [
+            'شناسهٔ مدیر',
+            'نام تاریخی',
+            'روزهای آماده',
+            'روزهای معلق',
+            'تراکنش‌ها',
+            'ابهامات',
+            'بدهکاری آماده',
+            'بستانکاری آماده',
+            'خالص آماده',
+          ];
+      const cells = rows.map((row) =>
+        'startDate' in row
+          ? [
+              row.startDate,
+              row.endDate,
+              row.status,
+              row.readyDays,
+              row.pendingDays,
+              row.entryCount,
+              row.holdCount,
+              row.readyDays ? row.readyChargeToman : null,
+              row.readyDays ? row.readyCreditToman : null,
+              row.readyDays ? row.readyNetToman : null,
+              row.netToman,
+            ]
+          : [
+              row.billingAdminId,
+              row.adminName,
+              row.readyDays,
+              row.pendingDays,
+              row.entryCount,
+              row.holdCount,
+              row.chargeToman,
+              row.creditToman,
+              row.netToman,
+            ],
+      );
+      const csv = [headers, ...cells]
+        .map((row) => row.map(csvCell).join(','))
+        .join('\r\n');
+      const url = URL.createObjectURL(
+        new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }),
+      );
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `fair-shadow-${visibleRun.id}-${tab}${periodTab ? `-${adminId}` : ''}.csv`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setDownloadError(
+        cause instanceof Error ? cause.message : 'دریافت فایل گزارش انجام نشد.',
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const switchTab = (next: Tab) => {
+    setDownloadError('');
     setTab(next);
     setOffset(0);
   };
@@ -631,6 +740,18 @@ export function ShadowAuditReports({
         ))}
       </nav>
       <div className="audit-toolbar audit-filters">
+        {(periodTab || tab === 'admins') &&
+          report &&
+          report.rows.length > 0 && (
+            <button
+              className="secondary"
+              type="button"
+              disabled={downloading}
+              onClick={() => void downloadReport()}
+            >
+              {downloading ? 'در حال آماده‌سازی…' : 'دریافت CSV'}
+            </button>
+          )}
         {tab !== 'admins' && tab !== 'ignored' && (from || to) && (
           <button
             className="secondary"

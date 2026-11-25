@@ -2,7 +2,7 @@
 
 Fair Platform is a production-focused modular platform for Pasarguard accounting, pricing, reporting, automation, and future sales services.
 
-> **Status (2026-11-19):** FP-001/FP-001B ingestion, FP-002 SHADOW foundations, FP-003A replay, FP-003B public synthetic Owner dashboard and FP-003C fast-release phase one have been implemented/merged into `development`. **The Owner reports the Persian Staging dashboard live**; exact currently running release is an independent operational verification. FP-004 has a synthetic pricing quote engine and Owner editor, **not live accounting**. PR #80 documents the revised Owner-approved admin-directory, Jalali/local-group and **nightly settlement** direction; code/migrations, FP-005–007 classification, real reports and production webhook billing remain pending. See [current status and staging exceptions](docs/CURRENT_STATE_AND_POLICY_2026-11-19.md).
+> **Staging status (2026-11-25).** The Owner completed the 122-day historical SHADOW replay with original PasarGuard identifiers and reviewed the statement totals. Staging already has an authenticated second-webhook endpoint, opening baseline import and a nightly Create-only closer. Historical Update/Reset support and period reports are available in replay. Follow the [webhook pilot](docs/deployment/WEBHOOK-PILOT.md) for the smoke test and the remaining settlement work.
 
 ## Technology
 - Node.js 24 LTS

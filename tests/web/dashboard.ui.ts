@@ -93,6 +93,33 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(
     page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
   ).toBeVisible();
+  const summaryRoute = '**/operations/summary?**';
+  let releaseRefresh!: () => void;
+  const pausedRefresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  let markIntercepted!: () => void;
+  const intercepted = new Promise<void>((resolve) => {
+    markIntercepted = resolve;
+  });
+  await page.route(summaryRoute, async (route) => {
+    markIntercepted();
+    await pausedRefresh;
+    await route.continue();
+  });
+  const refreshed = page.waitForResponse(summaryRoute);
+  await page.getByRole('button', { name: /به‌روزرسانی/ }).click();
+  await intercepted;
+  try {
+    await expect(page.locator('.kpis')).toHaveAttribute('aria-busy', 'false');
+    await expect(
+      page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
+    ).toBeVisible();
+  } finally {
+    releaseRefresh();
+    await refreshed;
+    await page.unroute(summaryRoute);
+  }
   await expect(
     page.getByRole('heading', {
       name: 'تست ترکیبی FP-006 / FP-007: Update و Reset',

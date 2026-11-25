@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
@@ -144,15 +144,21 @@ export function Dashboard() {
     }
     setSourceReady(true);
   }, []);
+  const [browsingHistory, setBrowsingHistory] = useState(false);
+  const displayedQuery = useRef<string | null>(null);
   useEffect(() => {
-    if (!sourceReady) return;
+    if (!sourceReady || browsingHistory) return;
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 10000);
-    setBusy(true);
-    setError('');
-    setSummary(null);
-    setEvents({ rows: [], nextCursor: null });
-    setIssues({ rows: [], nextCursor: null });
+    const query = JSON.stringify([windowRange, source]);
+    if (displayedQuery.current !== query) {
+      displayedQuery.current = null;
+      setBusy(true);
+      setError('');
+      setSummary(null);
+      setEvents({ rows: [], nextCursor: null });
+      setIssues({ rows: [], nextCursor: null });
+    }
     const params = new URLSearchParams({
       window: windowRange === 'replay-fixed' ? '30d' : windowRange,
       ...(source ? { source } : {}),
@@ -176,6 +182,8 @@ export function Dashboard() {
           request<Page<IssueRow>>(`operations/issues?${params}`, abort.signal),
         ]);
         if (!abort.signal.aborted) {
+          displayedQuery.current = query;
+          setError('');
           setSummary(result);
           setEvents(e);
           setIssues(i);
@@ -199,8 +207,7 @@ export function Dashboard() {
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [windowRange, source, refresh, sourceReady]);
-  const [browsingHistory, setBrowsingHistory] = useState(false);
+  }, [windowRange, source, refresh, sourceReady, browsingHistory]);
   useEffect(() => {
     if (windowRange === 'replay-fixed' || browsingHistory || busy || pageBusy)
       return;
@@ -291,6 +298,7 @@ export function Dashboard() {
           onSubmit={(e) => {
             e.preventDefault();
             rememberOwnerSource(sourceDraft);
+            setBrowsingHistory(false);
             setSource(sourceDraft);
           }}
         >
@@ -300,6 +308,7 @@ export function Dashboard() {
               value={windowRange}
               disabled={pageBusy}
               onChange={(e) => {
+                setBrowsingHistory(false);
                 setWindowRange(e.target.value);
                 if (e.target.value === 'replay-fixed') {
                   setSourceDraft('replay-30d');

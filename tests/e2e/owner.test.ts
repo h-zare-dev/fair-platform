@@ -615,6 +615,15 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  const sourceIdentityColumn = () =>
+    db.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='fair_replay_archives' AND column_name='source_identity'",
+    );
+  expect(await sourceIdentityColumn()).toEqual([
+    { column_name: 'source_identity' },
+  ]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(await sourceIdentityColumn()).toEqual([]);
   // The runtime password grant is a separate, reversible additive migration.
   await db.undoLastMigration({ transaction: 'all' });
   // The archive migration adds immutable input metadata and manual reviews.

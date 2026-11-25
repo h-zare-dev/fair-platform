@@ -790,6 +790,24 @@ tbody tr:hover {
 .settings-nav a[aria-current='page'] > span {
   background: var(--surface);
 }
+.password-settings {
+  max-width: 560px;
+  padding: 25px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.password-settings form {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.password-settings label {
+  font-weight: 600;
+}
+.password-settings button {
+  justify-self: start;
+}
 .catalog-source-panel {
   border: 1px solid var(--line);
   background: var(--surface);

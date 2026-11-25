@@ -26,6 +26,7 @@ async function main() {
       'ReplayShadowJournal1791900000000',
       'ReplayShadowAudit1792000000000',
       'PrivateReplayIdentity1792100000000',
+      'OwnerPasswordChange1792200000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -51,6 +52,7 @@ async function main() {
       'dist/owner/infrastructure/replay-shadow-journal-migration.js',
       'dist/owner/infrastructure/replay-shadow-audit-migration.js',
       'dist/owner/infrastructure/private-replay-identity-migration.js',
+      'dist/owner/infrastructure/password-change-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

@@ -591,6 +591,49 @@ export async function createOwnerApi(
       input(z.object({}).strict(), req.query);
       return shadow.replayUpdateResetPreview();
     }
+    @Post('operations/accounting/review') async reviewShadow(
+      @Req() req: FastifyRequest,
+    ) {
+      csrf(req);
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      const q = input(
+        z
+          .object({
+            id: z.string().uuid(),
+            eventIds: z.array(positive).min(1).max(100),
+            packageId: positive.nullable(),
+          })
+          .strict(),
+        req.body,
+      );
+      if (!(await shadow.review(q.id, q.eventIds, q.packageId)))
+        throw new HttpException('SHADOW_REVIEW_CONFLICT', 409);
+      return { saved: true };
+    }
+    @Get('operations/accounting/days') async shadowDays(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      const q = input(
+        shadowQuery.extend({
+          period: z.enum(['day', 'week', 'month']).default('day'),
+        }),
+        req.query,
+      );
+      return shadow.dayReports(
+        {
+          source: q.source ?? null,
+          admin: q.admin ?? null,
+          date: q.date ?? null,
+          reason: null,
+          limit: q.limit,
+          offset: q.offset,
+        },
+        q.period,
+      );
+    }
     @Get('operations/accounting/ambiguities') async accountingAmbiguities(
       @Req() req: FastifyRequest,
     ) {

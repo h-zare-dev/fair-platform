@@ -76,9 +76,10 @@ try:
         'ReplayShadowAudit1792000000000',
         'ReplayShadowJournal1791900000000',
         'ReplaySourceIdentity1792500000000',
+        'ShadowReview1792600000000',
     ]
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 17 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == len(proof['configuredMigrations']) and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
     assert ('GRANT SELECT ON fair_replay_private_identity_imports,\n'
             '  fair_replay_private_identity_aliases TO fair_owner_runtime;') in grants

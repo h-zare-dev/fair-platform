@@ -622,6 +622,17 @@ it('additive migrations upgrade prior schema and reverse only in disposable DB',
   expect(await sourceIdentityColumn()).toEqual([
     { column_name: 'source_identity' },
   ]);
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_shadow_day_reports')::text AS name",
+    ),
+  ).toEqual([{ name: 'fair_shadow_day_reports' }]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
+      "SELECT to_regclass('fair_shadow_day_reports')::text AS name",
+    ),
+  ).toEqual([{ name: null }]);
   await db.undoLastMigration({ transaction: 'all' });
   expect(await sourceIdentityColumn()).toEqual([]);
   // The runtime password grant is a separate, reversible additive migration.

@@ -56,7 +56,7 @@ class UpgradeError(Exception):
 
 def check_compose(previous, proposed, mode='initial'):
     """Only the one exact reviewed environment mapping may be added."""
-    if mode in ('group-delete', 'opening-baseline', 'private-identity', 'replay-archive', 'password-and-archive', 'password-runtime-grant', 'replay-source-identity'):
+    if mode in ('group-delete', 'opening-baseline', 'private-identity', 'replay-archive', 'password-and-archive', 'password-runtime-grant', 'replay-source-identity', 'shadow-review'):
         if proposed != previous:
             raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
         return
@@ -106,6 +106,7 @@ def check_proofs(approved, old, new, mode='initial'):
             (REPLAY_ARCHIVE_MIGRATION, REPLAY_ARCHIVE_FILE),
         ],
         'password-runtime-grant': [(PASSWORD_RUNTIME_GRANT_MIGRATION, PASSWORD_RUNTIME_GRANT_FILE)],
+        'shadow-review': [('ShadowReview1792600000000', 'dist/owner/infrastructure/shadow-review-migration.js')],
         'replay-source-identity': [(REPLAY_SOURCE_IDENTITY_MIGRATION, REPLAY_SOURCE_IDENTITY_FILE)],
     }
     added = additions[mode]
@@ -253,6 +254,7 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
              'replay-archive': 'STAGING_REPLAY_ARCHIVE_MIGRATION_APPROVED',
              'password-and-archive': 'STAGING_PASSWORD_AND_ARCHIVE_MIGRATIONS_APPROVED',
              'password-runtime-grant': 'STAGING_PASSWORD_RUNTIME_GRANT_APPROVED',
+             'shadow-review': 'STAGING_SHADOW_REVIEW_APPROVED',
              'replay-source-identity': 'STAGING_REPLAY_SOURCE_IDENTITY_APPROVED'}
             .get(mode, 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED'))
 
@@ -264,7 +266,7 @@ def main():
     mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
     if mode not in ('initial', 'group-delete', 'opening-baseline', 'accounting-shadow',
                     'shadow-audit', 'report-calendar', 'private-identity', 'replay-archive', 'password-and-archive',
-                    'password-runtime-grant', 'replay-source-identity'):
+                    'password-runtime-grant', 'replay-source-identity', 'shadow-review'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)
     if len(proposed) > 30000:

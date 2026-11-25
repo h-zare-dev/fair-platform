@@ -1,3 +1,9 @@
+import { localJalaliDate } from '@fair-platform/calendar';
+import {
+  shadowPeriodBounds,
+  type ReportPeriod,
+  type ReportWeekStart,
+} from '../application/shadow-report-periods.js';
 import type { DataSource } from 'typeorm';
 import {
   evaluateReplayStaticCatalog,
@@ -28,6 +34,7 @@ export class PostgresShadowReader {
     private readonly db: DataSource,
     private readonly timeZone: string = 'Asia/Tehran',
     private readonly correlationWindowSeconds: number = 600,
+    private readonly weekStart: ReportWeekStart = 'SATURDAY',
   ) {
     if (
       !Number.isInteger(correlationWindowSeconds) ||
@@ -347,10 +354,10 @@ export class PostgresShadowReader {
       }[]
     >(
       `SELECT COUNT(*)::text AS "closedDays",
-        COUNT(*) FILTER(WHERE status='PENDING_REVIEW')::text AS "pendingDays",
-        COALESCE(SUM(ambiguity_count),0)::text AS "ambiguityCount",
-        COALESCE(SUM(create_count-ambiguity_count),0)::text AS "chargeCount"
-       FROM fair_shadow_days WHERE ($1::text IS NULL OR source_instance_id=$1)`,
+        COUNT(*) FILTER(WHERE pending>0)::text AS "pendingDays",
+        COALESCE(SUM(pending),0)::text AS "ambiguityCount",
+        (SELECT count(*) FROM fair_shadow_items i WHERE amount_toman IS NOT NULL AND ($1::text IS NULL OR i.source_instance_id=$1)) + (SELECT count(*) FROM fair_shadow_reviews r JOIN fair_shadow_days d ON d.id=r.day_id WHERE r.package_id IS NOT NULL AND ($1::text IS NULL OR d.source_instance_id=$1)) AS "chargeCount"
+       FROM fair_shadow_day_reports WHERE ($1::text IS NULL OR source=$1)`,
       [source],
     );
     const [late] = await this.db.query<{ count: string }[]>(
@@ -364,6 +371,98 @@ export class PostgresShadowReader {
       mode: 'SHADOW_ONLY',
       financeReportsSent: false,
     };
+  }
+
+  async review(id: string, eventIds: string[], packageId: string | null) {
+    const ids = [...new Set(eventIds)].sort();
+    return this.db.transaction(async (tx) => {
+      await tx.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('fair-shadow-review',0))",
+      );
+      const existing = await tx.query<
+        { eventIds: string[]; packageId: string | null }[]
+      >(
+        `SELECT r.package_id::text AS "packageId", array_agg(e.event_id::text) AS "eventIds"
+         FROM fair_shadow_reviews r JOIN fair_shadow_review_events e ON e.review_id=r.id
+         WHERE r.id=$1 GROUP BY r.id`,
+        [id],
+      );
+      if (existing[0])
+        return (
+          existing[0].packageId === packageId &&
+          JSON.stringify(existing[0].eventIds.sort()) === JSON.stringify(ids)
+        );
+      const [result] = await tx.query<{ id: string }[]>(
+        `WITH eligible AS (
+           SELECT day_id,event_id,source_instance_id FROM fair_shadow_items WHERE reason_code IS NOT NULL AND reason_code NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')
+           UNION ALL SELECT day_id,event_id,source_instance_id FROM fair_shadow_late_events
+         ), chosen AS (
+           SELECT min(c.day_id) AS day_id,min(c.source_instance_id) AS source
+           FROM eligible c JOIN pasarguard_events e ON e.id=c.event_id
+           WHERE c.event_id=ANY($2::bigint[]) AND NOT EXISTS
+             (SELECT FROM fair_shadow_review_events v WHERE v.event_id=c.event_id)
+           HAVING count(*)=cardinality($2::bigint[]) AND count(DISTINCT c.day_id)=1
+             AND count(DISTINCT e.external_user_id)=1
+         )
+         INSERT INTO fair_shadow_reviews(id,day_id,package_id,package_name,amount_toman,package_bytes)
+         SELECT $1,c.day_id,p.id,p.name,coalesce(p.amount_toman,0),coalesce(p.package_bytes,0)
+         FROM chosen c LEFT JOIN fair_atomic_packages p ON p.id=$3 AND p.source_instance_id=c.source
+         WHERE $3::bigint IS NULL OR p.id IS NOT NULL RETURNING id`,
+        [id, ids, packageId],
+      );
+      if (!result) return false;
+      await tx.query(
+        `INSERT INTO fair_shadow_review_events(review_id,event_id)
+        SELECT $1,unnest($2::bigint[])`,
+        [id, ids],
+      );
+      return true;
+    });
+  }
+
+  async dayReports(filter: ShadowFilter, period: ReportPeriod = 'day') {
+    const date = filter.date || localJalaliDate(new Date(), this.timeZone);
+    const bounds = shadowPeriodBounds(date, period, this.weekStart);
+    if (period !== 'day')
+      return this.db.query<
+        {
+          source: string;
+          admin: string;
+          day: string;
+          amountToman: string;
+          soldBytes: string;
+          pending: number;
+        }[]
+      >(
+        `SELECT source,admin,$3::text || ' — ' || $4::text AS day,sum(amount_toman)::text AS "amountToman",
+       sum(sold_bytes)::text AS "soldBytes",sum(sum(amount_toman)) OVER ()::text AS "periodAmountToman",sum(sum(sold_bytes)) OVER ()::text AS "periodSoldBytes",sum(pending)::integer AS pending FROM fair_shadow_day_reports
+       WHERE ($1::text IS NULL OR source=$1) AND ($2::text IS NULL OR admin=$2) AND day BETWEEN $3 AND $4
+       GROUP BY source,admin ORDER BY source,admin LIMIT $5 OFFSET $6`,
+        [
+          filter.source,
+          filter.admin,
+          bounds.start,
+          bounds.end,
+          filter.limit,
+          filter.offset,
+        ],
+      );
+    return this.db.query<
+      {
+        source: string;
+        admin: string;
+        day: string;
+        amountToman: string;
+        soldBytes: string;
+        pending: number;
+      }[]
+    >(
+      `SELECT source,admin,day,amount_toman::text AS "amountToman",sold_bytes::text AS "soldBytes",sum(amount_toman) OVER (PARTITION BY day)::text AS "periodAmountToman",sum(sold_bytes) OVER (PARTITION BY day)::text AS "periodSoldBytes",pending
+       FROM fair_shadow_day_reports WHERE ($1::text IS NULL OR source=$1)
+       AND ($2::text IS NULL OR admin=$2) AND ($3::text IS NULL OR day=$3)
+       ORDER BY day DESC,day_id DESC LIMIT $4 OFFSET $5`,
+      [filter.source, filter.admin, filter.date, filter.limit, filter.offset],
+    );
   }
 
   async ambiguities(filter: ShadowFilter) {
@@ -384,7 +483,7 @@ export class PostgresShadowReader {
          SELECT i.event_id,i.reason_code,i.source_instance_id,i.billing_admin_id,
            i.local_day,i.data_limit_bytes,i.duration_days,i.source_enqueued_at,
            i.recorded_at AS detected_at
-         FROM fair_shadow_items i WHERE i.reason_code IS NOT NULL
+         FROM fair_shadow_items i WHERE i.reason_code IS NOT NULL AND i.reason_code NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')
          UNION ALL
          SELECT l.event_id,l.reason_code,l.source_instance_id,l.billing_admin_id,
            l.local_day,e.data_limit_bytes,
@@ -394,13 +493,15 @@ export class PostgresShadowReader {
            e.source_enqueued_at,l.discovered_at
          FROM fair_shadow_late_events l JOIN pasarguard_events e ON e.id=l.event_id
        )
-       SELECT event_id::text AS "eventId", reason_code AS code,
+       SELECT event_id::text AS "eventId", (SELECT external_user_id::text FROM pasarguard_events WHERE id=cases.event_id) AS "accountId",
+         (SELECT action FROM pasarguard_events WHERE id=cases.event_id) AS action, reason_code AS code,
          source_instance_id AS "sourceInstanceId", billing_admin_id::text AS "billingAdminId",
          local_day AS "localDay",data_limit_bytes::text AS "dataLimitBytes",
          duration_days AS "durationDays",source_enqueued_at AS "sourceTimestamp",
          detected_at AS "detectedAt"
        FROM cases
-       WHERE ($1::text IS NULL OR source_instance_id=$1)
+       WHERE NOT EXISTS (SELECT FROM fair_shadow_review_events v WHERE v.event_id=cases.event_id)
+         AND ($1::text IS NULL OR source_instance_id=$1)
          AND ($2::bigint IS NULL OR billing_admin_id=$2)
          AND ($3::text IS NULL OR reason_code=$3)
          AND ($4::text IS NULL OR local_day=$4)

@@ -166,6 +166,7 @@ async function main() {
         db,
         config.FAIR_TIME_ZONE,
         config.FAIR_CORRELATION_WINDOW_SECONDS,
+        reportWeekStart,
       ),
       ingest?.receiver,
       ingest?.replayInbox,

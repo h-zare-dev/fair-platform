@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   classifyCreate,
+  classifyRenewals,
   NightlyShadow,
 } from '../../apps/api/dist/owner/infrastructure/nightly-shadow.js';
 import { PasarguardSecretAuthenticator } from '../../apps/api/dist/owner/infrastructure/webhook-secret.js';
@@ -104,18 +105,11 @@ describe('nightly-only SHADOW create classification', () => {
     const shadow = new NightlyShadow({} as never, 'Asia/Tehran');
     await (
       shadow as unknown as { rules: (...args: unknown[]) => Promise<unknown> }
-    ).rules(
-      { query },
-      'primary',
-      '9001',
-      '42',
-      '2026-11-20T20:30:00Z',
-      '2026-11-21T20:30:00Z',
-    );
+    ).rules({ query }, 'primary', '9001', '42', '2026-11-21T20:30:00Z');
     const sql = String(query.mock.calls[0]?.[0]);
-    expect(sql).toContain('a.created_at < $4');
-    expect(sql).toContain('a.effective_from < $4');
-    expect(sql).toContain('a.effective_until >= $4');
+    expect(sql).toContain('a.created_at < $3');
+    expect(sql).toContain('a.effective_from < $3');
+    expect(sql).toContain('a.effective_until >= $3');
     expect(sql).not.toContain('a.effective_until > $3');
   });
   it('never classifies pre-existing synthetic dashboard events as live Shadow', async () => {
@@ -163,5 +157,35 @@ describe('authenticated second destination', () => {
     expect(() => new PasarguardSecretAuthenticator('short')).toThrow(
       'INVALID_WEBHOOK_SECRET',
     );
+  });
+});
+
+describe('nightly renewal attribution', () => {
+  const change = (id: string, action: string) => ({
+    id,
+    action,
+    source_instance_id: 'primary',
+    billing_admin_id: '5',
+    external_user_id: '9',
+    username: 'fixture',
+    source_enqueued_at: new Date(Number(id) * 1000),
+    data_limit_bytes: '53687091200',
+    on_hold_expire_duration_seconds: '2592000',
+    event_status: 'READY_FOR_ACCOUNTING',
+  });
+  it('counts an update/reset once and holds repeated clicks for the Owner', () => {
+    const pair = [change('1', 'user_updated'), change('2', 'data_usage_reset')];
+    const classified = classifyRenewals(pair, [fixed]);
+    expect(classified.get('1')?.amount).toBe(fixed.amount_toman);
+    expect(classified.get('2')?.reason).toBe('RENEWAL_EVIDENCE');
+    const repeated = classifyRenewals(
+      [...pair, change('3', 'user_updated')],
+      [fixed],
+    );
+    expect(
+      [...repeated.values()].every(
+        (row) => row.reason === 'AMBIGUOUS_CORRELATION',
+      ),
+    ).toBe(true);
   });
 });

@@ -86,3 +86,8 @@ Start with `AGENTS.md`, then read:
 
 ## License
 No license has been selected yet. All rights are reserved unless and until a license is explicitly added.
+
+For the seven-day parallel webhook accounting pilot, open **Settings → Initialization**
+to copy the second webhook URL and credential. Inspect receipts on the dashboard
+and nightly totals and pending decisions under accounting ambiguities.
+See [the Staging pilot procedure](docs/deployment/WEBHOOK-PILOT.md).

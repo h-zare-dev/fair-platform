@@ -93,11 +93,11 @@ jobs:
             "python3 /opt/fair-staging/tooling/approve-fp004-upgrade.py $GITHUB_SHA shadow-review" \
             < docker/staging/compose.yml 2>"$work/ssh-error" || {
               grep -E '^STAGING_[A-Z0-9_]+$' "$work/ssh-error" | head -n 1 || true
-              echo STAGING_REPLAY_SOURCE_IDENTITY_APPROVAL_FAILED
+              echo STAGING_SHADOW_REVIEW_APPROVAL_FAILED
               exit 1
             }
           sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
             'bash /opt/fair-staging/tooling/registry-temporary.sh logout' \
             2>"$work/ssh-error" || { echo STAGING_GHCR_AUTH_CLEANUP_FAILED; exit 1; }
           registry_logged_in=false
-          echo 'One additive shadow review migration approved. Re-run protected development Deploy before the private CLI import. No SQL migration, private data transfer, webhook or LIVE financial mutation occurred in this approval.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'One additive shadow review migration approved. Re-run protected development Deploy before starting the week of SHADOW observation. No SQL migration, private data transfer, webhook or LIVE financial mutation occurred in this approval.' >> "$GITHUB_STEP_SUMMARY"

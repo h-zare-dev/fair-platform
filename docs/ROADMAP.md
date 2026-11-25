@@ -73,3 +73,10 @@ The next milestone covers the opening watermark, authenticated second-webhook sm
 ## Maintenance rule
 
 Update milestone status only in an Owner-reviewed documentation PR referencing verified GitHub outcomes. Record financial decisions in `DOMAIN_RULES.md` and any relevant ADR rather than in informal prompts alone. Historical approved specifications are not rewritten as if they were current-state trackers. Agents may recommend roadmap changes but may **never** reorder milestones or authorize their own work.
+
+### Staging webhook accounting pilot
+
+Observe seven consecutive local days with the existing bot and the second
+webhook running together. Review unresolved events per account and admin/day
+in the Owner panel. Compare confirmed volume and Toman by day, week and month.
+Sending reports requires a separate Owner decision after the observation week.

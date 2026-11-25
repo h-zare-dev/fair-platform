@@ -55,3 +55,8 @@ financial effect. Review the original day's subtotal after saving. A pending day
 for one admin does not block other admins or dates. Record any discrepancy with
 the existing bot during the seven-day comparison. Telegram delivery is a later
 Owner decision.
+
+After publishing, use the protected Staging shadow review approval with
+`APPROVE_SHADOW_REVIEW_STAGE` for the additive migration, then rerun the
+protected development deployment. Verify the day report and review controls
+before starting the seven-day observation.

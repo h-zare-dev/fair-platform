@@ -13,6 +13,7 @@ interface CreateRow {
   source_instance_id: string;
   billing_admin_id: string;
   external_user_id: string;
+  previous_bytes?: string | null;
   username: string;
   action: string;
   source_enqueued_at: Date;
@@ -32,6 +33,7 @@ interface Rule {
 interface Classified {
   reason: string | null;
   amount: string | null;
+  soldBytes?: string;
   packageId: string | null;
   assignmentId: string | null;
   durationDays: number | null;
@@ -120,6 +122,24 @@ export function classifyRenewals(events: CreateRow[], rules: Rule[]) {
         e.event_status !== 'READY_FOR_ACCOUNTING',
       ),
     );
+  }
+  if (changes.length === 1 && changes[0]!.action === 'user_updated') {
+    const e = changes[0]!;
+    if (e.previous_bytes != null && e.event_status === 'READY_FOR_ACCOUNTING') {
+      const delta = BigInt(e.data_limit_bytes) - BigInt(e.previous_bytes);
+      if (delta <= 0n) hold(e, 'UNCHANGED_OR_DECREASED');
+      else
+        result.set(e.id, {
+          ...classifyCreate(
+            delta.toString(),
+            e.on_hold_expire_duration_seconds,
+            rules,
+            false,
+            false,
+          ),
+          soldBytes: delta.toString(),
+        });
+    }
   }
   if (changes.length !== 2) return result;
   const [first, second] = changes as [CreateRow, CreateRow];
@@ -222,7 +242,7 @@ export class NightlyShadow {
           e.on_hold_expire_duration_seconds::text,e.event_status
          FROM pasarguard_events e LEFT JOIN fair_shadow_items i ON i.event_id=e.id
          LEFT JOIN fair_shadow_late_events l ON l.event_id=e.id
-         WHERE e.action IN ('user_created','user_updated','data_usage_reset') AND e.source_instance_id=$2
+         WHERE e.action IN ('user_created','user_updated','data_usage_reset','data_reset_by_next') AND e.source_instance_id=$2
            AND i.event_id IS NULL AND l.event_id IS NULL
            AND e.source_enqueued_at < $1::timestamptz
          ORDER BY e.source_enqueued_at,e.id LIMIT 1`,
@@ -257,8 +277,19 @@ export class NightlyShadow {
       const rows = await tx.query<CreateRow[]>(
         `SELECT id::text,action,source_instance_id,billing_admin_id::text,external_user_id::text,
           username,source_enqueued_at,data_limit_bytes::text,
-          on_hold_expire_duration_seconds::text,event_status
-         FROM pasarguard_events WHERE action IN ('user_created','user_updated','data_usage_reset') AND source_instance_id=$1
+          on_hold_expire_duration_seconds::text,event_status,
+          CASE WHEN action='user_updated' THEN (SELECT previous.bytes FROM (
+            (SELECT p.source_enqueued_at AS at,CASE WHEN p.event_status='READY_FOR_ACCOUNTING'
+              AND p.billing_admin_id=e.billing_admin_id AND p.action<>'user_deleted' THEN p.data_limit_bytes END AS bytes
+             FROM pasarguard_events p WHERE p.source_instance_id=e.source_instance_id AND p.external_user_id=e.external_user_id
+             AND (p.source_enqueued_at,p.id)<(e.source_enqueued_at,e.id) ORDER BY p.source_enqueued_at DESC,p.id DESC LIMIT 1)
+            UNION ALL
+            SELECT r.finished_at,u.data_limit_bytes FROM fair_opening_baseline_control c
+             JOIN fair_opening_baseline_runs r ON r.id=c.current_run_id JOIN fair_opening_baseline_users u ON u.run_id=r.id
+             WHERE c.source_instance_id=e.source_instance_id AND r.status='COMPLETE' AND r.finished_at<e.source_enqueued_at
+             AND u.external_user_id=e.external_user_id AND u.billing_admin_id=e.billing_admin_id AND u.verification_status='STABLE'
+          ) previous ORDER BY previous.at DESC LIMIT 1)::text END AS previous_bytes
+         FROM pasarguard_events e WHERE action IN ('user_created','user_updated','data_usage_reset','data_reset_by_next') AND source_instance_id=$1
            AND billing_admin_id=$2 AND source_enqueued_at >= $3 AND source_enqueued_at < $4
            AND first_seen_at <= $5 ORDER BY source_enqueued_at,id`,
         [
@@ -298,6 +329,16 @@ export class NightlyShadow {
           renewals.set(id, result);
       }
       for (const event of rows) {
+        if (event.action === 'data_reset_by_next') {
+          classified.push({
+            reason: 'NEXT_PLAN_NEEDS_VERIFICATION',
+            amount: null,
+            packageId: null,
+            assignmentId: null,
+            durationDays: null,
+          });
+          continue;
+        }
         const renewal = renewals.get(event.id);
         if (renewal) {
           classified.push(renewal);
@@ -332,7 +373,10 @@ export class NightlyShadow {
         sum = 0n;
       }
       const ambiguityCount = classified.filter(
-        (v) => v.reason !== null && v.reason !== 'RENEWAL_EVIDENCE',
+        (v) =>
+          v.reason !== null &&
+          v.reason !== 'RENEWAL_EVIDENCE' &&
+          v.reason !== 'UNCHANGED_OR_DECREASED',
       ).length;
       const total = ambiguityCount === 0 ? sum.toString() : null;
       const [closure] = await tx.query<{ id: string }[]>(
@@ -373,7 +417,7 @@ export class NightlyShadow {
             result.amount,
             result.packageId,
             result.assignmentId,
-            event.data_limit_bytes,
+            result.soldBytes ?? event.data_limit_bytes,
             result.durationDays,
             event.source_enqueued_at,
           ],

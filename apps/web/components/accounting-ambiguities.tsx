@@ -12,6 +12,8 @@ interface Summary {
 }
 interface Case {
   eventId: string;
+  accountId: string;
+  action: string;
   code: string;
   sourceInstanceId: string;
   billingAdminId: string;
@@ -57,6 +59,8 @@ export function AccountingAmbiguities() {
     reason: '',
     day: '',
   });
+  const [period, setPeriod] = useState('day');
+  const [reportOffset, setReportOffset] = useState(0);
   const [offset, setOffset] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [page, setPage] = useState<Page>({ rows: [], nextOffset: null });
@@ -93,7 +97,9 @@ export function AccountingAmbiguities() {
     void Promise.all([
       get<Summary>(`/api/v1/owner/operations/accounting/summary?${counts}`),
       get<Page>(`/api/v1/owner/operations/accounting/ambiguities?${params}`),
-      get<typeof days>(`/api/v1/owner/operations/accounting/days?${params}`),
+      get<typeof days>(
+        `/api/v1/owner/operations/accounting/days?${new URLSearchParams({ ...Object.fromEntries(params), period, offset: String(reportOffset) })}`,
+      ),
       get<{ packages: { id: string; name: string }[] }>(
         `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || 'primary')}`,
       ),
@@ -118,7 +124,7 @@ export function AccountingAmbiguities() {
     return () => {
       active = false;
     };
-  }, [applied, offset, revision]);
+  }, [applied, offset, revision, period, reportOffset]);
   async function decide(chosen: string | null) {
     setSaving(true);
     setError('');
@@ -169,6 +175,7 @@ export function AccountingAmbiguities() {
           className="filters"
           onSubmit={(event) => {
             event.preventDefault();
+            setReportOffset(0);
             setOffset(0);
             setApplied({ source, admin, reason, day });
           }}
@@ -241,7 +248,21 @@ export function AccountingAmbiguities() {
           ))}
         </div>
         <section className="table-card">
-          <h2>صورتحساب روزانهٔ وبهوک</h2>
+          <h2>صورتحساب وبهوک</h2>
+          <label>
+            بازه{' '}
+            <select
+              value={period}
+              onChange={(e) => {
+                setPeriod(e.target.value);
+                setReportOffset(0);
+              }}
+            >
+              <option value="day">روزانه</option>
+              <option value="week">هفتگی</option>
+              <option value="month">ماهانه</option>
+            </select>
+          </label>
           <table>
             <thead>
               <tr>
@@ -268,6 +289,18 @@ export function AccountingAmbiguities() {
               ))}
             </tbody>
           </table>
+          <button
+            disabled={busy || reportOffset === 0}
+            onClick={() => setReportOffset(reportOffset - 25)}
+          >
+            قبلی
+          </button>
+          <button
+            disabled={busy || days.length < 25}
+            onClick={() => setReportOffset(reportOffset + 25)}
+          >
+            بعدی
+          </button>
         </section>
         <section className="table-card">
           <div className="section-heading">
@@ -338,7 +371,9 @@ export function AccountingAmbiguities() {
                       </td>
                       <td>
                         <strong>{names[item.code] ?? item.code}</strong>
-                        <small dir="ltr">{item.code}</small>
+                        <small dir="ltr">
+                          {item.action} · {item.accountId}
+                        </small>
                       </td>
                       <td>
                         {item.localDay}

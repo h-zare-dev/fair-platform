@@ -616,15 +616,23 @@ export async function createOwnerApi(
     ) {
       await requireOwner(req);
       if (!shadow) throw new HttpException('Unavailable', 503);
-      const q = input(shadowQuery, req.query);
-      return shadow.dayReports({
-        source: q.source ?? null,
-        admin: q.admin ?? null,
-        date: q.date ?? null,
-        reason: null,
-        limit: q.limit,
-        offset: q.offset,
-      });
+      const q = input(
+        shadowQuery.extend({
+          period: z.enum(['day', 'week', 'month']).default('day'),
+        }),
+        req.query,
+      );
+      return shadow.dayReports(
+        {
+          source: q.source ?? null,
+          admin: q.admin ?? null,
+          date: q.date ?? null,
+          reason: null,
+          limit: q.limit,
+          offset: q.offset,
+        },
+        q.period,
+      );
     }
     @Get('operations/accounting/ambiguities') async accountingAmbiguities(
       @Req() req: FastifyRequest,

@@ -76,6 +76,7 @@ try:
         'ReplayShadowAudit1792000000000',
         'ReplayShadowJournal1791900000000',
         'ReplaySourceIdentity1792500000000',
+        'ShadowReview1792600000000',
     ]
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
     assert len(proof['hashes']) == 17 and all(len(h) == 64 for h in proof['hashes'].values())

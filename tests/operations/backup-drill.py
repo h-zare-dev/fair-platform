@@ -66,6 +66,7 @@ try:
         'OwnerDashboard1791000000000',
         'OwnerGlobalTimeIndexes1791100000000',
         'OwnerPasswordChange1792200000000',
+        'OwnerPasswordRuntimeGrant1792400000000',
         'OwnerSafeGroupDelete1791400000000',
         'PasarguardBillingProjection1791500000000',
         'PasarguardInbox1790000000000',
@@ -76,7 +77,7 @@ try:
         'ReplayShadowJournal1791900000000',
     ]
     assert set(proof['migrations']) == set(proof['configuredMigrations'])
-    assert len(proof['hashes']) == 15 and all(len(h) == 64 for h in proof['hashes'].values())
+    assert len(proof['hashes']) == 16 and all(len(h) == 64 for h in proof['hashes'].values())
     grants = (repo/'docker/staging/runtime-grants.sql').read_text()
     assert ('GRANT SELECT ON fair_replay_private_identity_imports,\n'
             '  fair_replay_private_identity_aliases TO fair_owner_runtime;') in grants

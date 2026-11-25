@@ -28,6 +28,7 @@ async function main() {
       'PrivateReplayIdentity1792100000000',
       'OwnerPasswordChange1792200000000',
       'ReplayArchive1792300000000',
+      'OwnerPasswordRuntimeGrant1792400000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -55,6 +56,7 @@ async function main() {
       'dist/owner/infrastructure/private-replay-identity-migration.js',
       'dist/owner/infrastructure/password-change-migration.js',
       'dist/owner/infrastructure/replay-archive-migration.js',
+      'dist/owner/infrastructure/password-runtime-grant-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

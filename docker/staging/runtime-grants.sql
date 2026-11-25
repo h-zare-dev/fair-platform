@@ -34,6 +34,8 @@ GRANT USAGE ON SEQUENCE fair_opening_baseline_runs_id_seq TO fair_owner_runtime;
 GRANT USAGE ON SEQUENCE fair_shadow_days_id_seq,pasarguard_webhook_batches_id_seq,
   pasarguard_events_id_seq,pasarguard_ingestion_issues_id_seq TO fair_owner_runtime;
 GRANT SELECT ON fair_owner TO fair_owner_runtime;
+-- Only password rotation needs a credential write; other Owner columns stay protected.
+GRANT UPDATE (password_hash) ON fair_owner TO fair_owner_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON fair_owner_sessions, fair_owner_login_budget TO fair_owner_runtime;
 GRANT INSERT, DELETE ON fair_owner_audit TO fair_owner_runtime;
 GRANT SELECT (created_at) ON fair_owner_audit TO fair_owner_runtime;

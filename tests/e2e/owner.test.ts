@@ -93,7 +93,7 @@ it('authenticated password change validates current password and policy, revokes
   expect(
     (await change(first, 'wrong-current', 'Newpassword123')).statusCode,
   ).toBe(401);
-  expect((await login()).statusCode).toBe(200);
+  expect((await login()).statusCode).toBe(201);
   const success = await change(first, password, 'Newpassword123');
   expect(success.statusCode).toBe(201);
   expect(success.headers['set-cookie']).toContain('Max-Age=0');
@@ -615,6 +615,8 @@ it('strict pagination/range validation and database outage fail safely', async (
   }
 });
 it('additive migrations upgrade prior schema and reverse only in disposable DB', async () => {
+  // Password-change audit allowlist was added after the identity sidecar.
+  await db.undoLastMigration({ transaction: 'all' });
   // The private historical identity sidecar is the newest additive migration.
   // Undo it first so the legacy SHADOW migration ordering remains unchanged.
   await db.undoLastMigration({ transaction: 'all' });

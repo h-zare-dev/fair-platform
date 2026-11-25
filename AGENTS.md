@@ -35,3 +35,11 @@ When instructions conflict, use this order unless an approved task specification
 - **Autonomous development agents cancelled by Owner on 2026-11-19.** Do not start or rely on a local agent/orchestrator/queue; source and documents remain historical. Owner reviews Draft PRs manually with CI and independent security/code review; no active agent isolation project is required. If the Owner ever reauthorizes unattended execution, `danger-full-access` worktrees are **not** OS isolation and a credential-free separate OS account/VM is mandatory first.
 
 The present **manual/CI workflow** is in `docs/AGENT_WORKFLOW.md`; old role files under `agents/` are historical references, not instructions to start autonomous services.
+
+## Reporting PR readiness
+
+Before recommending a merge, verify every applicable CI job on the latest PR
+commit. Fix failures on that PR and wait for its replacement run. Check the
+post-publish deployment gates against the actual diff and include any required
+approval workflow and operator instructions in the same PR. Distinguish checks
+that passed from jobs intentionally reserved for the protected post-merge push.

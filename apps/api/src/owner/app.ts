@@ -253,6 +253,7 @@ export async function createOwnerApi(
   openingBaseline?: PostgresOpeningBaseline,
   replayShadow?: PostgresReplayShadowJournal,
   replayAudit?: PostgresReplayShadowAudit,
+  webhookSecret?: string,
 ): Promise<NestFastifyApplication> {
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
@@ -313,6 +314,17 @@ export async function createOwnerApi(
     `${COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`;
   @Controller('api/v1/owner')
   class OwnerController {
+    @Post('settings/webhook/credential') async webhookCredential(
+      @Req() req: FastifyRequest,
+      @Res({ passthrough: true }) reply: FastifyReply,
+    ) {
+      csrf(req);
+      await requireOwner(req);
+      reply.header('Cache-Control', 'no-store');
+      if (!webhook || !webhookSecret)
+        throw new HttpException('Webhook is not configured', 503);
+      return { secret: webhookSecret };
+    }
     @Post('auth/login') async login(
       @Req() req: FastifyRequest,
       @Res({ passthrough: true }) reply: FastifyReply,

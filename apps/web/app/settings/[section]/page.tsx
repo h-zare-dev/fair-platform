@@ -4,6 +4,7 @@ import { CatalogManagement } from '../../../components/catalog';
 import { OwnerHeader } from '../../../components/owner-header';
 import { OpeningBaseline } from '../../../components/opening-baseline';
 import { CatalogBootstrap } from '../../../components/catalog-bootstrap';
+import { WebhookSettings } from '../../../components/webhook-settings';
 import { ChangePassword } from '../../../components/change-password';
 
 export const dynamic = 'force-dynamic';
@@ -95,6 +96,7 @@ export default async function SettingsSectionPage({
                 <small>تغییر رمز عبور</small>
               </a>
             </nav>
+            <WebhookSettings />
             <OpeningBaseline />
             <details className="catalog-source-panel">
               <summary>ابزار راه‌اندازی یک‌بارهٔ پکیج‌ها (در صورت نیاز)</summary>

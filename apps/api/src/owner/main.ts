@@ -80,6 +80,7 @@ async function main() {
               settings.APP_ENCRYPTION_KEY,
             );
             return {
+              webhookSecret: secret,
               receiver: new ReceiveWebhook(
                 new PasarguardSecretAuthenticator(secret),
                 new DurableInbox(db, encryption, settings),
@@ -161,6 +162,7 @@ async function main() {
       openingBaseline,
       replayShadow,
       replayAudit,
+      ingest?.webhookSecret,
     );
     let processing = false;
     const ingestionLoop = setInterval(() => {

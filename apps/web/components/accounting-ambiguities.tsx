@@ -74,6 +74,8 @@ export function AccountingAmbiguities() {
       day: string;
       amountToman: string;
       soldBytes: string;
+      periodSoldBytes: string;
+      periodAmountToman: string;
       pending: number;
     }[]
   >([]);
@@ -270,6 +272,7 @@ export function AccountingAmbiguities() {
                 <th>مدیر</th>
                 <th>حجم تأییدشده</th>
                 <th>مبلغ (تومان)</th>
+                <th>جمع مدیران انتخاب‌شده در بازه</th>
                 <th>وضعیت</th>
               </tr>
             </thead>
@@ -281,9 +284,15 @@ export function AccountingAmbiguities() {
                   <td>{formatGiB(d.soldBytes)}</td>
                   <td>{formatInteger(d.amountToman)}</td>
                   <td>
+                    {formatGiB(d.periodSoldBytes)} ·{' '}
+                    {formatInteger(d.periodAmountToman)} تومان
+                  </td>
+                  <td>
                     {d.pending
                       ? `جمع موقت · ${formatInteger(String(d.pending))} مورد در انتظار تصمیم`
-                      : 'آمادهٔ ارسال'}
+                      : period === 'day'
+                        ? 'آمادهٔ ارسال'
+                        : 'بدون ابهام ثبت‌شده'}
                   </td>
                 </tr>
               ))}

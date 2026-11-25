@@ -13,6 +13,15 @@ export class ShadowReview1792600000000 implements MigrationInterface {
     await r.query(`CREATE TABLE fair_shadow_review_events (
       event_id bigint PRIMARY KEY, review_id uuid NOT NULL REFERENCES fair_shadow_reviews
     )`);
+    await r.query(
+      'CREATE INDEX fair_shadow_item_day ON fair_shadow_items(day_id)',
+    );
+    await r.query(
+      'CREATE INDEX fair_shadow_late_day ON fair_shadow_late_events(day_id)',
+    );
+    await r.query(
+      'CREATE INDEX fair_shadow_review_day ON fair_shadow_reviews(day_id)',
+    );
     await r.query(`CREATE VIEW fair_shadow_day_reports AS SELECT d.source_instance_id AS source,d.billing_admin_id::text AS admin,d.local_day AS day,d.id AS day_id,
          (i.amount+r.amount) AS amount_toman,(i.bytes+r.bytes) AS sold_bytes,
          (i.pending+l.pending)::integer AS pending
@@ -37,6 +46,7 @@ export class ShadowReview1792600000000 implements MigrationInterface {
   }
 
   async down(r: QueryRunner): Promise<void> {
+    await r.query('DROP INDEX fair_shadow_item_day, fair_shadow_late_day');
     await r.query('DROP VIEW fair_shadow_day_reports');
     await r.query('DROP TABLE fair_shadow_review_events, fair_shadow_reviews');
   }

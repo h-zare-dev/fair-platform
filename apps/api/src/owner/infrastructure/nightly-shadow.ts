@@ -277,7 +277,11 @@ export class NightlyShadow {
       const rows = await tx.query<CreateRow[]>(
         `SELECT id::text,action,source_instance_id,billing_admin_id::text,external_user_id::text,
           username,source_enqueued_at,data_limit_bytes::text,
-          on_hold_expire_duration_seconds::text,event_status,
+          CASE WHEN action='user_created' AND on_hold_expire_duration_seconds IS NULL
+              AND user_status='active' AND data_limit_bytes=536870912
+              AND source_enqueued_at-source_user_created_at BETWEEN interval '0 seconds' AND interval '1 second'
+              AND EXTRACT(epoch FROM source_user_expire_at-source_user_created_at) BETWEEN 172799 AND 172801
+            THEN '172800' ELSE on_hold_expire_duration_seconds::text END AS on_hold_expire_duration_seconds,event_status,
           CASE WHEN action='user_updated' THEN (SELECT previous.bytes FROM (
             (SELECT p.source_enqueued_at AS at,CASE WHEN p.event_status='READY_FOR_ACCOUNTING'
               AND p.billing_admin_id=e.billing_admin_id AND p.action<>'user_deleted' THEN p.data_limit_bytes END AS bytes
@@ -346,10 +350,16 @@ export class NightlyShadow {
         }
         const [correction] = await tx.query<{ exists: boolean }[]>(
           `SELECT EXISTS(SELECT 1 FROM pasarguard_events other
-            WHERE other.source_instance_id=$1 AND other.username=$2
+            WHERE other.source_instance_id=$1 AND other.external_user_id=$2
               AND other.id<>$3 AND other.source_enqueued_at >= $4 AND other.source_enqueued_at < $5
               AND other.action IN ('user_created','user_deleted')) AS exists`,
-          [event.source_instance_id, event.username, event.id, start, end],
+          [
+            event.source_instance_id,
+            event.external_user_id,
+            event.id,
+            start,
+            end,
+          ],
         );
         classified.push(
           classifyCreate(

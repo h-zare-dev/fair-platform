@@ -64,6 +64,18 @@ it('holds only one admin/day and books a reviewed package once on its original d
     );
     const days = await reader.dayReports(filter);
     expect(days).toHaveLength(3);
+    const resolvedDay = days.find((d) => d.pending === 0)!.day;
+    for (const period of ['week', 'month'] as const) {
+      const report = await reader.dayReports(
+        { ...filter, date: resolvedDay },
+        period,
+      );
+      expect(report.find((d) => d.admin === '17')?.amountToman).toBe('100000');
+    }
+    expect(await reader.summary('primary')).toMatchObject({
+      pendingDays: '2',
+      ambiguityCount: '2',
+    });
     expect(days.filter((d) => d.pending === 0)).toEqual([
       expect.objectContaining({
         admin: '17',

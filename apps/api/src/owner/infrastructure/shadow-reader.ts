@@ -435,7 +435,7 @@ export class PostgresShadowReader {
         }[]
       >(
         `SELECT source,admin,$3::text || ' — ' || $4::text AS day,sum(amount_toman)::text AS "amountToman",
-       sum(sold_bytes)::text AS "soldBytes",sum(pending)::integer AS pending FROM fair_shadow_day_reports
+       sum(sold_bytes)::text AS "soldBytes",sum(sum(amount_toman)) OVER ()::text AS "periodAmountToman",sum(sum(sold_bytes)) OVER ()::text AS "periodSoldBytes",sum(pending)::integer AS pending FROM fair_shadow_day_reports
        WHERE ($1::text IS NULL OR source=$1) AND ($2::text IS NULL OR admin=$2) AND day BETWEEN $3 AND $4
        GROUP BY source,admin ORDER BY source,admin LIMIT $5 OFFSET $6`,
         [
@@ -457,7 +457,7 @@ export class PostgresShadowReader {
         pending: number;
       }[]
     >(
-      `SELECT source,admin,day,amount_toman::text AS "amountToman",sold_bytes::text AS "soldBytes",pending
+      `SELECT source,admin,day,amount_toman::text AS "amountToman",sold_bytes::text AS "soldBytes",sum(amount_toman) OVER (PARTITION BY day)::text AS "periodAmountToman",sum(sold_bytes) OVER (PARTITION BY day)::text AS "periodSoldBytes",pending
        FROM fair_shadow_day_reports WHERE ($1::text IS NULL OR source=$1)
        AND ($2::text IS NULL OR admin=$2) AND ($3::text IS NULL OR day=$3)
        ORDER BY day DESC,day_id DESC LIMIT $4 OFFSET $5`,

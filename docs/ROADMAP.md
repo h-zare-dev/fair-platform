@@ -16,7 +16,7 @@ This is the **canonical feature sequencing and status index**. Financial semanti
 
 The 122-day historical SHADOW comparison has completed on Staging. The owner panel shows original source IDs, charges, credits, held days and statement volume. The private archive child count exceeded the dashboard event count by three. Use the pilot reconciliation query to measure repeated normalized occurrences before attributing the difference.
 
-The next milestone covers the opening watermark, authenticated second-webhook smoke, Update/Reset settlement at local midnight prices, and auditable per-day ambiguity decisions. The existing nightly worker only prices Create. A fresh seven-day SHADOW observation follows the smoke and the Owner’s choice of host. See [pilot procedure](deployment/WEBHOOK-PILOT.md).
+The next milestone covers the opening watermark, authenticated second-webhook smoke, Update/Reset settlement at local midnight prices, and auditable per-day ambiguity decisions. The nightly worker now classifies Creates, verified volume increases and renewals. The Owner can settle pending account events against their original admin/day. A fresh seven-day SHADOW observation follows the smoke and the Owner’s choice of host. See [pilot procedure](deployment/WEBHOOK-PILOT.md).
 
 ## November 19 delivery sequence and historical status
 

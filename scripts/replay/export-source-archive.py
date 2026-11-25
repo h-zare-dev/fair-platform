@@ -116,7 +116,11 @@ def main():
     parser.add_argument("--container", default="db-timescaledb-1")
     parser.add_argument("--database", default="pasarjew")
     parser.add_argument("--user", default="pasarguard")
+    parser.add_argument("--timeout-seconds", type=int, default=1800,
+                        help="Database statement timeout in seconds (default: 1800).")
     args = parser.parse_args()
+    if not 1 <= args.timeout_seconds <= 2147483:
+        parser.error("--timeout-seconds must be between 1 and 2147483.")
     if args.cutoff.utcoffset() != timezone.utc.utcoffset(None) or (
         args.days not in (1, 7, 30) and not 90 <= args.days <= 186
     ):
@@ -139,11 +143,11 @@ def main():
         parser.error("Choose a private output directory outside the Git worktree.")
     command = [
         "docker", "exec", "-i", "-e",
-        "PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=180000 -c timezone=UTC",
+        f"PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout={args.timeout_seconds * 1000} -c timezone=UTC",
         args.container, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
         "-U", args.user, "-d", args.database, "-c", query,
     ]
-    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=None,
                           text=True, encoding="utf-8") as process:
         def records():
             yield from process.stdout

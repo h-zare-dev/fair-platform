@@ -883,7 +883,9 @@ export function ShadowAuditReports({
                 <>
                   <thead>
                     <tr>
-                      <th>بازهٔ شمسی</th>
+                      <th>
+                        بازهٔ {reportCalendar === 'jalali' ? 'شمسی' : 'میلادی'}
+                      </th>
                       <th>وضعیت</th>
                       <th>روز-مدیر مشاهده‌شده / آماده / معلق</th>
                       <th>تعداد عملیات / ابهام</th>

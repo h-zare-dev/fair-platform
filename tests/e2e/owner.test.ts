@@ -755,8 +755,12 @@ it('runtime role can ingest while core event fields and Owner credentials remain
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
       expect(await runtimeAuth.authenticated(result.token)).toBe(true);
-      expect(await runtimeAuth.changePassword('wrong-current', 'Newpass123', result.token)).toBe('denied');
-      expect(await runtimeAuth.changePassword(password, 'Newpass123', result.token)).toBe('ok');
+      expect(
+        await runtimeAuth.changePassword('wrong-current', 'Newpass123', result.token),
+      ).toBe('denied');
+      expect(
+        await runtimeAuth.changePassword(password, 'Newpass123', result.token),
+      ).toBe('ok');
       expect(await runtimeAuth.authenticated(result.token)).toBe(false);
       expect((await runtimeAuth.login(password, null)).kind).toBe('denied');
       expect((await runtimeAuth.login('Newpass123', null)).kind).toBe('ok');

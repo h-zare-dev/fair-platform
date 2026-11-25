@@ -25,8 +25,13 @@ the configured deletion-credit policy. Completed runs remain selectable on
 
 2. Stage the resulting matching `.jsonl.gz` and `.manifest.json` in a private
    directory outside Git. After the Owner reviews and deploys the
-   `replay-archive` additive migration through the existing Staging approval
-   process, invoke the import from a trusted operator shell on Staging.
+   password-change and archive migration proofs, invoke the import from a
+   trusted operator shell on Staging. From the protected `development` workflow
+   list, the Owner runs **Staging password and archive migration approval
+   (Owner only)** with `APPROVE_PASSWORD_AND_ARCHIVE_STAGE`. The approval uses
+   the published API image for that exact `development` commit. Wait for its
+   success, then rerun the failed Deploy job from the same commit and verify
+   that deployment finishes before importing the archive.
    The example assumes the files are readable by the one-shot container user.
 
    ```sh

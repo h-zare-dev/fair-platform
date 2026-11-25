@@ -133,6 +133,38 @@ class UpgradeTests(unittest.TestCase):
                 with self.assertRaises(upgrade.UpgradeError):
                     upgrade.check_proofs(approved, report(OLD, OLD_HASHES), report(names, hashes))
 
+    def test_password_and_archive_approval_keeps_compose_and_previous_hashes(self):
+        mode = 'password-and-archive'
+        names = OLD + [upgrade.PASSWORD_CHANGE_MIGRATION, upgrade.REPLAY_ARCHIVE_MIGRATION]
+        hashes = {**OLD_HASHES, upgrade.PASSWORD_CHANGE_FILE: 'c' * 64,
+                  upgrade.REPLAY_ARCHIVE_FILE: 'd' * 64}
+        self.commands.new = report(names, hashes)
+        outcome = upgrade.review_and_approve(
+            self.root, self.settings, self.old_compose, self.target_sha, self.commands, mode,
+        )
+        self.assertEqual(outcome, 'STAGING_PASSWORD_AND_ARCHIVE_MIGRATIONS_APPROVED')
+        self.assertEqual((self.root / 'compose.yml').read_bytes(), self.old_compose)
+        self.assertEqual(json.loads((self.root / 'current.json').read_text()), self.accepted)
+        proof = json.loads((self.settings / 'compatible-migrations.json').read_text())
+        self.assertEqual(proof, {'configuredMigrations': sorted(names), 'hashes': hashes})
+
+    def test_password_and_archive_reject_unexpected_migrations_and_compose(self):
+        approved = {'configuredMigrations': sorted(OLD), 'hashes': OLD_HASHES}
+        old = report(OLD, OLD_HASHES)
+        mode = 'password-and-archive'
+        names = OLD + [upgrade.PASSWORD_CHANGE_MIGRATION, upgrade.REPLAY_ARCHIVE_MIGRATION]
+        hashes = {**OLD_HASHES, upgrade.PASSWORD_CHANGE_FILE: 'c' * 64,
+                  upgrade.REPLAY_ARCHIVE_FILE: 'd' * 64}
+        for candidate, expected in [
+            (report(names[:-1], hashes), 'UNEXPECTED_NEW_MIGRATIONS'),
+            (report(names + ['Unexpected'], hashes), 'UNEXPECTED_NEW_MIGRATIONS'),
+            (report(names, {**hashes, 'old-a.js': 'e' * 64}), 'PREVIOUS_MIGRATION_HASH_CHANGED'),
+        ]:
+            with self.assertRaisesRegex(upgrade.UpgradeError, expected):
+                upgrade.check_proofs(approved, old, candidate, mode)
+        with self.assertRaisesRegex(upgrade.UpgradeError, 'CONFIG_CHANGE_NOT_APPROVED'):
+            upgrade.check_compose(self.old_compose, self.proposed, mode)
+
     def test_approves_metadata_without_running_migration_or_restart(self):
         self.assertEqual(self.approve(), 'STAGING_FP004_CONFIG_AND_MIGRATION_APPROVED')
         updated = json.loads((self.root / 'current.json').read_text())

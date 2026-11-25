@@ -98,13 +98,18 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   const pausedRefresh = new Promise<void>((resolve) => {
     releaseRefresh = resolve;
   });
+  let markIntercepted!: () => void;
+  const intercepted = new Promise<void>((resolve) => {
+    markIntercepted = resolve;
+  });
   await page.route(summaryRoute, async (route) => {
+    markIntercepted();
     await pausedRefresh;
     await route.continue();
   });
-  const refreshing = page.waitForRequest(summaryRoute);
+  const refreshed = page.waitForResponse(summaryRoute);
   await page.getByRole('button', { name: /به‌روزرسانی/ }).click();
-  await refreshing;
+  await intercepted;
   try {
     await expect(page.locator('.kpis')).toHaveAttribute('aria-busy', 'false');
     await expect(
@@ -112,6 +117,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     ).toBeVisible();
   } finally {
     releaseRefresh();
+    await refreshed;
     await page.unroute(summaryRoute);
   }
   await expect(

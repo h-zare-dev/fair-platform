@@ -453,6 +453,9 @@ test('server-rendered login cannot submit a password through a GET URL before hy
 test('switching report tabs never renders stale administrator rows as event evidence', async ({
   page,
 }) => {
+  // This scenario covers two calendar modes and repeated pointer/keyboard
+  // interactions; mobile emulation needs more than the generic 45-second limit.
+  test.setTimeout(90_000);
   const pageErrors: string[] = [];
   let calendarMode: 'jalali' | 'gregorian' = 'jalali';
   page.on('pageerror', (error) => pageErrors.push(error.message));

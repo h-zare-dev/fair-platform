@@ -43,9 +43,7 @@ the configured deletion-credit policy. Completed runs remain selectable on
    processor normalizes the archive before the journal finishes. Refresh
    Reports to select the new completed run. The archive interval, by receipt
    date, determines whether a full week or month is covered. Billing chronology
-   uses each event's preserved source timestamp. The CSV action exports every
-   page for the selected manager and date filters, or the administrator summary.
-   The fixed catalog is an
+   uses each event's preserved source timestamp. The fixed catalog is an
    Owner-attested historical simulation assumption.
 
    The archive supports up to 100,000 batches and 400,000 child occurrences.

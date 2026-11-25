@@ -62,7 +62,9 @@ jobs:
           python3 -m unittest discover -s tests/release -p test_activate_pasarguard_directory.py
 
       - name: Owner-only migration approval regressions
-        run: python3 -m unittest discover -s tests/release -p test_fp004_operator_upgrade.py
+        run: |
+          python3 -m unittest discover -s tests/release -p test_fp004_operator_upgrade.py
+          python3 -m unittest discover -s tests/release -p test_password_runtime_grant_approval.py
 
       - name: Build
         run: pnpm build

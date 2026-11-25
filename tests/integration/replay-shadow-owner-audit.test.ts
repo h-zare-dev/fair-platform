@@ -194,6 +194,68 @@ describe('Owner SHADOW audit forensic evidence is isolated and complete', () => 
     expect(entries.rows).toHaveLength(0);
   });
 
+  it('shows one global daily/weekly/monthly row across admins and retains the selected-admin totals', async () => {
+    const globalFilters = { runId, offset: 0, limit: 10 };
+    for (const period of ['day', 'week', 'month'] as const) {
+      const rows = await audit().periods(globalFilters, period);
+      expect(rows.billingAdminId).toBeNull();
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0]).toMatchObject({
+        observedDays: 2,
+        readyDays: 1,
+        pendingDays: 1,
+        readyChargeToman: '100000',
+        readyChargeBytes: (50n * gib).toString(),
+        chargeToman: null,
+        netToman: null,
+        status: 'PENDING_REVIEW',
+      });
+      const filtered = await audit().periods(
+        { ...globalFilters, billingAdminId: '18' },
+        period,
+      );
+      expect(filtered.rows[0]).toMatchObject({
+        readyChargeToman: '100000',
+        pendingDays: 0,
+      });
+    }
+    const gregorian = new PostgresReplayShadowAudit(
+      db,
+      new PostgresReplayShadowJournal(db, 'Asia/Tehran', 600, false),
+      'SATURDAY',
+      'gregorian',
+    );
+    expect((await gregorian.overview(runId)).reportCalendar).toBe('gregorian');
+    expect(
+      (await gregorian.periods(globalFilters, 'month')).rows[0],
+    ).toMatchObject({
+      startDate: '2026-11-01',
+      endDate: '2026-11-30',
+      readyChargeToman: '100000',
+    });
+    expect(
+      (
+        await gregorian.entries({
+          ...globalFilters,
+          from: '2026-11-20',
+          to: '2026-11-20',
+        })
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await gregorian.holds({
+          ...globalFilters,
+          from: '2026-11-20',
+          to: '2026-11-20',
+        })
+      ).rows,
+    ).toHaveLength(1);
+    await expect(
+      gregorian.entries({ ...globalFilters, from: '2026-02-30' }),
+    ).rejects.toThrow('INVALID_GREGORIAN_DATE');
+  });
+
   it('reconciles the independent admin/day and ignored-event breakdown without financial mutation', async () => {
     const admins = await audit().admins({
       runId,

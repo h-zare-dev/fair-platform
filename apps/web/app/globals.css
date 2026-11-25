@@ -1367,6 +1367,122 @@ footer {
 .audit-toolbar button {
   min-height: 44px;
 }
+.report-admin-filter,
+.report-date-filter {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  flex: 1 1 260px;
+  min-width: 235px;
+  max-width: 430px;
+}
+.report-filter-label {
+  color: var(--muted);
+  font-weight: 700;
+}
+.report-admin-trigger,
+.report-date-trigger {
+  width: 100%;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.report-date-trigger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.report-admin-popover,
+.report-date-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(440px, 90vw);
+  max-height: min(76vh, 650px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.report-admin-popover input {
+  width: 100%;
+  margin: 0 0 10px;
+}
+.report-admin-results {
+  display: grid;
+  gap: 6px;
+  max-height: 270px;
+  overflow: auto;
+}
+.report-admin-results button {
+  text-align: right;
+}
+.report-admin-selected,
+.report-date-selected {
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+.report-admin-pager,
+.report-date-actions,
+.report-date-navigation {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+}
+.report-admin-pager {
+  justify-content: space-between;
+}
+.report-date-boundaries {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.report-date-boundaries button {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  font-size: 12px;
+}
+.report-date-navigation select {
+  flex: 1;
+  min-width: 0;
+}
+.report-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 12px;
+  text-align: center;
+}
+.report-date-grid b,
+.report-date-grid button {
+  display: grid;
+  place-items: center;
+  min-height: 37px;
+  padding: 4px;
+}
+.report-date-in-range {
+  background: var(--accent-soft);
+}
+.report-date-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 700px) {
+  .report-admin-popover,
+  .report-date-popover {
+    position: fixed;
+    top: 12vh;
+    right: 4vw;
+    width: 92vw;
+    max-height: 78vh;
+  }
+}
 .audit-tabs {
   gap: 7px;
 }

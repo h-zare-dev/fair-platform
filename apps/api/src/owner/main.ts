@@ -23,7 +23,10 @@ import { PasarguardOpeningBaselineDirectory } from './infrastructure/opening-bas
 import { PostgresOpeningBaseline } from './infrastructure/opening-baseline.js';
 import { PostgresReplayShadowJournal } from './infrastructure/replay-shadow-journal.js';
 import { PostgresReplayShadowAudit } from './infrastructure/replay-shadow-audit.js';
-import { parseReportWeekStart } from './application/shadow-report-periods.js';
+import {
+  parseReportCalendar,
+  parseReportWeekStart,
+} from './application/shadow-report-periods.js';
 async function main() {
   const config = z
     .object({
@@ -31,6 +34,7 @@ async function main() {
       OWNER_ORIGIN: z.literal('https://panel.fairisfair.ir'),
       FAIR_TIME_ZONE: z.string().default('Asia/Tehran'),
       FAIR_REPORT_WEEK_START_DAY: z.string().default('SATURDAY'),
+      FAIR_REPORT_CALENDAR: z.string().default('jalali'),
       FAIR_CORRELATION_WINDOW_SECONDS: z.coerce
         .number()
         .int()
@@ -137,8 +141,14 @@ async function main() {
     const reportWeekStart = parseReportWeekStart(
       config.FAIR_REPORT_WEEK_START_DAY,
     );
+    const reportCalendar = parseReportCalendar(config.FAIR_REPORT_CALENDAR);
     const replayAudit = replayShadow
-      ? new PostgresReplayShadowAudit(db, replayShadow, reportWeekStart)
+      ? new PostgresReplayShadowAudit(
+          db,
+          replayShadow,
+          reportWeekStart,
+          reportCalendar,
+        )
       : undefined;
     const app = await createOwnerApi(
       auth,

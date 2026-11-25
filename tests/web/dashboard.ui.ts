@@ -467,6 +467,7 @@ test('switching report tabs never renders stale administrator rows as event evid
         mode: 'HISTORICAL_SHADOW_AUDIT',
         postingScope: 'SHADOW',
         liveBalanceMutated: false,
+        reportCalendar: 'jalali',
         run: {
           id: '1',
           eventCount: 1,
@@ -534,6 +535,37 @@ test('switching report tabs never renders stale administrator rows as event evid
       json: { runId: '1', nextOffset: null, rows: [] },
     }),
   );
+  const periodRequests: URL[] = [];
+  await page.route(/\/audit\/periods(?:\?.*)?$/, (route) => {
+    periodRequests.push(new URL(route.request().url()));
+    return route.fulfill({
+      json: {
+        runId: '1',
+        billingAdminId: null,
+        nextOffset: null,
+        rows: [
+          {
+            startDate: '1405-08-01',
+            endDate: '1405-08-30',
+            status: 'RECONCILED',
+            observedDays: 2,
+            readyDays: 2,
+            pendingDays: 0,
+            entryCount: 2,
+            holdCount: 0,
+            readyChargeToman: '200000',
+            readyCreditToman: '0',
+            readyNetToman: '200000',
+            readyChargeBytes: '214748364800',
+            chargeBytes: '214748364800',
+            chargeToman: '200000',
+            creditToman: '0',
+            netToman: '200000',
+          },
+        ],
+      },
+    });
+  });
   await page.goto('/reports');
   const adminRow = page.getByRole('row').filter({ hasText: 'Test admin' });
   await expect(adminRow).toBeVisible();
@@ -542,5 +574,39 @@ test('switching report tabs never renders stale administrator rows as event evid
     page.getByRole('columnheader', { name: 'علت بررسی' }),
   ).toBeVisible();
   await expect(adminRow).toHaveCount(0);
+  await page.getByRole('button', { name: 'ماهانه', exact: true }).click();
+  await expect(
+    page.getByRole('columnheader', { name: 'جمع حجم ثبت‌شده' }),
+  ).toBeVisible();
+  await expect(page.getByRole('cell', { name: /۲۰۰ گیگابایت/ })).toBeVisible();
+  expect(periodRequests.at(-1)?.searchParams.get('billingAdminId')).toBeNull();
+  const picker = page.locator('.report-date-trigger');
+  await picker.click();
+  const dialog = page.getByRole('dialog', { name: 'انتخاب بازهٔ تاریخ گزارش' });
+  await dialog.locator('.report-date-grid button').first().click();
+  await dialog.locator('.report-date-grid button').last().click();
+  await dialog.getByRole('button', { name: 'اعمال بازه' }).click();
+  await expect
+    .poll(() => periodRequests.at(-1)?.searchParams.get('from'))
+    .toBe('1405-08-01');
+  await expect
+    .poll(() => periodRequests.at(-1)?.searchParams.get('to'))
+    .toBe('1405-08-30');
+  await page.locator('.report-admin-trigger').click();
+  await page
+    .getByRole('dialog', { name: 'فیلتر گزارش بر اساس مدیر' })
+    .getByRole('button', { name: 'Test admin' })
+    .click();
+  await expect
+    .poll(() => periodRequests.at(-1)?.searchParams.get('billingAdminId'))
+    .toBe('1');
+  await page.locator('.report-admin-trigger').click();
+  await page
+    .getByRole('dialog', { name: 'فیلتر گزارش بر اساس مدیر' })
+    .getByRole('button', { name: 'همهٔ مدیران' })
+    .click();
+  await expect
+    .poll(() => periodRequests.at(-1)?.searchParams.get('billingAdminId'))
+    .toBeNull();
   expect(pageErrors).toEqual([]);
 });

@@ -58,6 +58,7 @@ services:
       FAIR_SHADOW_CLOSE_TIME: '02:10'
       FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}
       FAIR_REPORT_WEEK_START_DAY: ${FAIR_REPORT_WEEK_START_DAY:-SATURDAY}
+      FAIR_REPORT_CALENDAR: ${FAIR_REPORT_CALENDAR:-jalali}
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
       APP_ENCRYPTION_KEY_FILE: /run/secrets/seed_encryption_key
       PASARGUARD_WEBHOOK_SECRET_FILE: /run/secrets/shadow_webhook_secret

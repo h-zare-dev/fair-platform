@@ -30,8 +30,8 @@ export default async function ReportsPage({
           <p className="eyebrow">پنل مدیریت / گزارش‌ها / ممیزی دفتر آزمایشی</p>
           <h1>گزارش‌های جامع حسابداری</h1>
           <p className="muted">
-            ریزعملیات هر مدیر در دوره‌های روزانه، هفتگی و ماهانه، همراه با
-            ابهامات و شواهد منبع.
+            جمع کل همهٔ مدیران در هر روز، هفته و ماه؛ همراه با فیلتر اختیاری
+            مدیر، ابهامات و شواهد منبع.
           </p>
         </header>
         <details className="catalog-source-panel">

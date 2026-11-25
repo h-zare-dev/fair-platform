@@ -45,6 +45,8 @@ SHADOW_CREDIT_ANCHOR = b"      FAIR_SHADOW_CLOSE_TIME: '02:10'\n"
 SHADOW_CREDIT_ADDITION = b'      FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}\n'
 REPORT_WEEK_ANCHOR = SHADOW_CREDIT_ADDITION
 REPORT_WEEK_ADDITION = b'      FAIR_REPORT_WEEK_START_DAY: ${FAIR_REPORT_WEEK_START_DAY:-SATURDAY}\n'
+REPORT_CALENDAR_ANCHOR = REPORT_WEEK_ADDITION
+REPORT_CALENDAR_ADDITION = b'      FAIR_REPORT_CALENDAR: ${FAIR_REPORT_CALENDAR:-jalali}\n'
 IMAGE_RE = re.compile(r'ghcr\.io/h-zare-dev/fair-platform-owner-api@sha256:[0-9a-f]{64}')
 
 
@@ -72,6 +74,13 @@ def check_compose(previous, proposed, mode='initial'):
                                         REPORT_WEEK_ANCHOR + REPORT_WEEK_ADDITION, 1):
             raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
         return
+    if mode == 'report-calendar':
+        if previous.count(REPORT_CALENDAR_ADDITION) != 0 or previous.count(REPORT_CALENDAR_ANCHOR) != 1:
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        if proposed != previous.replace(REPORT_CALENDAR_ANCHOR,
+                                        REPORT_CALENDAR_ANCHOR + REPORT_CALENDAR_ADDITION, 1):
+            raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
+        return
     if previous.count(ADDITION) != 0 or previous.count(ANCHOR) != 1:
         raise UpgradeError('STAGING_CONFIG_CHANGE_NOT_APPROVED')
     if proposed != previous.replace(ANCHOR, ANCHOR + ADDITION, 1):
@@ -89,6 +98,7 @@ def check_proofs(approved, old, new, mode='initial'):
             (REPLAY_JOURNAL_MIGRATION, REPLAY_JOURNAL_FILE),
         ],
         'shadow-audit': [(REPLAY_AUDIT_MIGRATION, REPLAY_AUDIT_FILE)],
+        'report-calendar': [],
         'private-identity': [(PRIVATE_IDENTITY_MIGRATION, PRIVATE_IDENTITY_FILE)],
         'replay-archive': [(REPLAY_ARCHIVE_MIGRATION, REPLAY_ARCHIVE_FILE)],
         'password-and-archive': [
@@ -223,7 +233,7 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
     original_compat = (settings / 'compatible-migrations.json').read_text()
     new_manifest = {**accepted, 'configHash': ''}
     try:
-        if mode in ('initial', 'accounting-shadow', 'shadow-audit'):
+        if mode in ('initial', 'accounting-shadow', 'shadow-audit', 'report-calendar'):
             atomic(root / 'compose.yml', proposed.decode('utf-8'))
             new_manifest['configHash'] = config_hash(root)
             atomic(root / 'current.json', json.dumps(new_manifest))
@@ -238,6 +248,7 @@ def review_and_approve(root, settings, proposed, sha, commands, mode='initial'):
              'opening-baseline': 'STAGING_OPENING_BASELINE_MIGRATION_APPROVED',
              'accounting-shadow': 'STAGING_ACCOUNTING_SHADOW_MIGRATIONS_APPROVED',
              'shadow-audit': 'STAGING_SHADOW_AUDIT_MIGRATION_APPROVED',
+             'report-calendar': 'STAGING_REPORT_CALENDAR_CONFIG_APPROVED',
              'private-identity': 'STAGING_PRIVATE_IDENTITY_MIGRATION_APPROVED',
              'replay-archive': 'STAGING_REPLAY_ARCHIVE_MIGRATION_APPROVED',
              'password-and-archive': 'STAGING_PASSWORD_AND_ARCHIVE_MIGRATIONS_APPROVED',
@@ -252,7 +263,7 @@ def main():
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     mode = sys.argv[2] if len(sys.argv) == 3 else 'initial'
     if mode not in ('initial', 'group-delete', 'opening-baseline', 'accounting-shadow',
-                    'shadow-audit', 'private-identity', 'replay-archive', 'password-and-archive',
+                    'shadow-audit', 'report-calendar', 'private-identity', 'replay-archive', 'password-and-archive',
                     'password-runtime-grant', 'replay-source-identity'):
         raise UpgradeError('STAGING_OPERATOR_INVALID_INVOCATION')
     proposed = sys.stdin.buffer.read(30001)

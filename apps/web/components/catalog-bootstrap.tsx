@@ -122,7 +122,7 @@ export function CatalogBootstrap() {
       if (!response.ok) {
         if (response.status === 409)
           throw new Error(
-            'این منبع قبلاً تنظیم شده یا اطلاعات هم‌زمان تغییر کرده است. هیچ موردی بازنویسی نشد.',
+            'پکیج‌ها قبلاً تنظیم شده‌اند یا اطلاعات هم‌زمان تغییر کرده است. هیچ موردی بازنویسی نشد.',
           );
         if (response.status === 503)
           throw new Error(
@@ -189,14 +189,14 @@ export function CatalogBootstrap() {
           {loading && <p>در حال دریافت مشخصات مرجع…</p>}
           {occupied && (
             <p role="alert">
-              منبع اصلی از قبل تنظیماتی دارد. برای حفظ داده‌ها، ثبت یکجای جدید
-              مسدود است.
+              پکیج‌ها یا گروه‌ها از قبل تنظیم شده‌اند. برای حفظ داده‌ها، ثبت
+              یکجای جدید مسدود است.
             </p>
           )}
           {requirements && !occupied && (
             <>
               <p>
-                منبع: <code>primary</code> · تعداد مدیران مورد انتظار:{' '}
+                تعداد مدیران مورد انتظار:{' '}
                 {formatInteger(requirements.expectedAdmins)} · مبلغ همهٔ پکیج‌ها
                 به تومان
               </p>

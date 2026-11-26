@@ -48,16 +48,17 @@ async function get<T>(url: string): Promise<T> {
   if (!result.ok) throw new Error('دریافت داده‌ها ناموفق بود.');
   return result.json() as Promise<T>;
 }
-export function AccountingAmbiguities() {
-  const [source, setSource] = useState('');
+export function AccountingAmbiguities({
+  reports = false,
+}: { reports?: boolean } = {}) {
   const [admin, setAdmin] = useState('');
   const [reason, setReason] = useState('');
   const [day, setDay] = useState('');
   const [applied, setApplied] = useState({
-    source: '',
+    source: 'primary',
     admin: '',
     reason: '',
-    day: '',
+    date: '',
   });
   const [period, setPeriod] = useState('day');
   const [reportOffset, setReportOffset] = useState(0);
@@ -97,14 +98,22 @@ export function AccountingAmbiguities() {
       applied.source ? { source: applied.source } : {},
     );
     void Promise.all([
-      get<Summary>(`/api/v1/owner/operations/accounting/summary?${counts}`),
-      get<Page>(`/api/v1/owner/operations/accounting/ambiguities?${params}`),
+      reports
+        ? null
+        : get<Summary>(`/api/v1/owner/operations/accounting/summary?${counts}`),
+      reports
+        ? { rows: [], nextOffset: null }
+        : get<Page>(
+            `/api/v1/owner/operations/accounting/ambiguities?${params}`,
+          ),
       get<typeof days>(
         `/api/v1/owner/operations/accounting/days?${new URLSearchParams({ ...Object.fromEntries(params), period, offset: String(reportOffset) })}`,
       ),
-      get<{ packages: { id: string; name: string }[] }>(
-        `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || 'primary')}`,
-      ),
+      reports
+        ? { packages: [] }
+        : get<{ packages: { id: string; name: string }[] }>(
+            `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || 'primary')}`,
+          ),
     ])
       .then(([s, p, daily, catalog]) => {
         if (active) {
@@ -126,7 +135,7 @@ export function AccountingAmbiguities() {
     return () => {
       active = false;
     };
-  }, [applied, offset, revision, period, reportOffset]);
+  }, [applied, offset, revision, period, reportOffset, reports]);
   async function decide(chosen: string | null) {
     setSaving(true);
     setError('');
@@ -155,22 +164,20 @@ export function AccountingAmbiguities() {
   }
   return (
     <>
-      <OwnerHeader active="dashboard" />
-      <main className="dashboard" dir="rtl">
+      <OwnerHeader active={reports ? 'reports' : 'dashboard'} />
+      <main className="dashboard webhook-accounting" dir="rtl">
         <div className="stage">
           حسابداری سایه · بدون صدور صورتحساب یا ارسال گزارش
         </div>
         <div className="intro">
           <div>
-            <p className="eyebrow">FP-005 / ثبت شبانه</p>
-            <h1>ابهامات ثبت شبانه</h1>
-            <p className="muted">
-              این صفحه موارد ثبت شبانه را نشان می‌دهد. برای بررسی آرشیو تاریخی،
-              تب ابهامات را در گزارش‌های حسابداری باز کنید.
-            </p>
+            <h1>{reports ? 'گزارش‌های جامع حسابداری' : 'ابهامات ثبت شبانه'}</h1>
           </div>
-          <a className="secondary" href="/reports?view=holds">
-            ابهامات آرشیو تاریخی
+          <a
+            className="secondary"
+            href={reports ? '/accounting/ambiguities' : '/reports'}
+          >
+            {reports ? 'بررسی ابهامات' : 'گزارش‌ها'}
           </a>
         </div>
         <form
@@ -179,19 +186,9 @@ export function AccountingAmbiguities() {
             event.preventDefault();
             setReportOffset(0);
             setOffset(0);
-            setApplied({ source, admin, reason, day });
+            setApplied({ source: 'primary', admin, reason, date: day });
           }}
         >
-          <label>
-            منبع
-            <input
-              dir="ltr"
-              maxLength={100}
-              placeholder="همه"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-            />
-          </label>
           <label>
             شناسهٔ مدیر
             <input
@@ -202,17 +199,22 @@ export function AccountingAmbiguities() {
               onChange={(e) => setAdmin(e.target.value)}
             />
           </label>
-          <label>
-            نوع ابهام
-            <select value={reason} onChange={(e) => setReason(e.target.value)}>
-              <option value="">همهٔ علت‌ها</option>
-              {Object.entries(names).map(([key, value]) => (
-                <option value={key} key={key}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!reports && (
+            <label>
+              نوع ابهام
+              <select
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              >
+                <option value="">همهٔ علت‌ها</option>
+                {Object.entries(names).map(([key, value]) => (
+                  <option value={key} key={key}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             روز شمسی
             <input
@@ -232,209 +234,231 @@ export function AccountingAmbiguities() {
             {error}
           </div>
         )}
-        <div className="kpis">
-          {(
-            [
-              ['روزهای پردازش‌شده', summary?.closedDays],
-              ['روزهای متوقف‌شده', summary?.pendingDays],
-              ['ابهامات شبانه', summary?.ambiguityCount],
-              ['رویدادهای دیرهنگام', summary?.lateCount],
-            ] as [string, string | undefined][]
-          ).map(([title, value]) => (
-            <section className="kpi" key={title}>
-              <h2>{title}</h2>
-              <p className="number">
-                {busy ? '…' : value ? formatInteger(value) : '—'}
-              </p>
-            </section>
-          ))}
-        </div>
-        <section className="table-card">
-          <h2>صورتحساب وبهوک</h2>
-          <label>
-            بازه{' '}
-            <select
-              value={period}
-              onChange={(e) => {
-                setPeriod(e.target.value);
-                setReportOffset(0);
-              }}
-            >
-              <option value="day">روزانه</option>
-              <option value="week">هفتگی</option>
-              <option value="month">ماهانه</option>
-            </select>
-          </label>
-          <table>
-            <thead>
-              <tr>
-                <th>روز</th>
-                <th>مدیر</th>
-                <th>حجم تأییدشده</th>
-                <th>مبلغ (تومان)</th>
-                <th>جمع مدیران انتخاب‌شده در بازه</th>
-                <th>وضعیت</th>
-              </tr>
-            </thead>
-            <tbody>
-              {days.map((d) => (
-                <tr key={JSON.stringify([d.source, d.admin, d.day])}>
-                  <td>{d.day}</td>
-                  <td>{formatInteger(d.admin)}</td>
-                  <td>{formatGiB(d.soldBytes)}</td>
-                  <td>{formatInteger(d.amountToman)}</td>
-                  <td>
-                    {formatGiB(d.periodSoldBytes)} ·{' '}
-                    {formatInteger(d.periodAmountToman)} تومان
-                  </td>
-                  <td>
-                    {d.pending
-                      ? `جمع موقت · ${formatInteger(String(d.pending))} مورد در انتظار تصمیم`
-                      : period === 'day'
-                        ? 'آمادهٔ ارسال'
-                        : 'بدون ابهام ثبت‌شده'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button
-            disabled={busy || reportOffset === 0}
-            onClick={() => setReportOffset(reportOffset - 25)}
-          >
-            قبلی
-          </button>
-          <button
-            disabled={busy || days.length < 25}
-            onClick={() => setReportOffset(reportOffset + 25)}
-          >
-            بعدی
-          </button>
-        </section>
-        <section className="table-card">
+        {!reports && (
+          <div className="kpis">
+            {(
+              [
+                ['روزهای پردازش‌شده', summary?.closedDays],
+                ['روزهای متوقف‌شده', summary?.pendingDays],
+                ['ابهامات شبانه', summary?.ambiguityCount],
+                ['رویدادهای دیرهنگام', summary?.lateCount],
+              ] as [string, string | undefined][]
+            ).map(([title, value]) => (
+              <section className="kpi" key={title}>
+                <h2>{title}</h2>
+                <p className="number">
+                  {busy ? '…' : value ? formatInteger(value) : '—'}
+                </p>
+              </section>
+            ))}
+          </div>
+        )}
+        <section className="table-card statement-card">
           <div className="section-heading">
-            <h2>موارد نیازمند بررسی</h2>
+            <h2>صورتحساب وبهوک</h2>
             <label>
-              بسته{' '}
+              بازه{' '}
               <select
-                value={packageId}
-                onChange={(e) => setPackageId(e.target.value)}
+                value={period}
+                onChange={(e) => {
+                  setPeriod(e.target.value);
+                  setReportOffset(0);
+                }}
               >
-                <option value="">انتخاب بسته</option>
-                {packages.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                <option value="day">روزانه</option>
+                <option value="week">هفتگی</option>
+                <option value="month">ماهانه</option>
               </select>
             </label>
+          </div>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>روز</th>
+                  <th>مدیر</th>
+                  <th>حجم تأییدشده</th>
+                  <th>مبلغ (تومان)</th>
+                  <th>جمع مدیران انتخاب‌شده در بازه</th>
+                  <th>وضعیت</th>
+                </tr>
+              </thead>
+              <tbody>
+                {days.map((d) => (
+                  <tr key={JSON.stringify([d.source, d.admin, d.day])}>
+                    <td>{d.day}</td>
+                    <td>{formatInteger(d.admin)}</td>
+                    <td>{formatGiB(d.soldBytes)}</td>
+                    <td>{formatInteger(d.amountToman)}</td>
+                    <td>
+                      {formatGiB(d.periodSoldBytes)} ·{' '}
+                      {formatInteger(d.periodAmountToman)} تومان
+                    </td>
+                    <td>
+                      {d.pending
+                        ? `جمع موقت · ${formatInteger(String(d.pending))} مورد در انتظار تصمیم`
+                        : period === 'day'
+                          ? 'آمادهٔ ارسال'
+                          : 'بدون ابهام ثبت‌شده'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!days.length && !error && (
+            <p className="empty">
+              {busy
+                ? 'در حال بارگیری…'
+                : 'صورتحسابی برای این بازه ثبت نشده است.'}
+            </p>
+          )}
+          <div className="statement-pagination">
             <button
-              disabled={busy || saving || !selected.length || !packageId}
-              onClick={() => void decide(packageId)}
+              disabled={busy || reportOffset === 0}
+              onClick={() => setReportOffset(reportOffset - 25)}
             >
-              ثبت یک بسته
+              قبلی
             </button>
             <button
-              disabled={busy || saving || !selected.length}
-              onClick={() => void decide(null)}
+              disabled={busy || days.length < 25}
+              onClick={() => setReportOffset(reportOffset + 25)}
             >
-              بدون اثر مالی
+              بعدی
             </button>
           </div>
-          {busy ? (
-            <p className="empty">در حال بارگیری…</p>
-          ) : page.rows.length === 0 ? (
-            <p className="empty">
-              ابهامی با این فیلتر ثبت نشده است. وضعیت دریافت و اجرای شبانه را
-              جداگانه بررسی کنید.
-            </p>
-          ) : (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>انتخاب</th>
-                    <th>نوع ابهام</th>
-                    <th>روز و مدیر</th>
-                    <th>پکیج</th>
-                    <th>زمان رویداد</th>
-                    <th>شناسهٔ رویداد</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {page.rows.map((item) => (
-                    <tr key={item.eventId}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={`انتخاب رویداد ${item.eventId}`}
-                          checked={selected.includes(item.eventId)}
-                          onChange={(e) =>
-                            setSelected(
-                              e.target.checked
-                                ? [...selected, item.eventId]
-                                : selected.filter((id) => id !== item.eventId),
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <strong>{names[item.code] ?? item.code}</strong>
-                        <small dir="ltr">
-                          {item.action} · {item.accountId}
-                        </small>
-                      </td>
-                      <td>
-                        {item.localDay}
-                        <small>
-                          مدیر: {formatInteger(item.billingAdminId)} ·{' '}
-                          {item.sourceInstanceId}
-                        </small>
-                      </td>
-                      <td>
-                        {formatGiB(item.dataLimitBytes)}
-                        <small>
-                          {item.durationDays === null
-                            ? 'مدت نامشخص'
-                            : `${formatInteger(item.durationDays)} روز`}
-                        </small>
-                      </td>
-                      <td>
-                        {formatUtc(item.sourceTimestamp)}
-                        <small>ثبت ابهام: {formatUtc(item.detectedAt)}</small>
-                      </td>
-                      <td>{formatInteger(item.eventId)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </section>
-        <div className="pagination">
-          <span>
-            این بخش مبلغ یا پکیج را حدس نمی‌زند و گزارش‌های بسته‌شده را تغییر
-            نمی‌دهد.
-          </span>
-          {offset > 0 && (
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setOffset(Math.max(0, offset - 25))}
-            >
-              صفحهٔ قبل
-            </button>
-          )}
-          {page.nextOffset !== null && (
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setOffset(page.nextOffset!)}
-            >
-              صفحهٔ بعد
-            </button>
-          )}
-        </div>
+        {!reports && (
+          <>
+            <section className="table-card">
+              <div className="section-heading">
+                <h2>موارد نیازمند بررسی</h2>
+                <label>
+                  بسته{' '}
+                  <select
+                    value={packageId}
+                    onChange={(e) => setPackageId(e.target.value)}
+                  >
+                    <option value="">انتخاب بسته</option>
+                    {packages.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  disabled={busy || saving || !selected.length || !packageId}
+                  onClick={() => void decide(packageId)}
+                >
+                  ثبت یک بسته
+                </button>
+                <button
+                  disabled={busy || saving || !selected.length}
+                  onClick={() => void decide(null)}
+                >
+                  بدون اثر مالی
+                </button>
+              </div>
+              {busy ? (
+                <p className="empty">در حال بارگیری…</p>
+              ) : page.rows.length === 0 ? (
+                <p className="empty">
+                  ابهامی با این فیلتر ثبت نشده است. وضعیت دریافت و اجرای شبانه
+                  را جداگانه بررسی کنید.
+                </p>
+              ) : (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>انتخاب</th>
+                        <th>نوع ابهام</th>
+                        <th>روز و مدیر</th>
+                        <th>پکیج</th>
+                        <th>زمان رویداد</th>
+                        <th>شناسهٔ رویداد</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {page.rows.map((item) => (
+                        <tr key={item.eventId}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`انتخاب رویداد ${item.eventId}`}
+                              checked={selected.includes(item.eventId)}
+                              onChange={(e) =>
+                                setSelected(
+                                  e.target.checked
+                                    ? [...selected, item.eventId]
+                                    : selected.filter(
+                                        (id) => id !== item.eventId,
+                                      ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td>
+                            <strong>{names[item.code] ?? item.code}</strong>
+                            <small dir="ltr">
+                              {item.action} · {item.accountId}
+                            </small>
+                          </td>
+                          <td>
+                            {item.localDay}
+                            <small>
+                              مدیر: {formatInteger(item.billingAdminId)}
+                            </small>
+                          </td>
+                          <td>
+                            {formatGiB(item.dataLimitBytes)}
+                            <small>
+                              {item.durationDays === null
+                                ? 'مدت نامشخص'
+                                : `${formatInteger(item.durationDays)} روز`}
+                            </small>
+                          </td>
+                          <td>
+                            {formatUtc(item.sourceTimestamp)}
+                            <small>
+                              ثبت ابهام: {formatUtc(item.detectedAt)}
+                            </small>
+                          </td>
+                          <td>{formatInteger(item.eventId)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+            <div className="pagination">
+              <span>
+                این بخش مبلغ یا پکیج را حدس نمی‌زند و گزارش‌های بسته‌شده را
+                تغییر نمی‌دهد.
+              </span>
+              {offset > 0 && (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setOffset(Math.max(0, offset - 25))}
+                >
+                  صفحهٔ قبل
+                </button>
+              )}
+              {page.nextOffset !== null && (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setOffset(page.nextOffset!)}
+                >
+                  صفحهٔ بعد
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </main>
     </>
   );

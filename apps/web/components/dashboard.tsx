@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
-import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 interface Summary {
   pendingBatches: string;
   processedBatches: string;
@@ -119,9 +118,6 @@ function DataTable({
 }
 export function Dashboard() {
   const [windowRange, setWindowRange] = useState('24h');
-  const [source, setSource] = useState('');
-  const [sourceDraft, setSourceDraft] = useState('');
-  const [sourceReady, setSourceReady] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [events, setEvents] = useState<Page<EventRow>>({
     rows: [],
@@ -135,22 +131,13 @@ export function Dashboard() {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [pageBusy, setPageBusy] = useState(false);
-  useEffect(() => {
-    const previous = readOwnerSource();
-    if (previous) {
-      setSource(previous);
-      setSourceDraft(previous);
-      if (previous === 'replay-30d') setWindowRange('replay-fixed');
-    }
-    setSourceReady(true);
-  }, []);
   const [browsingHistory, setBrowsingHistory] = useState(false);
   const displayedQuery = useRef<string | null>(null);
   useEffect(() => {
-    if (!sourceReady || browsingHistory) return;
+    if (browsingHistory) return;
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 10000);
-    const query = JSON.stringify([windowRange, source]);
+    const query = windowRange;
     if (displayedQuery.current !== query) {
       displayedQuery.current = null;
       setBusy(true);
@@ -160,14 +147,8 @@ export function Dashboard() {
       setIssues({ rows: [], nextCursor: null });
     }
     const params = new URLSearchParams({
-      window: windowRange === 'replay-fixed' ? '30d' : windowRange,
-      ...(source ? { source } : {}),
-      ...(windowRange === 'replay-fixed'
-        ? {
-            start: '2026-10-21T20:21:41.000Z',
-            end: '2026-11-20T20:21:41.000Z',
-          }
-        : {}),
+      window: windowRange,
+      source: 'primary',
     });
     void (async () => {
       try {
@@ -207,10 +188,9 @@ export function Dashboard() {
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [windowRange, source, refresh, sourceReady, browsingHistory]);
+  }, [windowRange, refresh, browsingHistory]);
   useEffect(() => {
-    if (windowRange === 'replay-fixed' || browsingHistory || busy || pageBusy)
-      return;
+    if (browsingHistory || busy || pageBusy) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') setRefresh((v) => v + 1);
     }, 10000);
@@ -226,7 +206,7 @@ export function Dashboard() {
       start: summary.start,
       end: summary.end,
       cursor,
-      ...(source ? { source } : {}),
+      source: 'primary',
     });
     try {
       if (kind === 'events')
@@ -260,8 +240,8 @@ export function Dashboard() {
       <OwnerHeader active="dashboard" />
       <main className="dashboard">
         <div className="stage" data-staging-billing-mode="no-live-billing">
-          <span className="stage-dot" aria-hidden="true" /> محیط آزمایشی · دادهٔ
-          تست دریافت داده · حسابداری سایه · بدون دریافت وجه واقعی
+          <span className="stage-dot" aria-hidden="true" /> حسابداری سایه · بدون
+          دریافت وجه واقعی
         </div>
         <div className="intro">
           <div>
@@ -292,16 +272,7 @@ export function Dashboard() {
           <a href="#issues">خطاهای پردازش</a>
           <a href="/accounting/ambiguities">ابهامات ثبت شبانه</a>
         </nav>
-        <form
-          className="filters"
-          id="overview"
-          onSubmit={(e) => {
-            e.preventDefault();
-            rememberOwnerSource(sourceDraft);
-            setBrowsingHistory(false);
-            setSource(sourceDraft);
-          }}
-        >
+        <div className="filters" id="overview">
           <label>
             بازهٔ زمانی
             <select
@@ -310,35 +281,15 @@ export function Dashboard() {
               onChange={(e) => {
                 setBrowsingHistory(false);
                 setWindowRange(e.target.value);
-                if (e.target.value === 'replay-fixed') {
-                  setSourceDraft('replay-30d');
-                  setSource('replay-30d');
-                  rememberOwnerSource('replay-30d');
-                }
               }}
             >
               <option value="1h">یک ساعت گذشته</option>
               <option value="24h">۲۴ ساعت گذشته</option>
               <option value="7d">۷ روز گذشته</option>
               <option value="30d">۳۰ روز گذشته</option>
-              <option value="replay-fixed">آرشیو واقعی ۳۰روزه</option>
             </select>
           </label>
-          <label>
-            شناسهٔ منبع
-            <input
-              value={sourceDraft}
-              onChange={(e) => setSourceDraft(e.target.value)}
-              placeholder="همهٔ منابع"
-              dir="ltr"
-              maxLength={100}
-              pattern="[A-Za-z0-9_.\-]+"
-            />
-          </label>
-          <button className="secondary" disabled={busy || pageBusy}>
-            اعمال فیلتر
-          </button>
-        </form>
+        </div>
         {error && (
           <div className="error-banner" role="alert">
             {error}{' '}

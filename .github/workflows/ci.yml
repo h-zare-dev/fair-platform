@@ -69,6 +69,9 @@ jobs:
       - name: Historical source archive exporter regression
         run: python3 -m unittest discover -s tests/release -p test_legacy_source_replay.py
 
+      - name: Production deployment fail-closed regression tests
+        run: python3 -m unittest discover -s tests/release -p test_production_setup.py
+
       - name: Build
         run: pnpm build
 
@@ -253,7 +256,10 @@ jobs:
       - name: Validate Compose and Caddy
         run: |
           API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid SECRETS_DIR=/tmp/fair-secrets docker compose -f docker/staging/compose.yml config --quiet
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid SECRETS_DIR=/tmp/fair-secrets docker compose -f docker/production/compose.yml config --quiet
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid SECRETS_DIR=/tmp/fair-secrets docker compose -f docker/production/compose.yml -f docker/production/compose.shadow.yml config --quiet
           docker run --rm --network none -e ACME_EMAIL=operator@example.invalid -v "$PWD/docker/staging/Caddyfile:/etc/caddy/Caddyfile:ro" ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker run --rm --network none -e ACME_EMAIL=operator@example.invalid -v "$PWD/docker/production/Caddyfile:/etc/caddy/Caddyfile:ro" ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - id: config
         run: echo "hash=$(python3 scripts/staging/config-hash.py)" >> "$GITHUB_OUTPUT"
       - name: Save scanned images

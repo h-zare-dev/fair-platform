@@ -71,6 +71,7 @@ pnpm build
 
 ## Documentation
 Start with `AGENTS.md`, then read:
+- [`docs/deployment/PRODUCTION-SHADOW-INSTALL.md`](docs/deployment/PRODUCTION-SHADOW-INSTALL.md) — Owner-only isolated production-host installation candidate (Shadow OFF; not financial go-live).
 - **[`docs/ROADMAP.md`](docs/ROADMAP.md) — canonical roadmap, current statuses and Owner-only merge gates.**
 - [`docs/CURRENT_STATE_AND_POLICY_2026-11-19.md`](docs/CURRENT_STATE_AND_POLICY_2026-11-19.md) — **current** implemented/Owner-observed status and Staging risk exceptions; read before historical planning docs.
 - [`docs/tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md`](docs/tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md) — Owner-approved **future design**, not yet implemented or authorized for live billing.

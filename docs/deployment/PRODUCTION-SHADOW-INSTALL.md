@@ -72,7 +72,7 @@ interactive installer writes one root-owned `0600` endpoint setting:
 
 ```ini
 # /etc/fair-production/site.env (example only)
-OWNER_HOST=panel2.fairisfair.ir
+OWNER_HOST=panel.example.com
 ```
 
 The same setting configures both Caddy's TLS site name and the Owner API's
@@ -98,8 +98,9 @@ Merely fetching newer scripts or changing DNS does not update running images.
 
 For regular browser access, a public DNS hostname pointing at the server is
 recommended: Caddy obtains/renews trusted HTTPS certificates automatically.
-`https://91.107.132.246` and `https://localhost` are also valid configured
-origins, but Caddy normally gives IP/localhost an **internal-CA certificate**;
+`https://203.0.113.10` (documentation-only IP) and `https://localhost` are
+also valid configured origins, but Caddy normally gives IP/localhost an
+**internal-CA certificate**;
 remote browsers do not trust that CA unless the operator explicitly installs
 its trust root. `localhost` from your laptop means your **laptop**, not the
 remote server; use an SSH tunnel for local access. Never submit Owner passwords
@@ -110,7 +111,7 @@ Health and service check (read-only):
 ```sh
 ACTIVE=$(cat /etc/fair-production/active-bundle)
 docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env -f "$ACTIVE/docker/production/compose.yml" ps
-curl --fail --show-error https://panel2.fairisfair.ir/health/ready
+curl --fail --show-error https://panel.example.com/health/ready
 ```
 
 ## Optional second webhook during guided setup

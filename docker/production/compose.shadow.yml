@@ -8,7 +8,7 @@ services:
       FAIR_SHADOW_DELETE_CREDIT_ENABLED: ${FAIR_SHADOW_DELETE_CREDIT_ENABLED:-false}
       APP_ENCRYPTION_KEY_FILE: /run/secrets/seed_encryption_key
       PASARGUARD_WEBHOOK_SECRET_FILE: /run/secrets/shadow_webhook_secret
-      PASARGUARD_BASE_URL: https://pasar.fairinternet98.com
+      PASARGUARD_BASE_URL: ${PASARGUARD_BASE_URL:?directory URL required}
       PASARGUARD_API_KEY_FILE: /run/secrets/pasarguard_api_key
     secrets: [seed_encryption_key, shadow_webhook_secret, pasarguard_api_key]
 

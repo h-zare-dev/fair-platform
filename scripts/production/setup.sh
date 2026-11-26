@@ -46,7 +46,7 @@ else
   printf '\nNew isolated Fair Platform installation (HTTPS Owner UI; SHADOW and billing OFF).\n'
   printf 'The Owner UI can use a DNS name, an IPv4 address or localhost (SSH tunnel).\n'
   printf 'For a public trusted HTTPS certificate, use a DNS name pointing to this server.\n'
-  read -r -p 'Owner UI host (e.g. panel2.example.com or 91.107.132.246): ' owner_host
+  read -r -p 'Owner UI host (e.g. panel.example.com or 203.0.113.10): ' owner_host
   python3 "$repo/scripts/production/site-config.py" host "$owner_host" >/dev/null || die 'Invalid Owner UI hostname/IP.'
   release_sha=$(git -C "$repo" rev-parse HEAD)
   [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || die 'Cannot determine exact release commit.'
@@ -71,13 +71,18 @@ if ! ask_default_yes 'Configure the read-only PasarGuard administrator directory
   exit 0
 fi
 
-existing_url='https://pasar.fairinternet98.com'
+existing_url=''
 if [[ -f "$directory_env" ]]; then
   [[ ! -L "$directory_env" ]] || die 'Directory environment is a symlink.'
   existing_url=$(sed -n 's/^PASARGUARD_BASE_URL=//p' "$directory_env")
 fi
-read -r -p "PasarGuard HTTPS base URL [$existing_url]: " directory_url
+if [[ -n "$existing_url" ]]; then
+  read -r -p "PasarGuard HTTPS base URL [$existing_url]: " directory_url
+else
+  read -r -p 'PasarGuard HTTPS base URL (e.g. https://pasarguard.example.com): ' directory_url
+fi
 directory_url=${directory_url:-$existing_url}
+[[ -n "$directory_url" ]] || die 'PasarGuard HTTPS base URL is required when enabling the directory.'
 directory_url=${directory_url%/}
 python3 - "$directory_url" <<'PY' || die 'Invalid PasarGuard HTTPS URL.'
 import sys

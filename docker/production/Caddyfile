@@ -12,12 +12,7 @@
 		}
 	}
 }
-panel.fairisfair.ir {
-	tls {
-		issuer acme {
-			disable_http_challenge
-		}
-	}
+{$OWNER_HOST} {
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff

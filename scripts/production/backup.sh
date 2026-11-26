@@ -15,7 +15,9 @@ output="$destination/fair-$(date -u +%Y%m%dT%H%M%SZ).dump"
 [[ ! -e "$output" ]] || { echo PRODUCTION_BACKUP_ALREADY_EXISTS >&2; exit 1; }
 temp=$(mktemp "$destination/.incomplete.XXXXXXXX")
 trap 'rm -f -- "$temp"' EXIT
-compose=(docker compose --env-file "$settings/release.env" -f "$repo/docker/production/compose.yml")
+compose=(docker compose --env-file "$settings/release.env")
+[[ ! -f "$settings/site.env" ]] || compose+=(--env-file "$settings/site.env")
+compose+=(-f "$repo/docker/production/compose.yml")
 "${compose[@]}" run --rm --no-deps -T backup >"$temp"
 [[ -s "$temp" ]] || { echo PRODUCTION_BACKUP_EMPTY >&2; exit 1; }
 "${compose[@]}" run --rm --no-deps -T backup pg_restore --list <"$temp" >/dev/null

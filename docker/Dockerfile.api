@@ -6,6 +6,7 @@ RUN pnpm install --frozen-lockfile && pnpm --filter @fair-platform/pasarguard --
 RUN pnpm --filter @fair-platform/api deploy --legacy --prod /out
 
 FROM node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS runtime
+LABEL io.fair-platform.owner-origin-configurable="true"
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./

@@ -16,6 +16,7 @@ services:
     ports: ['443:443/tcp']
     environment:
       ACME_EMAIL: ${ACME_EMAIL:?ACME contact required}
+      OWNER_HOST: ${OWNER_HOST:?Owner DNS name or IPv4 address required in site.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -58,7 +59,7 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     environment:
-      OWNER_ORIGIN: https://panel.fairisfair.ir
+      OWNER_ORIGIN: https://${OWNER_HOST:?Owner DNS name or IPv4 address required in site.env}
       FAIR_TIME_ZONE: Asia/Tehran
       FAIR_REPORT_CALENDAR: ${FAIR_REPORT_CALENDAR:-jalali}
       FAIR_REPORT_WEEK_START_DAY: ${FAIR_REPORT_WEEK_START_DAY:-SATURDAY}

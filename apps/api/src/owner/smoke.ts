@@ -2,9 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { createOwnerDataSource } from './infrastructure/database.js';
 import { PostgresOwnerAuth } from './infrastructure/auth-store.js';
 import { tokenHash } from './application/auth.js';
+import { ownerOriginSchema } from './application/owner-origin.js';
 // Trusted console-only temporary session, never exported to CI or printed.
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_REQUIRED');
+  const origin = ownerOriginSchema.parse(process.env.OWNER_ORIGIN);
   const db = createOwnerDataSource(process.env.DATABASE_URL);
   await db.initialize();
   const store = new PostgresOwnerAuth(db);
@@ -22,7 +24,7 @@ async function main() {
       '/api/v1/owner/operations/summary',
       '/dashboard',
     ]) {
-      const response = await fetch('https://panel.fairisfair.ir' + path, {
+      const response = await fetch(origin + path, {
         headers: { Cookie: `__Host-fair_owner=${token}` },
         redirect: 'manual',
         signal: AbortSignal.timeout(15000),

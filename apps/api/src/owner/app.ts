@@ -772,6 +772,20 @@ export async function createOwnerApi(
         (v) => catalog!.deleteGroup(v),
       );
     }
+    @Post('catalog/memberships/bulk') addMembers(@Req() req: FastifyRequest) {
+      return priceWrite(
+        req,
+        z
+          .object({
+            sourceInstanceId: source,
+            groupId: positive,
+            billingAdminIds: z.array(decimal).min(1).max(2000),
+          })
+          .strict(),
+        (v) =>
+          catalog!.addMembers(v.sourceInstanceId, v.groupId, v.billingAdminIds),
+      );
+    }
     @Post('catalog/memberships') catalogMembership(@Req() req: FastifyRequest) {
       return priceWrite(req, catalogMembership, (v) =>
         catalog!.changeMembership(v),

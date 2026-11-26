@@ -184,19 +184,24 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .getByRole('button', { name: 'ایجاد گروه' })
     .click();
   await expect(page.getByRole('heading', { name: groupName })).toBeVisible();
-  await page.route('**/api/v1/owner/directory/admins?*', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
+  await page.route('**/api/v1/owner/directory/admins?*', (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const offset = Number(params.get('offset'));
+    const limit = Number(params.get('limit'));
+    const admins = Array.from({ length: 150 }, (_, i) => ({
+      id: String(9001 + i),
+      username: i === 0 ? 'synthetic_manager' : `fixture_${i}`,
+    }));
+    return route.fulfill({
+      json: {
         status: 'available',
-        admins: [{ id: '9001', username: 'synthetic_manager' }],
-        total: 1,
-        offset: 0,
-        limit: 25,
-      }),
-    }),
-  );
+        admins: admins.slice(offset, offset + limit),
+        total: admins.length,
+        offset,
+        limit,
+      },
+    });
+  });
   await page
     .locator('.catalog-tile')
     .filter({ has: page.getByRole('heading', { name: groupName }) })
@@ -219,6 +224,13 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(page.getByRole('dialog').getByRole('status')).toContainText(
     '9001',
   );
+  const selectAll = page.getByRole('checkbox', { name: /انتخاب همهٔ مدیران/ });
+  await selectAll.click();
+  await expect(selectAll).toBeChecked();
+  await expect(
+    page.getByRole('button', { name: 'افزودن 150 مدیر به گروه' }),
+  ).toBeEnabled();
+  await selectAll.uncheck();
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'بستن پنجره' })

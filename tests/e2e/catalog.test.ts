@@ -101,6 +101,24 @@ describe('FP-004 atomic catalog: forward migration, immutable history and confli
     expect((await catalog.list(s)).membershipHistory).toHaveLength(2);
   });
 
+  it('assigns a directory selection atomically, transfers prior members and skips existing members on retry', async () => {
+    const a = await catalog.createGroup({ sourceInstanceId: s, name: 'A' });
+    const b = await catalog.createGroup({ sourceInstanceId: s, name: 'B' });
+    await catalog.addMembers(s, a.id, ['1', '2']);
+    expect(await catalog.addMembers(s, b.id, ['1', '3', '3'])).toEqual({
+      changed: 2,
+    });
+    expect(await catalog.addMembers(s, b.id, ['1', '3'])).toEqual({
+      changed: 0,
+    });
+    const all = await catalog.list(s);
+    expect(all.membershipHistory).toHaveLength(4);
+    expect(all.memberships).toContainEqual({
+      billingAdminId: '2',
+      groupId: a.id,
+    });
+  });
+
   it('tracks single membership and immutable transitions without any membership date fields', async () => {
     const a = await catalog.createGroup({ sourceInstanceId: s, name: 'A' });
     const b = await catalog.createGroup({ sourceInstanceId: s, name: 'B' });

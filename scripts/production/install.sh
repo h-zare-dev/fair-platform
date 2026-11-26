@@ -6,12 +6,17 @@ umask 077
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 settings=/etc/fair-production
 release="$settings/release.env"
+site="$settings/site.env"
 [[ -f "$release" ]] || { echo PRODUCTION_RELEASE_ENV_MISSING >&2; exit 1; }
 [[ $(stat -c %a "$release") == 600 ]] || { echo PRODUCTION_ENV_PERMISSIONS >&2; exit 1; }
 [[ $(stat -c %u "$release") == 0 && $(stat -c %u "$settings") == 0 && $(stat -c %a "$settings") == 700 ]] || {
   echo PRODUCTION_SETTINGS_PERMISSIONS >&2; exit 1;
 }
 python3 "$repo/scripts/production/preflight.py" "$release"
+[[ -f "$site" && ! -L "$site" && $(stat -c %a "$site") == 600 && $(stat -c %u "$site") == 0 ]] || {
+  echo PRODUCTION_SITE_ENV_MISSING_OR_UNSAFE >&2; exit 1;
+}
+python3 "$repo/scripts/production/site-config.py" read "$site" >/dev/null
 for name in postgres_password admin_database_url runtime_database_url backup_pgpass; do
   file="$settings/secrets/$name"
   [[ -f "$file" && $(stat -c %a "$file") == 600 ]] || {
@@ -47,7 +52,7 @@ for key in ('API_IMAGE', 'WEB_IMAGE', 'CADDY_IMAGE', 'POSTGRES_IMAGE'):
 PY
 )
 [[ ${#release_fields[@]} == 5 ]] || { echo PRODUCTION_CHECKOUT_INVALID >&2; exit 1; }
-compose=(docker compose --env-file "$release" -f "$repo/docker/production/compose.yml")
+compose=(docker compose --env-file "$release" --env-file "$site" -f "$repo/docker/production/compose.yml")
 "${compose[@]}" config --quiet
 "${compose[@]}" pull
 for image in "${release_fields[@]:1}"; do

@@ -22,6 +22,7 @@ def script_module(name: str, filename: str):
 
 preflight = script_module('production_preflight', 'preflight.py')
 provisioning = script_module('production_provisioning', 'provision-secrets.py')
+site_config = script_module('production_site_config', 'site-config.py')
 
 
 class ProductionSetupTests(unittest.TestCase):
@@ -71,11 +72,35 @@ class ProductionSetupTests(unittest.TestCase):
                 provisioning.provision(settings, os.geteuid(), os.geteuid())
             self.assertEqual((secret_dir / 'postgres_password').read_text(), password)
 
+    def test_site_host_is_validated_and_separate_from_immutable_image_pins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory) / 'site.env'
+            for host in ('panel2.fairisfair.ir', 'example.com', '91.107.132.246',
+                         '127.0.0.1', 'localhost'):
+                site_config.write(site, host)
+                self.assertEqual(site_config.read(site), host)
+                self.assertEqual(site.stat().st_mode & 0o777, 0o600)
+            for host in ('https://example.com', 'example.com:443', 'EXAMPLE.com',
+                         'foo..bar', '0.0.0.0', '999.999.999.999', 'foo/bar',
+                         'evil\nOWNER_HOST=example.com', 'a' * 256, '-x.com'):
+                with self.assertRaises(ValueError, msg=host):
+                    site_config.validate_host(host)
+            site.write_text('OWNER_HOST=example.com\nOTHER=value\n')
+            with self.assertRaisesRegex(ValueError, 'SITE_ENV_INVALID'):
+                site_config.read(site)
+            site.unlink()
+            site.symlink_to(Path(directory) / 'target')
+            with self.assertRaisesRegex(ValueError, 'UNSAFE'):
+                site_config.write(site, 'example.com')
+
     def test_compose_is_isolated_and_shadow_requires_second_file(self):
         base = (ROOT / 'docker/production/compose.yml').read_text()
         shadow = (ROOT / 'docker/production/compose.shadow.yml').read_text()
         directory = (ROOT / 'docker/production/compose.directory.yml').read_text()
         self.assertIn('name: fair-production', base)
+        self.assertIn('OWNER_ORIGIN: https://${OWNER_HOST:?', base)
+        self.assertIn('OWNER_HOST: ${OWNER_HOST:?', base)
+        self.assertIn('{$OWNER_HOST} {', (ROOT / 'docker/production/Caddyfile').read_text())
         self.assertNotIn('fair_staging', base)
         self.assertIn("FAIR_SHADOW_ENABLED: 'false'", base)
         self.assertIn("FAIR_SHADOW_ENABLED: 'true'", shadow)
@@ -98,7 +123,7 @@ class ProductionSetupTests(unittest.TestCase):
             self.assertIn(name, grants)
 
     def test_operator_scripts_have_valid_bash_syntax(self):
-        for name in ('install.sh', 'backup.sh', 'resolve-release.sh', 'setup.sh', 'bootstrap.sh'):
+        for name in ('install.sh', 'backup.sh', 'resolve-release.sh', 'setup.sh', 'bootstrap.sh', 'change-host.sh'):
             result = subprocess.run(['bash', '-n', str(ROOT / 'scripts/production' / name)],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f'{name}: {result.stderr}')
@@ -119,10 +144,16 @@ class ProductionSetupTests(unittest.TestCase):
         self.assertIn('docker volume inspect fair-production_postgres_data', setup)
         self.assertIn('run --rm migrate node dist/owner/cli.js bootstrap', setup)
         self.assertIn('read -rs api_key', setup)
+        self.assertIn("site-config.py\" write \"$site_env\"", setup)
         self.assertIn('chown 1000:1000 "$key_tmp"', setup)
         self.assertIn('chmod 0600 "$key_tmp"', setup)
         self.assertIn('--force-recreate --wait owner-api', setup)
         self.assertNotIn('compose.shadow.yml', setup)
+        changed = (ROOT / 'scripts/production/change-host.sh').read_text()
+        self.assertIn('io.fair-platform.owner-origin-configurable', changed)
+        self.assertIn('ROLLED_BACK_TO_PREVIOUS_HOST', changed)
+        self.assertNotIn('down -v', changed)
+        self.assertNotIn('docker compose pull', changed)
         for forbidden in ('down -v', 'docker volume rm', 'git reset --hard',
                           'docker compose pull', 'echo "$api_key"'):
             self.assertNotIn(forbidden, setup)

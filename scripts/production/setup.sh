@@ -24,6 +24,7 @@ settings=/etc/fair-production
 [[ ! -L "$settings" && ! -L "$settings/secrets" ]] || die 'Refusing symlinked production secret directories.'
 release="$settings/release.env"
 directory_env="$settings/directory.env"
+site_env="$settings/site.env"
 directory_secret="$settings/secrets/pasarguard_api_key"
 installed=false
 [[ -f "$settings/installed" ]] && installed=true
@@ -43,18 +44,23 @@ else
   [[ ! -d "$settings/secrets" || -z $(find "$settings/secrets" -mindepth 1 -maxdepth 1 -print -quit) ]] || die 'Partial installation: secrets already exist.'
   docker volume inspect fair-production_postgres_data >/dev/null 2>&1 && die 'Existing database volume found. Refusing fresh installation.'
   printf '\nNew isolated Fair Platform installation (HTTPS Owner UI; SHADOW and billing OFF).\n'
-  printf 'Domain: panel.fairisfair.ir (DNS A record must point to this server; TCP 443 available).\n'
+  printf 'The Owner UI can use a DNS name, an IPv4 address or localhost (SSH tunnel).\n'
+  printf 'For a public trusted HTTPS certificate, use a DNS name pointing to this server.\n'
+  read -r -p 'Owner UI host (e.g. panel2.example.com or 91.107.132.246): ' owner_host
+  python3 "$repo/scripts/production/site-config.py" host "$owner_host" >/dev/null || die 'Invalid Owner UI hostname/IP.'
   release_sha=$(git -C "$repo" rev-parse HEAD)
   [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || die 'Cannot determine exact release commit.'
   printf 'Published release commit to verify: %s\n' "$release_sha"
   ask_yes 'I reviewed this development commit and approve installing its published images' || die 'Release not approved.'
   read -r -p 'ACME certificate contact email: ' acme_email
   [[ -n "$acme_email" ]] || die 'ACME email required.'
+  [[ ! -e "$site_env" && ! -L "$site_env" ]] || die 'Partial installation: site.env exists. Reconcile manually.'
+  python3 "$repo/scripts/production/site-config.py" write "$site_env" "$owner_host" >/dev/null
   bash "$repo/scripts/production/resolve-release.sh" "$release_sha" "$acme_email"
   python3 "$repo/scripts/production/provision-secrets.py"
   bash "$repo/scripts/production/install.sh"
   printf '\nCreate the single Owner login. Password requires at least 16 characters; input stays hidden.\n'
-  until docker compose --env-file "$release" -f "$repo/docker/production/compose.yml" \
+  until docker compose --env-file "$release" --env-file "$site_env" -f "$repo/docker/production/compose.yml" \
     run --rm migrate node dist/owner/cli.js bootstrap; do
     ask_yes 'Owner bootstrap failed. Retry hidden password entry now' || die 'Owner bootstrap incomplete; request operator reconciliation before deployment.'
   done
@@ -121,9 +127,18 @@ chmod 0600 "$env_tmp"
 mv -f -- "$env_tmp" "$directory_env"
 trap - EXIT
 
-compose=(docker compose --env-file "$release" --env-file "$directory_env" \
+compose=(docker compose --env-file "$release")
+if [[ -f "$site_env" ]]; then
+  [[ ! -L "$site_env" ]] || die 'Owner site config is a symlink.'
+  compose+=(--env-file "$site_env")
+fi
+compose+=(--env-file "$directory_env" \
   -f "$repo/docker/production/compose.yml" -f "$repo/docker/production/compose.directory.yml")
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --no-deps --force-recreate --wait owner-api
 printf 'FAIR_DIRECTORY_ACTIVE_SHADOW_OFF_NO_LIVE_BILLING\n'
-printf 'Verify in browser: https://panel.fairisfair.ir/settings/groups\n'
+if [[ -f "$site_env" ]]; then
+  printf 'Verify in browser: https://%s/settings/groups\n' "$(python3 "$repo/scripts/production/site-config.py" read "$site_env")"
+else
+  printf 'Verify the Owner URL configured by the pinned release.\n'
+fi

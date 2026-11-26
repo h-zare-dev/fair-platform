@@ -1,7 +1,8 @@
 # Production host candidate — Owner-controlled installation (SHADOW OFF)
 
-**Status:** Owner-controlled host installation tools; the Owner reports a
-running UI at `panel.fairisfair.ir`, but CI does not attest the running host.
+**Status:** Owner-controlled host installation tools. The previous Test-Bot
+panel at `panel.fairisfair.ir` must remain untouched. CI does not attest the
+production host.
 No live financial billing or production CD is authorized. Review the commit
 and await all four `development` images and CI before installing a new release.
 
@@ -17,8 +18,9 @@ curl -fsSLo /root/fair-platform-install.sh https://raw.githubusercontent.com/h-z
 
 The installer asks permission to install missing Ubuntu Docker prerequisites.
 On a **new host**, it fetches only production Compose/scripts with a sparse Git
-checkout (not application source), shows the reviewed SHA, asks for the ACME
-email, pins immutable GHCR images, provisions secrets, installs the UI, and
+checkout (not application source), asks for the access host (DNS, IPv4 or
+`localhost` for tunneling), shows the reviewed SHA, asks for the ACME email,
+pins immutable GHCR images, provisions secrets, installs the UI, and
 prompts for the one-time Owner password with **hidden terminal input**.
 It then offers optional **read-only** PasarGuard admin directory configuration:
 HTTPS base URL and a hidden API key prompt. The key is stored exclusively at
@@ -34,20 +36,63 @@ no database migration, new image pull, Owner re-bootstrap or Shadow activation.
 The directory config persists in `/etc/fair-production/directory.env`.
 
 Prerequisites: SSH key/console, SSH and TCP/443 firewall allowance, free port
-443 on fresh installs, DNS-only A record for `panel.fairisfair.ir` resolving to
-this server, no unexpected AAAA record. Caddy uses 443 TLS-ALPN (no 80).
+443 on fresh installs, and, for a DNS hostname, a DNS-only A record resolving
+to this server with no unexpected AAAA record. Caddy uses 443 (no 80).
 Preserve Test-Bot, its private archive and identity imports. If GHCR requires
 authentication, perform private `docker login ghcr.io` with a read-only token.
 `resolve-release.sh` checks image source/revision and immutable digests;
 `install.sh` refuses existing volumes, occupied port 443 or partial installs.
 SHADOW, real billing, Telegram delivery and synthetic seeding remain OFF.
 
+### Hostnames and IP addresses are configuration, not code
+
+The production Owner API is **not bound to `panel.fairisfair.ir`**. The
+interactive installer writes one root-owned `0600` endpoint setting:
+
+```ini
+# /etc/fair-production/site.env (example only)
+OWNER_HOST=panel2.fairisfair.ir
+```
+
+The same setting configures both Caddy's TLS site name and the Owner API's
+**strict** `https://...` browser origin. It is **not** an open-origin mode:
+arbitrary `Origin`/`Host` headers remain untrusted. The immutable four image
+digests stay in the separate `release.env` and do not change with the host.
+To change an already-supported installation later, run only:
+
+```bash
+cd /opt/fair-platform
+bash scripts/production/change-host.sh new-panel.example.com
+```
+
+The command validates the new hostname/IPv4, asks for confirmation and
+recreates only `owner-api` and Caddy. If the restart fails, it restores the
+previous host configuration and retries the previous services. No code edit,
+image pull, DB migration, volume reset, secret rotation or PR is involved.
+
+**Important for previously installed hosts:** the original pinned
+`292cc3d3...` Owner API image and Compose/Caddyfile still hardcode
+`panel.fairisfair.ir`; `change-host.sh` deliberately **refuses** those old
+images. The Owner must first approve a **one-time reviewed production release
+upgrade** with these configurable-image changes and a verified off-host backup.
+Merely fetching a newer script or changing DNS will not upgrade a pinned
+release. Do not manually mix the new Compose with old images.
+
+For regular browser access, a public DNS hostname pointing at the server is
+recommended: Caddy obtains/renews trusted HTTPS certificates automatically.
+`https://91.107.132.246` and `https://localhost` are also valid configured
+origins, but Caddy normally gives IP/localhost an **internal-CA certificate**;
+remote browsers do not trust that CA unless the operator explicitly installs
+its trust root. `localhost` from your laptop means your **laptop**, not the
+remote server; use an SSH tunnel for local access. Never submit Owner passwords
+over untrusted plaintext HTTP. TCP/443 still needs to be reachable.
+
 Health and service check (read-only):
 
 ```sh
 cd /opt/fair-platform
-docker compose --env-file /etc/fair-production/release.env -f docker/production/compose.yml ps
-curl --fail --show-error https://panel.fairisfair.ir/health/ready
+docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env -f docker/production/compose.yml ps
+curl --fail --show-error https://panel2.fairisfair.ir/health/ready
 ```
 
 ## Optional later: Owner-authorized second webhook SHADOW pilot only
@@ -63,9 +108,9 @@ secret without exposing it in chat or a repo. Then, after explicit Owner signoff
 
 ```sh
 cd /opt/fair-platform
-docker compose --env-file /etc/fair-production/release.env \
+docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env \
   -f docker/production/compose.yml -f docker/production/compose.shadow.yml config --quiet
-docker compose --env-file /etc/fair-production/release.env \
+docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env \
   -f docker/production/compose.yml -f docker/production/compose.shadow.yml \
   up -d --no-deps owner-api
 ```

@@ -50,6 +50,7 @@ describe('FP-006 opening baseline transaction and recovery', () => {
       },
     };
     const importer = new PostgresOpeningBaseline(db, directory);
+    expect((await importer.summary()).cutoverLocked).toBe(false);
     await importer.start();
     expect(await importer.runNext()).toBe(true);
     expect((await importer.summary()).run).toMatchObject({

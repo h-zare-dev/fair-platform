@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Owner-operated, interactive first install or existing-install directory setup.
-# This script never upgrades an existing database or enables SHADOW/live billing.
+# This script never upgrades an existing database or enables live billing.
 set -euo pipefail
 umask 077
 
@@ -132,11 +132,19 @@ if [[ -f "$site_env" ]]; then
   [[ ! -L "$site_env" ]] || die 'Owner site config is a symlink.'
   compose+=(--env-file "$site_env")
 fi
-compose+=(--env-file "$directory_env" \
-  -f "$repo/docker/production/compose.yml" -f "$repo/docker/production/compose.directory.yml")
+compose+=(--env-file "$directory_env" -f "$repo/docker/production/compose.yml")
+shadow=OFF
+if ask_yes 'Enable SHADOW accounting for a second webhook (no live billing or report delivery)'; then
+  compose+=(-f "$repo/docker/production/compose.shadow.yml")
+  shadow=ON
+fi
+compose+=(-f "$repo/docker/production/compose.directory.yml")
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --no-deps --force-recreate --wait owner-api
-printf 'FAIR_DIRECTORY_ACTIVE_SHADOW_OFF_NO_LIVE_BILLING\n'
+printf 'FAIR_DIRECTORY_ACTIVE_SHADOW_%s_NO_LIVE_BILLING\n' "$shadow"
+if [[ "$shadow" == ON ]]; then
+  printf 'Open Settings > Initialization for the second webhook and the first account import.\n'
+fi
 if [[ -f "$site_env" ]]; then
   printf 'Verify in browser: https://%s/settings/groups\n' "$(python3 "$repo/scripts/production/site-config.py" read "$site_env")"
 else

@@ -41,9 +41,16 @@ git -C "$candidate" show "$old_sha:docker/production/Caddyfile" | cmp -s - "$pre
   die 'Active Caddyfile does not match the installed release.'
 git -C "$candidate" show "$old_sha:scripts/production/backup.sh" | cmp -s - "$previous/scripts/production/backup.sh" || \
   die 'Active backup script does not match the installed release.'
-if docker inspect fair-production-owner-api-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qx 'FAIR_SHADOW_ENABLED=true'; then
-  die 'SHADOW active; update requires separate explicit approval.'
-fi
+shadow=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' fair-production-owner-api-1 | sed -n 's/^FAIR_SHADOW_ENABLED=//p')
+case "$shadow" in
+  true)
+    [[ -f "$settings/directory.env" ]] || die 'Active SHADOW directory settings missing.'
+    read -r -p 'Preserve enabled SHADOW accounting during this update? [y/N]: ' approval
+    [[ "$approval" == [yY] || "$approval" == [yY][eE][sS] ]] || die 'Operator declined.'
+    ;;
+  false) ;;
+  *) die 'Cannot determine the running SHADOW mode.' ;;
+esac
 expected_id=$(docker image inspect --format '{{.Id}}' "$(sed -n 's/^API_IMAGE=//p' "$release")") || die 'Pinned old API image is missing.'
 running_id=$(docker inspect --format '{{.Image}}' fair-production-owner-api-1) || die 'Owner API is missing.'
 [[ "$expected_id" == "$running_id" ]] || die 'Running API differs from the pinned release.'
@@ -74,8 +81,14 @@ if [[ -f "$settings/directory.env" ]]; then
   [[ ! -L "$settings/directory.env" ]] || die 'Symlinked directory.env.'
   old_compose+=(--env-file "$settings/directory.env")
   new_compose+=(--env-file "$settings/directory.env")
-  old_compose+=(-f "$previous/docker/production/compose.yml" -f "$previous/docker/production/compose.directory.yml")
-  new_compose+=(-f "$candidate/docker/production/compose.yml" -f "$candidate/docker/production/compose.directory.yml")
+  old_compose+=(-f "$previous/docker/production/compose.yml")
+  new_compose+=(-f "$candidate/docker/production/compose.yml")
+  if [[ "$shadow" == true ]]; then
+    old_compose+=(-f "$previous/docker/production/compose.shadow.yml")
+    new_compose+=(-f "$candidate/docker/production/compose.shadow.yml")
+  fi
+  old_compose+=(-f "$previous/docker/production/compose.directory.yml")
+  new_compose+=(-f "$candidate/docker/production/compose.directory.yml")
 else
   old_compose+=(-f "$previous/docker/production/compose.yml")
   new_compose+=(-f "$candidate/docker/production/compose.yml")
@@ -116,4 +129,4 @@ mv -f -- "$active_tmp" "$settings/active-bundle"
 activated=true
 trap - EXIT INT TERM
 printf 'PRODUCTION_UPDATE_COMPLETE %s https://%s\n' "$new_sha" "$host"
-printf 'SHADOW_OFF_NO_LIVE_BILLING; database volume and Owner credentials preserved.\n'
+printf 'SHADOW=%s; no live billing; database volume and Owner credentials preserved.\n' "$shadow"

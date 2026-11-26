@@ -198,7 +198,9 @@ class ProductionSetupTests(unittest.TestCase):
         self.assertIn('chown 1000:1000 "$key_tmp"', setup)
         self.assertIn('chmod 0600 "$key_tmp"', setup)
         self.assertIn('--force-recreate --wait owner-api', setup)
-        self.assertNotIn('compose.shadow.yml', setup)
+        self.assertIn("if ask_yes 'Enable SHADOW accounting", setup)
+        self.assertLess(setup.index('compose+=(-f "$repo/docker/production/compose.shadow.yml'),
+                        setup.index('compose+=(-f "$repo/docker/production/compose.directory.yml'))
         changed = (ROOT / 'scripts/production/change-host.sh').read_text()
         self.assertIn('io.fair-platform.owner-origin-configurable', changed)
         self.assertIn('ROLLED_BACK_TO_PREVIOUS_HOST', changed)

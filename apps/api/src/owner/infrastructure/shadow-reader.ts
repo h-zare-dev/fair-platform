@@ -432,6 +432,9 @@ export class PostgresShadowReader {
       | 'manual'
       | 'blocked'
       | 'nonfinancial';
+    search?: string | undefined;
+    reason?: string | undefined;
+    action?: string | undefined;
     from?: string | undefined;
     to?: string | undefined;
     admin?: string | undefined;
@@ -444,6 +447,7 @@ export class PostgresShadowReader {
       q.to ?? null,
       q.limit + 1,
       q.offset,
+      q.search || null,
     ];
     const dayScope = `source='primary' AND ($1::bigint IS NULL OR admin=$1::text)
       AND ($2::text IS NULL OR day >= $2) AND ($3::text IS NULL OR day <= $3)`;
@@ -462,8 +466,7 @@ export class PostgresShadowReader {
       q.view === 'admins' ||
       q.view === 'day' ||
       q.view === 'week' ||
-      q.view === 'month' ||
-      q.view === 'blocked'
+      q.view === 'month'
     ) {
       const weekday = [
         'SUNDAY',
@@ -479,13 +482,12 @@ export class PostgresShadowReader {
         day: 'r.day',
         month: 'left(r.day,7)',
         week: `(local_date - ((extract(dow from local_date)::int - ${weekday} + 7) % 7))`,
-        blocked: 'r.admin,r.day',
       }[q.view];
-      const byAdmin = q.view === 'admins' || q.view === 'blocked';
+      const byAdmin = q.view === 'admins';
       rows = await this.db.query<Row[]>(
         `WITH scoped AS (SELECT r.*,(d.window_start AT TIME ZONE d.time_zone)::date AS local_date
         FROM fair_shadow_day_reports r JOIN fair_shadow_days d ON d.id=r.day_id WHERE ${dayScope}
-        ${q.view === 'blocked' ? 'AND pending>0' : ''}), grouped AS (
+        AND ($6::text IS NULL OR r.admin=$6 OR EXISTS(SELECT 1 FROM pasarguard_events e WHERE e.source_instance_id=r.source AND e.billing_admin_id=r.admin::bigint AND strpos(lower(e.billing_admin_username),lower($6))>0))), grouped AS (
         SELECT min(r.day) AS day,${byAdmin ? 'r.admin' : 'NULL::text'} AS admin,
         sum(sold_bytes)::text AS bytes,sum(amount_toman)::text AS amount,sum(pending)::int AS pending,
         sum(sum(sold_bytes)) over()::text AS "totalBytes",sum(sum(amount_toman)) over()::text AS "totalAmount"
@@ -505,6 +507,8 @@ export class PostgresShadowReader {
     } else {
       const predicate = {
         transactions: 'true',
+        blocked:
+          'EXISTS(SELECT 1 FROM fair_shadow_day_reports d WHERE d.day_id=entries.day_id AND d.pending>0)',
         ambiguities:
           "decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED'))",
         manual: 'decision IS NOT NULL AND package_id IS NULL',
@@ -518,7 +522,7 @@ export class PostgresShadowReader {
         v.review_id AS decision,r.package_id,
         CASE WHEN v.event_id IS NULL THEN i.amount_toman WHEN v.event_id=(SELECT min(event_id) FROM fair_shadow_review_events WHERE review_id=r.id) THEN r.amount_toman END AS amount,
         CASE WHEN i.amount_toman IS NOT NULL THEN i.data_limit_bytes WHEN v.event_id=(SELECT min(event_id) FROM fair_shadow_review_events WHERE review_id=r.id) THEN r.package_bytes END AS bytes,
-        coalesce(i.local_day,l.local_day) AS day
+        coalesce(i.local_day,l.local_day) AS day,coalesce(i.day_id,l.day_id) AS day_id
         FROM pasarguard_events e LEFT JOIN fair_shadow_items i ON i.event_id=e.id
         LEFT JOIN fair_shadow_late_events l ON l.event_id=e.id LEFT JOIN fair_shadow_review_events v ON v.event_id=e.id
         LEFT JOIN fair_shadow_reviews r ON r.id=v.review_id
@@ -527,7 +531,7 @@ export class PostgresShadowReader {
         AND ($3::date IS NULL OR e.source_enqueued_at < (($3::date+1)::timestamp AT TIME ZONE $6)))
         SELECT day,stamp,admin,name,account,bytes::text,amount::text,
         concat_ws(' · ',action,CASE WHEN decision IS NOT NULL THEN 'بررسی‌شده' WHEN late THEN 'LATE_EVENT_AFTER_CLOSE' ELSE reason END) AS detail,
-        CASE WHEN decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')) THEN 1 ELSE 0 END AS pending FROM entries WHERE ${predicate} ORDER BY stamp DESC,id DESC LIMIT $4 OFFSET $5`,
+        CASE WHEN decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')) THEN 1 ELSE 0 END AS pending FROM entries WHERE (${predicate}) AND ($7::text IS NULL OR strpos(lower(concat_ws(' ',admin,name,account,action)),lower($7))>0) AND ($8::text IS NULL OR coalesce(reason,CASE WHEN late THEN 'LATE_EVENT_AFTER_CLOSE' END)=$8) AND ($9::text IS NULL OR action=$9) ORDER BY stamp DESC,id DESC LIMIT $4 OFFSET $5`,
         [
           q.admin ?? null,
           q.from ? jalaliToReportDate(q.from, 'gregorian') : null,
@@ -535,6 +539,9 @@ export class PostgresShadowReader {
           q.limit + 1,
           q.offset,
           this.timeZone,
+          q.search || null,
+          q.reason || null,
+          q.action || null,
         ],
       );
       rows = result.map(({ stamp, ...row }) => ({

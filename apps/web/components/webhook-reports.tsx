@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { shadowReasons } from '../lib/shadow-reasons';
 import { OwnerHeader } from './owner-header';
 import { ReportAdminFilter } from './report-admin-filter';
 import { ReportDateRangePicker } from './report-date-range-picker';
@@ -40,6 +41,9 @@ export function WebhookReports() {
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Page | null>(null);
   const [failed, setFailed] = useState(false);
+  const [search, setSearch] = useState('');
+  const [reason, setReason] = useState('');
+  const [action, setAction] = useState('');
   const [retry, setRetry] = useState(0);
   function selectAdmin(id: string, label: string) {
     setAdmin(id);
@@ -49,6 +53,11 @@ export function WebhookReports() {
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({ view, offset: String(offset) });
+    if (search && (view === 'admins' || view === 'nonfinancial'))
+      params.set('search', search);
+    if (reason && view === 'ambiguities') params.set('reason', reason);
+    if (action && (view === 'transactions' || view === 'blocked'))
+      params.set('action', action);
     if (admin) params.set('admin', admin);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
@@ -68,11 +77,12 @@ export function WebhookReports() {
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [view, admin, from, to, offset, retry]);
+  }, [view, admin, from, to, offset, retry, search, reason, action]);
   const details = [
     'transactions',
     'ambiguities',
     'manual',
+    'blocked',
     'nonfinancial',
   ].includes(view);
   return (
@@ -86,6 +96,67 @@ export function WebhookReports() {
           <h1>گزارش‌های جامع حسابداری</h1>
         </div>
         <div className="filters">
+          {(view === 'admins' || view === 'nonfinancial') && (
+            <label>
+              جست‌وجو
+              <input
+                type="search"
+                maxLength={64}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setOffset(0);
+                }}
+              />
+            </label>
+          )}
+          {view === 'ambiguities' && (
+            <label>
+              دلیل ابهام
+              <select
+                value={reason}
+                onChange={(e) => {
+                  setReason(e.target.value);
+                  setOffset(0);
+                }}
+              >
+                <option value="">همهٔ دلایل</option>
+                {Object.entries(shadowReasons).map(([code, title]) => (
+                  <option key={code} value={code}>
+                    {title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {(view === 'transactions' || view === 'blocked') && (
+            <label>
+              نوع عملیات
+              <select
+                value={action}
+                onChange={(e) => {
+                  setAction(e.target.value);
+                  setOffset(0);
+                }}
+              >
+                <option value="">همهٔ عملیات</option>
+                {Object.entries({
+                  user_created: 'ایجاد',
+                  user_updated: 'ویرایش',
+                  data_usage_reset: 'ریست حجم',
+                  user_deleted: 'حذف',
+                  user_enabled: 'فعال‌سازی',
+                  user_disabled: 'غیرفعال‌سازی',
+                  user_expired: 'انقضا',
+                  user_limited: 'اتمام حجم',
+                }).map(([code, title]) => (
+                  <option key={code} value={code}>
+                    {title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <ReportAdminFilter
             selectedId={admin}
             selectedName={name}

@@ -639,6 +639,9 @@ export async function createOwnerApi(
               'blocked',
               'nonfinancial',
             ]),
+            search: z.string().max(64).optional(),
+            reason: shadowQuery.shape.reason,
+            action: z.string().max(64).optional(),
             from: date.optional(),
             to: date.optional(),
           })

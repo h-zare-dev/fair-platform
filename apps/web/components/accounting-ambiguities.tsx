@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { ReportAdminFilter } from './report-admin-filter';
 import { ReportDateRangePicker } from './report-date-range-picker';
+import { shadowReasons as names } from '../lib/shadow-reasons';
 import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 
@@ -29,15 +30,6 @@ interface Page {
   rows: Case[];
   nextOffset: number | null;
 }
-const names: Record<string, string> = {
-  MISSING_DURATION: 'مدت پکیج قابل اثبات نیست',
-  PRICING_MISSING: 'پکیج یا قیمت متناظر تعریف نشده',
-  UNEXPECTED_UNLIMITED: 'حجم نامحدود نیازمند بررسی است',
-  AMBIGUOUS_CORRELATION: 'ارتباط رویدادها نامشخص است',
-  AMBIGUOUS_CORRECTION: 'حذف یا ایجاد مجدد در همان روز',
-  PRICING_CONFIG_CONFLICT: 'تداخل یا خطای تنظیمات پکیج',
-  LATE_EVENT_AFTER_CLOSE: 'رویداد پس از بستن روز دریافت شده',
-};
 async function get<T>(url: string): Promise<T> {
   const result = await fetch(url, {
     cache: 'no-store',

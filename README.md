@@ -49,6 +49,8 @@ the panel hostname/IP, and the read-only admin directory. Explicit commands
 are `bash /root/fair-platform-install.sh install` and
 `bash /root/fair-platform-install.sh update`. No application source checkout is
 required; existing database volumes and passwords are preserved on updates.
+During setup, configure the PasarGuard directory and choose whether to enable SHADOW (default off). If enabled, open Settings → Initialization, add the second webhook alongside the existing webhook and start the opening account import. Existing accounts create no opening debt. App updates prompt to preserve active SHADOW.
+
 See the [operator safety checks](docs/deployment/PRODUCTION-SHADOW-INSTALL.md).
 
 Using mise:

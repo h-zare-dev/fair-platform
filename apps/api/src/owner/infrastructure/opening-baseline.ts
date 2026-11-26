@@ -206,7 +206,7 @@ export class PostgresOpeningBaseline {
       mode: 'OPENING_BASELINE_SHADOW',
       postingScope: 'NONE',
       financialCutoverReady: false,
-      cutoverLocked: control?.cutover_locked ?? true,
+      cutoverLocked: control?.cutover_locked ?? false,
       generation: Number(control?.generation ?? '0'),
       sourceInstanceId: SOURCE,
       run: r

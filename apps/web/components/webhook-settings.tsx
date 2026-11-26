@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { rememberOwnerSource } from '../lib/owner-source';
 
 export function WebhookSettings() {
   const [url, setUrl] = useState('');
@@ -66,9 +65,7 @@ export function WebhookSettings() {
       </button>
       <button onClick={() => void copy(true)}>کپی رمز وب‌هوک</button>
       <p role="status">{status}</p>
-      <a href="/dashboard" onClick={() => rememberOwnerSource('primary')}>
-        مشاهدهٔ رویدادهای وب‌هوک در داشبورد
-      </a>
+      <a href="/dashboard">مشاهدهٔ رویدادهای وب‌هوک در داشبورد</a>
     </section>
   );
 }

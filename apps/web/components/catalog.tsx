@@ -19,7 +19,6 @@ import {
   partitionAssignments,
 } from '../lib/assignment-visibility';
 import { GroupMembers } from './group-members';
-import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 import {
   AdminDirectoryPicker,
   type DirectoryStatus,
@@ -163,9 +162,6 @@ export function CatalogManagement({
 }: {
   section: 'packages' | 'groups';
 }) {
-  const [source, setSource] = useState('synthetic');
-  const [sourceDraft, setSourceDraft] = useState('synthetic');
-  const [sourceReady, setSourceReady] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -193,14 +189,6 @@ export function CatalogManagement({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   useEffect(() => {
-    const previous = readOwnerSource();
-    if (previous) {
-      setSource(previous);
-      setSourceDraft(previous);
-    }
-    setSourceReady(true);
-  }, []);
-  useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
   useEffect(() => {
@@ -214,13 +202,12 @@ export function CatalogManagement({
   }, [notice]);
 
   const refresh = useCallback(async () => {
-    setConfig(await api<Config>(`config?source=${encodeURIComponent(source)}`));
-  }, [source]);
+    setConfig(await api<Config>('config?source=primary'));
+  }, []);
   useEffect(() => {
-    if (!sourceReady) return;
     let current = true;
     setLoading(true);
-    void api<Config>(`config?source=${encodeURIComponent(source)}`)
+    void api<Config>('config?source=primary')
       .then((data) => {
         if (current) {
           setConfig(data);
@@ -236,7 +223,7 @@ export function CatalogManagement({
     return () => {
       current = false;
     };
-  }, [source, sourceReady]);
+  }, []);
   useEffect(() => {
     if (!popup) return;
     const previous = document.body.style.overflow;
@@ -442,18 +429,6 @@ export function CatalogManagement({
       <div className="stage" data-staging-billing-mode="no-live-billing">
         محیط آزمایشی · بدون صدور صورت‌حساب یا دریافت وجه
       </div>
-      {sourceReady && (
-        <p className="field-hint" data-testid="active-catalog-dataset">
-          مجموعهٔ فعال:{' '}
-          <strong>
-            {source === 'replay-30d'
-              ? 'آرشیو تاریخی ۳۰روزه (آزمایشی)'
-              : source === 'synthetic'
-                ? 'دادهٔ ساختگی (آزمایشی)'
-                : `شناسهٔ ${source}`}
-          </strong>
-        </p>
-      )}
       <div className="settings-heading">
         <div>
           <p className="eyebrow">پنل مدیریت / تنظیمات</p>
@@ -729,46 +704,6 @@ export function CatalogManagement({
           )}
         </>
       )}
-      <details className="catalog-source-panel catalog-source-advanced">
-        <summary>دربارهٔ محیط آزمایشی و تنظیمات پیشرفته</summary>
-        <p className="field-hint">
-          <b>منبع داده</b> یعنی فضای جداگانهٔ اطلاعات هر سامانه. شناسهٔ{' '}
-          <b dir="ltr">synthetic</b> فقط اطلاعات آزمایشی فِیر پلتفرم است؛ اطلاعات
-          واقعی مدیران پاسارگاد از آن خوانده نمی‌شود. تغییر شناسه، مجموعهٔ دیگری
-          را نمایش می‌دهد و اطلاعات قبلی را پاک نمی‌کند.
-        </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const nextSource = sourceDraft.trim();
-            rememberOwnerSource(nextSource);
-            if (nextSource === source) void refresh();
-            else {
-              setConfig(null);
-              setSource(nextSource);
-            }
-          }}
-        >
-          <label>
-            شناسهٔ منبع (پیشرفته)
-            <input
-              dir="ltr"
-              required
-              maxLength={100}
-              pattern="[A-Za-z0-9][A-Za-z0-9_.:-]*"
-              value={sourceDraft}
-              onChange={(e) => setSourceDraft(e.target.value)}
-            />
-          </label>
-          <button className="secondary">نمایش این منبع</button>
-        </form>
-        <p className="field-hint">
-          منبع فعلی: <b dir="ltr">{source}</b> · منطقهٔ زمانی از تنظیم سرور{' '}
-          <b dir="ltr">FAIR_TIME_ZONE</b> دریافت می‌شود؛ بعد از تغییر ENV و
-          راه‌اندازی دوبارهٔ سرویس، این برچسب هم به‌روز می‌شود. تاریخ اختصاص‌های
-          قبلی با منطقهٔ زمانی ذخیره‌شدهٔ همان اختصاص باقی می‌ماند.
-        </p>
-      </details>
       {popup && (
         <div
           className="catalog-overlay"
@@ -813,7 +748,7 @@ export function CatalogManagement({
                   void write(
                     e,
                     'groups',
-                    () => ({ sourceInstanceId: source, name }),
+                    () => ({ sourceInstanceId: 'primary', name }),
                     'گروه جدید',
                   )
                 }
@@ -840,7 +775,7 @@ export function CatalogManagement({
                     e,
                     'groups/delete',
                     () => ({
-                      sourceInstanceId: source,
+                      sourceInstanceId: 'primary',
                       groupId: popup.groupId,
                     }),
                     'حذف گروه',
@@ -872,13 +807,13 @@ export function CatalogManagement({
                     () =>
                       popup.kind === 'copy-package'
                         ? {
-                            sourceInstanceId: source,
+                            sourceInstanceId: 'primary',
                             packageId: popup.packageId,
                             name,
                             amountToman: positive(cost),
                           }
                         : {
-                            sourceInstanceId: source,
+                            sourceInstanceId: 'primary',
                             ...(popup.kind === 'edit-package'
                               ? { packageId: popup.packageId }
                               : {}),
@@ -971,7 +906,7 @@ export function CatalogManagement({
                       e,
                       'memberships/bulk',
                       () => ({
-                        sourceInstanceId: source,
+                        sourceInstanceId: 'primary',
                         billingAdminIds: ids,
                         groupId: popup.groupId,
                       }),
@@ -1002,7 +937,7 @@ export function CatalogManagement({
                     e,
                     'memberships',
                     () => ({
-                      sourceInstanceId: source,
+                      sourceInstanceId: 'primary',
                       billingAdminId: popup.adminId,
                       groupId: null,
                     }),
@@ -1134,7 +1069,7 @@ export function CatalogManagement({
                     e,
                     'assignments',
                     () => ({
-                      sourceInstanceId: source,
+                      sourceInstanceId: 'primary',
                       targetKind: popup.targetKind,
                       targetId: popup.targetId,
                       ...(mode === 'FIXED'
@@ -1232,7 +1167,7 @@ export function CatalogManagement({
                     e,
                     'assignments/end',
                     () => ({
-                      sourceInstanceId: source,
+                      sourceInstanceId: 'primary',
                       assignmentId: popup.assignmentId,
                       endDate: localDate(endDate),
                     }),

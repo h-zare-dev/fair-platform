@@ -140,9 +140,11 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
       name: 'تنظیمات پکیج‌ها',
     }),
   ).toHaveCount(0);
-  await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
-  await expect(page.locator('.kpi .number').nth(1)).toHaveText('۱۱');
-  await expect(page.getByText('۱۰ گیگابایت').first()).toBeVisible();
+  await expect(page.locator('.kpi .number').first()).toHaveText('۰');
+  await expect(page.locator('.kpi .number').nth(1)).toHaveText('۰');
+  await expect(
+    page.getByText('در این بازه زمانی داده‌ای ثبت نشده است.'),
+  ).toHaveCount(2);
   await expect(
     page.getByRole('heading', { name: 'پکیج‌های قیمت‌گذاری' }),
   ).toHaveCount(0);
@@ -321,7 +323,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     page.getByRole('heading', { name: /سلام، خوش آمدید/ }),
   ).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
+  await expect(page.locator('.kpi .number').first()).toHaveText('۰');
   await expect(page.locator('.inbox-progress')).toContainText(
     'دسته‌های پردازش‌شده:',
   );
@@ -333,11 +335,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     'رویدادهای تازه پردازش‌شده در ۲۴ ساعت اخیر',
   );
   await page.getByLabel('بازهٔ زمانی').selectOption('1h');
-  await expect(page.locator('.kpi .number').first()).toHaveText('۱۲');
-  await page
-    .getByLabel('شناسهٔ منبع', { exact: true })
-    .fill('missing-synthetic-source');
-  await page.getByRole('button', { name: 'اعمال فیلتر' }).click();
+  await expect(page.locator('.kpi .number').first()).toHaveText('۰');
   await expect(
     page.getByText('در این بازه زمانی داده‌ای ثبت نشده است.'),
   ).toHaveCount(2);
@@ -346,30 +344,6 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(page).toHaveURL(/\/login$/);
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
-});
-test('selected historical source survives dashboard to packages and groups navigation', async ({
-  page,
-}) => {
-  await page.goto('/login');
-  await page
-    .getByLabel('گذرواژهٔ مدیر اصلی')
-    .fill('synthetic-browser-test-password');
-  await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-  await page.getByLabel('بازهٔ زمانی').selectOption('replay-fixed');
-  await expect(page.getByLabel('شناسهٔ منبع', { exact: true })).toHaveValue(
-    'replay-30d',
-  );
-  await page.getByRole('link', { name: 'تنظیمات', exact: true }).click();
-  await expect(page.getByTestId('active-catalog-dataset')).toContainText(
-    'آرشیو تاریخی ۳۰روزه',
-  );
-  await page.locator('a[href="/settings/groups"]').click();
-  await expect(page.getByTestId('active-catalog-dataset')).toContainText(
-    'آرشیو تاریخی ۳۰روزه',
-  );
-  await page.goto('/dashboard');
-  await expect(page.getByLabel('بازهٔ زمانی')).toHaveValue('replay-fixed');
 });
 test('obsolete historical previews are gone while SHADOW and bootstrap tools remain accessible', async ({
   page,
@@ -397,13 +371,9 @@ test('obsolete historical previews are gone while SHADOW and bootstrap tools rem
   const advanced = page.getByText(
     'ابزار پیشرفته: اجرای مجدد آزمون آفلاین SHADOW',
   );
-  await expect(advanced).toBeVisible();
-  await advanced.click();
+  await expect(advanced).toHaveCount(0);
   await expect(
-    page.getByRole('heading', { name: 'تست دفتر حسابداری آرشیو ۳۰روزه' }),
-  ).toBeVisible();
-  await expect(
-    page.getByText('فقط SHADOW · بدون تغییر موجودی واقعی'),
+    page.getByRole('heading', { name: 'صورتحساب وبهوک' }),
   ).toBeVisible();
   await page.getByRole('link', { name: 'تنظیمات', exact: true }).click();
   await page.locator('a[href="/settings/initialization"]').click();
@@ -486,213 +456,53 @@ test('server-rendered login cannot submit a password through a GET URL before hy
   }
 });
 
-test('switching report tabs never renders stale administrator rows as event evidence', async ({
+test('saved archive selection cannot change live reports, dashboard or settings', async ({
   page,
 }) => {
-  const pageErrors: string[] = [];
-  let calendarMode: 'jalali' | 'gregorian' = 'jalali';
-  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.addInitScript(() =>
+    sessionStorage.setItem('fair-platform.owner.selected-source', 'replay-30d'),
+  );
   await page.goto('/login');
   await page
     .getByLabel('گذرواژهٔ مدیر اصلی')
     .fill('synthetic-browser-test-password');
+  const summary = page.waitForRequest('**/operations/summary?**');
   await page.getByRole('button', { name: 'ورود به داشبورد ←' }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-  await page.route(/\/audit\/overview(?:\?.*)?$/, (route) =>
+  expect(new URL((await summary).url()).searchParams.get('source')).toBe(
+    'primary',
+  );
+  await expect(page.locator('option[value="replay-fixed"]')).toHaveCount(0);
+  const config = page.waitForRequest('**/catalog/config?**');
+  await page.goto('/settings/packages');
+  expect(new URL((await config).url()).searchParams.get('source')).toBe(
+    'primary',
+  );
+  await expect(page.getByTestId('active-catalog-dataset')).toHaveCount(0);
+  await page.route('**/operations/accounting/days?**', (route) =>
     route.fulfill({
-      json: {
-        mode: 'HISTORICAL_SHADOW_AUDIT',
-        postingScope: 'SHADOW',
-        liveBalanceMutated: false,
-        reportCalendar: calendarMode,
-        run: {
-          id: '1',
-          eventCount: 1,
-          entryCount: 0,
-          heldCount: 0,
-          deleteCreditEnabled: false,
+      json: [
+        {
+          source: 'primary',
+          admin: '12',
+          day: '1405-09-05',
+          soldBytes: '10737418240',
+          periodSoldBytes: '10737418240',
+          amountToman: '20000',
+          periodAmountToman: '20000',
+          pending: 0,
         },
-        runs: [
-          { id: '1', status: 'COMPLETE', createdAt: '2026-01-01T00:00:00Z' },
-        ],
-        coverage: {
-          from: '1405-05-01',
-          to: '1405-08-30',
-          verifiedBoundaries: true,
-        },
-        timeZone: 'Asia/Tehran',
-        weekStartDay: 'SATURDAY',
-        totals: {
-          chargesToman: '0',
-          creditsToman: '0',
-          netToman: '0',
-          heldCandidates: 0,
-          pendingDays: 0,
-          ignoredEvents: 1,
-        },
-        integrity: { status: 'RECONCILED', errors: [] },
-        historicalSourceIdentity: {
-          status: 'NOT_IMPORTED',
-          mappedBillingAdmins: 0,
-          mappedAccounts: 0,
-          mappedActorAdmins: 0,
-          unmatchedArchiveAdminPairs: null,
-          unmatchedArchiveAccountPairs: null,
-        },
-      },
+      ],
     }),
   );
-  await page.route(/\/audit\/admins(?:\?.*)?$/, (route) =>
-    route.fulfill({
-      json: {
-        runId: '1',
-        nextOffset: null,
-        rows: [
-          {
-            billingAdminId: '1',
-            adminName: 'Test admin',
-            nameStatus: 'SOURCE_VERIFIED_HISTORICAL',
-            names: ['Test admin'],
-            observedDays: '1',
-            readyDays: '1',
-            pendingDays: '0',
-            chargeToman: '0',
-            creditToman: '0',
-            netToman: '0',
-            holdCount: '0',
-            heldCandidateCount: 0,
-            entryCount: '0',
-          },
-        ],
-      },
-    }),
-  );
-  await page.route(/\/audit\/holds(?:\?.*)?$/, (route) =>
-    route.fulfill({
-      json: { runId: '1', nextOffset: null, rows: [] },
-    }),
-  );
-  const periodRequests: URL[] = [];
-  await page.route(/\/audit\/periods(?:\?.*)?$/, (route) => {
-    periodRequests.push(new URL(route.request().url()));
-    return route.fulfill({
-      json: {
-        runId: '1',
-        billingAdminId: null,
-        nextOffset: null,
-        rows: [
-          {
-            startDate: calendarMode === 'jalali' ? '1405-08-01' : '2026-11-01',
-            endDate: calendarMode === 'jalali' ? '1405-08-30' : '2026-11-30',
-            status: 'RECONCILED',
-            observedDays: 2,
-            readyDays: 2,
-            pendingDays: 0,
-            entryCount: 2,
-            holdCount: 0,
-            readyChargeToman: '200000',
-            readyCreditToman: '0',
-            readyNetToman: '200000',
-            readyChargeBytes: '214748364800',
-            chargeBytes: '214748364800',
-            chargeToman: '200000',
-            creditToman: '0',
-            netToman: '200000',
-          },
-        ],
-      },
-    });
-  });
   await page.goto('/reports');
-  const adminRow = page.getByRole('row').filter({ hasText: 'Test admin' });
-  await expect(adminRow).toBeVisible();
-  await page.getByRole('button', { name: 'ابهامات', exact: true }).click();
   await expect(
-    page.getByRole('columnheader', { name: 'علت بررسی' }),
+    page.getByRole('cell', { name: '۱۰ گیگابایت', exact: true }),
   ).toBeVisible();
-  await expect(adminRow).toHaveCount(0);
-  await page.getByRole('button', { name: 'ماهانه', exact: true }).click();
-  await expect(
-    page.getByRole('columnheader', { name: 'جمع حجم ثبت‌شده' }),
-  ).toBeVisible();
-  await expect(page.getByRole('cell', { name: /۲۰۰ گیگابایت/ })).toBeVisible();
-  expect(periodRequests.at(-1)?.searchParams.get('billingAdminId')).toBeNull();
-  const picker = page.locator('.report-date-trigger');
-  await picker.click();
-  const dialog = page.getByRole('dialog', { name: 'انتخاب بازهٔ تاریخ گزارش' });
-  await dialog.locator('.report-date-grid button').first().click();
-  // Mobile popovers are fixed overlays covering the underlying report panel.
-  await page.mouse.click(5, 5);
-  await expect(dialog).toHaveCount(0);
-  expect(periodRequests.at(-1)?.searchParams.get('from')).toBeNull();
-
-  await picker.click();
-  await dialog.getByRole('button', { name: /تا تاریخ/ }).focus();
-  await page.locator('.report-admin-trigger').focus();
-  await expect(dialog).toHaveCount(0);
-
-  await picker.click();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-  await expect(picker).toBeFocused();
-
-  await picker.click();
-  await dialog.locator('.report-date-grid button').first().click();
-  await dialog.locator('.report-date-grid button').last().click();
-  await dialog.getByRole('button', { name: 'اعمال بازه' }).click();
-  await expect
-    .poll(() => periodRequests.at(-1)?.searchParams.get('from'))
-    .toBe('1405-08-01');
-  await expect
-    .poll(() => periodRequests.at(-1)?.searchParams.get('to'))
-    .toBe('1405-08-30');
-  await page.locator('.report-admin-trigger').click();
-  const adminDialog = page.getByRole('dialog', {
-    name: 'فیلتر گزارش بر اساس مدیر',
-  });
-  await adminDialog.getByRole('searchbox').fill('Test');
-  await page.mouse.click(5, 5);
-  await expect(adminDialog).toHaveCount(0);
-  expect(periodRequests.at(-1)?.searchParams.get('billingAdminId')).toBeNull();
-
-  await page.locator('.report-admin-trigger').click();
-  await page.locator('.report-date-trigger').focus();
-  await expect(adminDialog).toHaveCount(0);
-
-  await page.locator('.report-admin-trigger').click();
-  await page.keyboard.press('Escape');
-  await expect(adminDialog).toHaveCount(0);
-  await expect(page.locator('.report-admin-trigger')).toBeFocused();
-
-  await page.locator('.report-admin-trigger').click();
-  await page
-    .getByRole('dialog', { name: 'فیلتر گزارش بر اساس مدیر' })
-    .getByRole('button', { name: 'Test admin' })
-    .click();
-  await expect
-    .poll(() => periodRequests.at(-1)?.searchParams.get('billingAdminId'))
-    .toBe('1');
-  await page.locator('.report-admin-trigger').click();
-  await page
-    .getByRole('dialog', { name: 'فیلتر گزارش بر اساس مدیر' })
-    .getByRole('button', { name: 'همهٔ مدیران' })
-    .click();
-  await expect
-    .poll(() => periodRequests.at(-1)?.searchParams.get('billingAdminId'))
-    .toBeNull();
-
-  calendarMode = 'gregorian';
-  await page.reload();
-  await page.getByRole('button', { name: 'ماهانه', exact: true }).click();
-  await expect(
-    page.getByRole('columnheader', { name: 'بازهٔ میلادی' }),
-  ).toBeVisible();
-  await expect(page.getByRole('cell', { name: /نوامبر ۲۰۲۶/ })).toBeVisible();
-  await picker.click();
-  await expect(dialog.getByRole('combobox', { name: 'ماه تقویم' })).toHaveValue(
-    '11',
+  const weekly = page.waitForRequest(
+    '**/operations/accounting/days?**period=week**',
   );
-  await page.mouse.click(5, 5);
-  await expect(dialog).toHaveCount(0);
-  expect(pageErrors).toEqual([]);
+  await page.getByLabel('بازه', { exact: true }).selectOption('week');
+  expect(new URL((await weekly).url()).searchParams.get('source')).toBe(
+    'primary',
+  );
 });

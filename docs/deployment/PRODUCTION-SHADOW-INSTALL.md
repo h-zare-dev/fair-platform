@@ -1,55 +1,46 @@
 # Production host candidate — Owner-controlled installation (SHADOW OFF)
 
-**Status:** installation files and CI regression checks only; **no production host
-has been installed, no billing approval has been granted, and no production CD is
-configured by this PR**. The old `main` branch is not a deployable release of
-the new dashboard. Do not deploy until the Owner approves the reviewed commit,
-all PR checks pass, the `development` image publish succeeds and the desired
-promotion to `main` has been separately reviewed. Use the immutable **published
-`development` commit SHA** (the four GHCR image revisions must all match it).
+**Status:** Owner-controlled host installation tools; the Owner reports a
+running UI at `panel.fairisfair.ir`, but CI does not attest the running host.
+No live financial billing or production CD is authorized. Review the commit
+and await all four `development` images and CI before installing a new release.
 
-## Short first-install commands
+## One-command interactive installation and directory configuration
 
-Prerequisites: dedicated amd64 Ubuntu 26.04 host, root console/SSH **key** and
-firewall allowing SSH and TCP/443, free host port 443, working outbound GHCR
-access, and Cloudflare **DNS-only** A record for `panel.fairisfair.ir` pointed to
-this machine; no unintended AAAA record. Caddy uses TLS-ALPN on 443; **no
-HTTP/80**. Do not run on the existing Pasarguard server if another service
-owns 443, and do not run any Staging bootstrap workflow here. Preserve the old
-Test-Bot server, database, private archive and identity imports.
+Run as root on a dedicated amd64 Ubuntu console/SSH terminal **after the Owner
+merges the reviewed installer PR and its images are published**. Inspect the
+downloaded script if necessary before executing it:
 
-```sh
-# On the NEW Ubuntu host as root; replace the two placeholders.
-apt-get update
-apt-get install -y docker.io docker-compose-v2 git python3 curl util-linux iproute2
-systemctl enable --now docker
-git clone --branch development --single-branch https://github.com/h-zare-dev/fair-platform.git /opt/fair-platform
-cd /opt/fair-platform
-git checkout --detach REVIEWED_40_CHAR_DEVELOPMENT_SHA
-
-# Log in interactively with a package-read-capable token only if GHCR demands it.
-# docker login ghcr.io
-bash scripts/production/resolve-release.sh REVIEWED_40_CHAR_DEVELOPMENT_SHA owner@example.com
-python3 scripts/production/provision-secrets.py
-bash scripts/production/install.sh
-
-# Enter the single Owner password interactively; never put it in argv or .env.
-docker compose --env-file /etc/fair-production/release.env -f docker/production/compose.yml run --rm migrate node dist/owner/cli.js bootstrap
-curl --fail --show-error --head https://panel.fairisfair.ir/login
-bash scripts/production/backup.sh
+```bash
+curl -fsSLo /root/fair-platform-install.sh https://raw.githubusercontent.com/h-zare-dev/fair-platform/development/scripts/production/bootstrap.sh && bash /root/fair-platform-install.sh
 ```
 
-`resolve-release.sh` refuses unreviewed commits, inconsistent OCI revision or
-source labels, mutable tags and mismatched image digests. The install refuses
-an existing `fair-production_postgres_data` Docker volume or an occupied port
-443. It does **not** erase anything or automatically resume a partial install:
-stop and inspect the host on any failure. It creates a new `fair_platform`
-PostgreSQL database and distinct root-owned credentials under
-`/etc/fair-production`, with limited runtime and read-only dump roles. The
-database, Caddy certificates and configuration survive container restarts. Only
-Caddy publishes TCP/443. API/Web/DB are internal. The default is
-`FAIR_SHADOW_ENABLED=false`, with no webhook secret mounted, **no real billing,
-no Telegram delivery and no synthetic seeding**.
+The installer asks permission to install missing Ubuntu Docker prerequisites.
+On a **new host**, it fetches only production Compose/scripts with a sparse Git
+checkout (not application source), shows the reviewed SHA, asks for the ACME
+email, pins immutable GHCR images, provisions secrets, installs the UI, and
+prompts for the one-time Owner password with **hidden terminal input**.
+It then offers optional **read-only** PasarGuard admin directory configuration:
+HTTPS base URL and a hidden API key prompt. The key is stored exclusively at
+`/etc/fair-production/secrets/pasarguard_api_key`, UID 1000, mode 0600; it
+never enters Compose YAML, `release.env`, shell history or logs.
+
+On an **already installed host** with `/etc/fair-production/installed`, the
+same command retrieves the reviewed directory overlay and setup script from
+GitHub without overwriting custom files, **even if `.git` and application
+source have been removed**. It reuses the pinned release and
+existing DB, and **only recreates `owner-api`** to activate the directory;
+no database migration, new image pull, Owner re-bootstrap or Shadow activation.
+The directory config persists in `/etc/fair-production/directory.env`.
+
+Prerequisites: SSH key/console, SSH and TCP/443 firewall allowance, free port
+443 on fresh installs, DNS-only A record for `panel.fairisfair.ir` resolving to
+this server, no unexpected AAAA record. Caddy uses 443 TLS-ALPN (no 80).
+Preserve Test-Bot, its private archive and identity imports. If GHCR requires
+authentication, perform private `docker login ghcr.io` with a read-only token.
+`resolve-release.sh` checks image source/revision and immutable digests;
+`install.sh` refuses existing volumes, occupied port 443 or partial installs.
+SHADOW, real billing, Telegram delivery and synthetic seeding remain OFF.
 
 Health and service check (read-only):
 
@@ -79,10 +70,11 @@ docker compose --env-file /etc/fair-production/release.env \
   up -d --no-deps owner-api
 ```
 
-The overlay is intentionally not used by `install.sh` or `backup.sh`.
-It enables a read-only PasarGuard directory and encrypted second-webhook
-ingestion in `SHADOW` only, not payment, balance changes, Telegram delivery or
-cutover. Before enabling it, check the seven-day pilot instructions in
+The **Shadow overlay** is intentionally not used by the guided installer or
+`backup.sh`. It enables the directory **and** encrypted second-webhook
+ingestion in `SHADOW` only. The guided installer instead uses the independent
+`compose.directory.yml` without any webhook/billing changes. Before separately
+enabling Shadow, check the seven-day pilot instructions in
 [`WEBHOOK-PILOT.md`](WEBHOOK-PILOT.md) and the authoritative domain rules.
 
 ## Backups, release updates and blockers

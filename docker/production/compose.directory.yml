@@ -1,0 +1,12 @@
+# Optional read-only PasarGuard administrator directory.
+# Unlike compose.shadow.yml, this MUST NOT enable event ingestion or billing.
+services:
+  owner-api:
+    environment:
+      PASARGUARD_BASE_URL: ${PASARGUARD_BASE_URL:?directory URL required}
+      PASARGUARD_API_KEY_FILE: /run/secrets/pasarguard_api_key
+    secrets: [pasarguard_api_key]
+
+secrets:
+  pasarguard_api_key:
+    file: ${SECRETS_DIR:?}/pasarguard_api_key

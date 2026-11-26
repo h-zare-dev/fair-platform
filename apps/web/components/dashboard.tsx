@@ -240,8 +240,8 @@ export function Dashboard() {
       <OwnerHeader active="dashboard" />
       <main className="dashboard">
         <div className="stage" data-staging-billing-mode="no-live-billing">
-          <span className="stage-dot" aria-hidden="true" /> حسابداری سایه · بدون
-          دریافت وجه واقعی
+          <span className="stage-dot" aria-hidden="true" />
+          <span>حسابداری سایه · بدون دریافت وجه واقعی</span>
         </div>
         <div className="intro">
           <div>

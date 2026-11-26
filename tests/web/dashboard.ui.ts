@@ -207,34 +207,33 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .filter({ has: page.getByRole('heading', { name: groupName }) })
     .getByRole('button', { name: 'مدیران گروه' })
     .click();
-  await expect(page.getByRole('dialog')).toContainText(
-    'جست‌وجو در فهرست مدیران پاسارگاد',
-  );
-  await expect(page.getByRole('dialog').getByLabel(/ورود دستی/)).toHaveCount(0);
+  const available = page.getByRole('region', { name: 'مدیران قابل افزودن' });
+  const members = page.getByRole('region', { name: 'اعضای گروه' });
   await expect(
-    page.getByRole('dialog').getByRole('button', { name: /synthetic_manager/ }),
+    available.getByRole('checkbox', { name: /fixture_149/ }),
   ).toBeVisible();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /synthetic_manager/ })
-    .click();
-  await expect(page.getByRole('dialog').getByRole('status')).toContainText(
-    'synthetic_manager',
-  );
-  await expect(page.getByRole('dialog').getByRole('status')).toContainText(
-    '9001',
-  );
-  const selectAll = page.getByRole('checkbox', { name: /انتخاب همهٔ مدیران/ });
-  await selectAll.click();
-  await expect(selectAll).toBeChecked();
+  const selectAll = available.getByRole('checkbox', {
+    name: 'انتخاب همهٔ مدیران',
+  });
+  await selectAll.check();
   await expect(
-    page.getByRole('button', { name: 'افزودن 150 مدیر به گروه' }),
+    available.getByRole('button', { name: /افزودن به گروه.*150/ }),
   ).toBeEnabled();
   await selectAll.uncheck();
+  await available.getByRole('checkbox', { name: /fixture_149/ }).check();
+  await available.getByRole('button', { name: /افزودن به گروه/ }).click();
+  await expect(members.getByText('fixture_149', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'بستن پنجره' }).click();
   await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'بستن پنجره' })
+    .locator('.catalog-tile')
+    .filter({ has: page.getByRole('heading', { name: groupName }) })
+    .getByRole('button', { name: 'مدیران گروه' })
     .click();
+  await expect(members.getByText('fixture_149', { exact: true })).toBeVisible();
+  await expect(
+    available.getByRole('checkbox', { name: /fixture_149/ }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'بستن پنجره' }).click();
   await page.unroute('**/api/v1/owner/directory/admins?*');
   await page.route('**/api/v1/owner/directory/admins?*', (route) =>
     route.fulfill({
@@ -250,9 +249,7 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
     .click();
   await expect(page.getByRole('dialog')).toContainText('DIRECTORY_UNAVAILABLE');
   await expect(
-    page
-      .getByRole('dialog')
-      .getByRole('button', { name: '+ افزودن مدیر به گروه' }),
+    page.getByRole('dialog').getByRole('button', { name: /افزودن به گروه/ }),
   ).toBeDisabled();
   await expect(page.getByRole('dialog').getByLabel(/ورود دستی/)).toHaveCount(0);
   await page

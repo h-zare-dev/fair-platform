@@ -18,6 +18,7 @@ import {
   assignmentExpired,
   partitionAssignments,
 } from '../lib/assignment-visibility';
+import { GroupMembers } from './group-members';
 import { readOwnerSource, rememberOwnerSource } from '../lib/owner-source';
 import {
   AdminDirectoryPicker,
@@ -182,7 +183,6 @@ export function CatalogManagement({
   const [volume, setVolume] = useState('50');
   const [duration, setDuration] = useState('30');
   const [cost, setCost] = useState('');
-  const [bulkIds, setBulkIds] = useState<string[]>([]);
   const [adminId, setAdminId] = useState('');
   const [adminLabels, setAdminLabels] = useState<Record<string, string>>({});
   const [directoryStatus, setDirectoryStatus] =
@@ -308,7 +308,6 @@ export function CatalogManagement({
     setDuration('30');
     setCost('');
     setAdminId('');
-    setBulkIds([]);
     setDirectoryStatus('loading');
     setMode('FIXED');
     setSelectedPackage('');
@@ -355,7 +354,6 @@ export function CatalogManagement({
       if (!keepOpen) setPopup(null);
       else {
         setAdminId('');
-        setBulkIds([]);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'درخواست انجام نشد.');
@@ -782,7 +780,11 @@ export function CatalogManagement({
             role="dialog"
             aria-modal="true"
             aria-labelledby="catalog-dialog-title"
-            className="catalog-dialog"
+            className={
+              popup.kind === 'members'
+                ? 'catalog-dialog transfer-dialog'
+                : 'catalog-dialog'
+            }
             ref={dialog}
           >
             <header className="catalog-dialog-head">
@@ -959,72 +961,37 @@ export function CatalogManagement({
                   اعضای «{selectedGroup?.name}» · هر مدیر فقط عضو یک گروه است.
                   افزودن مدیرِ عضو گروه دیگر، او را به این گروه منتقل می‌کند.
                 </p>
-                <div className="catalog-member-list">
-                  {groupMembers(popup.groupId).length ? (
-                    groupMembers(popup.groupId).map((m) => (
-                      <div className="catalog-member" key={m.billingAdminId}>
-                        <span>
-                          {adminLabels[m.billingAdminId] ?? 'مدیر'}{' '}
-                          <b dir="ltr">({m.billingAdminId})</b>
-                        </span>
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            open({
-                              kind: 'remove-member',
-                              groupId: popup.groupId,
-                              adminId: m.billingAdminId,
-                            })
-                          }
-                        >
-                          حذف از گروه
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="catalog-empty">
-                      هنوز مدیری در این گروه نیست.
-                    </p>
+                <GroupMembers
+                  members={groupMembers(popup.groupId).map(
+                    (m) => m.billingAdminId,
                   )}
-                </div>
-                <form
-                  className="catalog-form"
-                  onSubmit={(e) =>
+                  busy={busy}
+                  submit={(e, ids) =>
                     void write(
                       e,
-                      bulkIds.length ? 'memberships/bulk' : 'memberships',
+                      'memberships/bulk',
                       () => ({
                         sourceInstanceId: source,
-                        ...(bulkIds.length
-                          ? { billingAdminIds: bulkIds }
-                          : { billingAdminId: integer(adminId) }),
+                        billingAdminIds: ids,
                         groupId: popup.groupId,
                       }),
-                      'اختصاص مدیر به گروه',
+                      'اختصاص مدیران به گروه',
                       true,
                     )
                   }
-                >
-                  <AdminDirectoryPicker
-                    bulk={{ ids: bulkIds, set: setBulkIds, disabled: busy }}
-                    value={adminId}
-                    onChange={setAdminId}
-                    setLabels={setAdminLabels}
-                    labels={adminLabels}
-                    onStatusChange={setDirectoryStatus}
-                  />
-                  <button
-                    disabled={
-                      busy ||
-                      directoryStatus !== 'ready' ||
-                      (!adminId && !bulkIds.length)
-                    }
-                  >
-                    {bulkIds.length
-                      ? `افزودن ${bulkIds.length} مدیر به گروه`
-                      : '+ افزودن مدیر به گروه'}
-                  </button>
-                </form>
+                  remove={(id, name) => {
+                    if (name)
+                      setAdminLabels((previous) => ({
+                        ...previous,
+                        [id]: name,
+                      }));
+                    open({
+                      kind: 'remove-member',
+                      groupId: popup.groupId,
+                      adminId: id,
+                    });
+                  }}
+                />
               </div>
             )}
             {popup.kind === 'remove-member' && (
@@ -1044,7 +1011,8 @@ export function CatalogManagement({
                 }
               >
                 <p>
-                  مدیر <b dir="ltr">{popup.adminId}</b> از «
+                  <bdi>{adminLabels[popup.adminId]}</bdi>{' '}
+                  <b dir="ltr">#{popup.adminId}</b> از «
                   {groupName(popup.groupId)}» خارج شود؟ سابقهٔ این تغییر ذخیره
                   می‌شود.
                 </p>

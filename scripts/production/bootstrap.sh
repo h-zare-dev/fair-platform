@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# curl -fsSLo /root/fair-platform-install.sh URL && bash /root/fair-platform-install.sh
-# Fetches only deployment tooling. Never performs automatic production upgrades.
+# One public entry point: install | update | host | directory. Fetch deployment files only.
 set -euo pipefail
 umask 077
 
@@ -13,6 +12,30 @@ die() { printf 'FAIR_BOOTSTRAP_ERROR: %s\n' "$*" >&2; exit 1; }
 . /etc/os-release
 [[ "$ID" == ubuntu ]] || die 'Ubuntu required.'
 
+mode=${1:-auto}
+[[ $# -le 1 ]] || die 'Usage: fair-platform-install.sh [install|update|host|directory]'
+installed=false
+[[ -f /etc/fair-production/installed ]] && installed=true
+if [[ "$mode" == auto ]]; then
+  if [[ "$installed" == true ]]; then
+    printf 'Fair Platform is installed. Choose: [u]pdate / change [h]ost / [d]irectory: '
+    read -r choice
+    case "$choice" in
+      u|U) mode=update ;;
+      h|H) mode=host ;;
+      d|D) mode=directory ;;
+      *) die 'Invalid menu selection.' ;;
+    esac
+  else
+    mode=install
+  fi
+fi
+case "$mode" in
+  install) [[ "$installed" == false ]] || die 'Already installed; use update.' ;;
+  update|host|directory) [[ "$installed" == true ]] || die 'Not installed; use install.' ;;
+  *) die 'Usage: fair-platform-install.sh [install|update|host|directory]' ;;
+esac
+
 if ! command -v git >/dev/null || ! command -v python3 >/dev/null || \
    ! command -v ss >/dev/null || ! command -v flock >/dev/null || \
    ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
@@ -23,44 +46,57 @@ if ! command -v git >/dev/null || ! command -v python3 >/dev/null || \
   systemctl enable --now docker
 fi
 docker info >/dev/null 2>&1 || die 'Docker daemon unavailable.'
+if [[ "$installed" == true ]]; then
+  exec 7>/etc/fair-production/bootstrap.lock
+  flock -n 7 || die 'Another installer invocation is running.'
+fi
 
-repo=/opt/fair-platform
 origin=https://github.com/h-zare-dev/fair-platform.git
-if [[ -e "$repo" ]]; then
-  [[ -d "$repo" && -f "$repo/docker/production/compose.yml" && -f "$repo/scripts/production/preflight.py" ]] || die 'Existing /opt/fair-platform is not a known deployment bundle. Nothing modified.'
-  [[ -f /etc/fair-production/installed ]] || die 'Existing checkout but no completed installation. Reconcile manually.'
-  printf 'Fetching only the read-only directory overlay and guided setup tooling.\n'
-  temp_dir=$(mktemp -d)
-  trap 'rm -rf -- "$temp_dir"' EXIT
-  if [[ -d "$repo/.git" ]]; then
-    [[ $(git -C "$repo" remote get-url origin) == "$origin" ]] || die 'Existing checkout has unexpected origin.'
-    git -C "$repo" fetch --depth=1 origin development
-    sha=$(git -C "$repo" rev-parse FETCH_HEAD)
-    git -C "$repo" show "$sha:docker/production/compose.directory.yml" > "$temp_dir/compose.directory.yml"
-    git -C "$repo" show "$sha:scripts/production/setup.sh" > "$temp_dir/setup.sh"
+legacy=/opt/fair-platform
+releases=/opt/fair-production-releases
+active_file=/etc/fair-production/active-bundle
+if [[ "$installed" == true ]]; then
+  if [[ -e "$active_file" || -L "$active_file" ]]; then
+    [[ -f "$active_file" && ! -L "$active_file" && $(stat -c %u "$active_file") == 0 ]] || die 'Unsafe active release pointer.'
+    IFS= read -r active < "$active_file"
+    [[ "$active" =~ ^/opt/fair-production-releases/[0-9a-f]{40}$ && -d "$active" ]] || die 'Invalid active release pointer.'
   else
-    # Hosts can intentionally retain only deployment files, with no .git or source.
-    read -r sha _ < <(git ls-remote "$origin" refs/heads/development)
-    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die 'Cannot pin deployment bundle revision.'
-    curl -fsSLo "$temp_dir/compose.directory.yml" "https://raw.githubusercontent.com/h-zare-dev/fair-platform/$sha/docker/production/compose.directory.yml"
-    curl -fsSLo "$temp_dir/setup.sh" "https://raw.githubusercontent.com/h-zare-dev/fair-platform/$sha/scripts/production/setup.sh"
+    active=$legacy
   fi
-  # Never run an unreviewed/locally altered base Compose definition as root.
-  release_sha=$(sed -n 's/^RELEASE_SHA=//p' /etc/fair-production/release.env)
-  [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || die 'Installed release SHA missing or invalid.'
-  curl -fsSLo "$temp_dir/pinned-compose.yml" "https://raw.githubusercontent.com/h-zare-dev/fair-platform/$release_sha/docker/production/compose.yml"
-  cmp -s "$temp_dir/pinned-compose.yml" "$repo/docker/production/compose.yml" || die 'Existing base Compose differs from the installed pinned release; stop and reconcile.'
-  if [[ -e "$repo/docker/production/compose.directory.yml" ]]; then
-    cmp -s "$temp_dir/compose.directory.yml" "$repo/docker/production/compose.directory.yml" || die 'Existing directory overlay differs; no overwrite.'
-  else
-    install -m 0644 "$temp_dir/compose.directory.yml" "$repo/docker/production/compose.directory.yml"
+  [[ -f "$active/docker/production/compose.yml" && -f "$active/scripts/production/backup.sh" ]] || \
+    die 'Active production deployment bundle is missing. Nothing modified.'
+fi
+
+if [[ "$mode" == install ]]; then
+  [[ ! -e "$legacy" ]] || die 'Existing /opt/fair-platform. Cannot overwrite a partial installation.'
+  printf 'Fetching only production Compose and scripts; application source is not needed.\n'
+  git clone --depth=1 --filter=blob:none --sparse --branch development --single-branch "$origin" "$legacy"
+  git -C "$legacy" sparse-checkout set docker/production scripts/production
+  bash "$legacy/scripts/production/setup.sh"
+elif [[ "$mode" == update ]]; then
+  remote_tip=$(git ls-remote "$origin" refs/heads/development)
+  read -r sha _ <<< "$remote_tip"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die 'Cannot verify development release SHA.'
+  current=$(sed -n 's/^RELEASE_SHA=//p' /etc/fair-production/release.env)
+  [[ "$current" =~ ^[0-9a-f]{40}$ ]] || die 'Installed release is invalid.'
+  [[ "$sha" != "$current" ]] || { printf 'PRODUCTION_ALREADY_UP_TO_DATE %s\n' "$sha"; exit 0; }
+  install -d -m 0755 -o root -g root "$releases"
+  candidate="$releases/$sha"
+  [[ ! -L "$candidate" ]] || die 'Candidate release path is a symlink.'
+  if [[ ! -e "$candidate" ]]; then
+    printf 'Fetching a deployment bundle for reviewed commit %s\n' "$sha"
+    git clone --depth=1 --filter=blob:none --sparse --branch development --single-branch "$origin" "$candidate"
+    git -C "$candidate" sparse-checkout set docker/production scripts/production
   fi
-  FAIR_PRODUCTION_REPO="$repo" bash "$temp_dir/setup.sh"
+  [[ -d "$candidate/.git" && $(git -C "$candidate" rev-parse HEAD) == "$sha" ]] || die 'Candidate checkout not pinned to expected SHA.'
+  [[ $(git -C "$candidate" remote get-url origin) == "$origin" ]] || die 'Candidate repository origin invalid.'
+  [[ -z $(git -C "$candidate" status --porcelain -- docker/production scripts/production) ]] || die 'Candidate bundle modified; do not run.'
+  bash "$candidate/scripts/production/upgrade.sh" "$candidate" "$active"
+elif [[ "$mode" == host ]]; then
+  [[ -f "$active/scripts/production/change-host.sh" ]] || die 'Upgrade the old production release first.'
+  read -r -p 'New panel hostname, IPv4 or localhost: ' new_host
+  bash "$active/scripts/production/change-host.sh" "$new_host"
 else
-  [[ ! -e /etc/fair-production/installed ]] || die 'Installed marker exists but checkout is missing. Stop and reconcile.'
-  printf 'Fetching only production Compose and scripts; application source is not needed on host.\n'
-  git clone --depth=1 --filter=blob:none --sparse --branch development --single-branch "$origin" "$repo"
-  git -C "$repo" sparse-checkout set docker/production scripts/production
-  printf 'Deployment checkout pinned at %s\n' "$(git -C "$repo" rev-parse HEAD)"
-  bash "$repo/scripts/production/setup.sh"
+  [[ -f "$active/scripts/production/setup.sh" ]] || die 'Active deployment setup missing.'
+  FAIR_PRODUCTION_REPO="$active" bash "$active/scripts/production/setup.sh"
 fi

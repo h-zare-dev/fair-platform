@@ -182,6 +182,7 @@ export function CatalogManagement({
   const [volume, setVolume] = useState('50');
   const [duration, setDuration] = useState('30');
   const [cost, setCost] = useState('');
+  const [bulkIds, setBulkIds] = useState<string[]>([]);
   const [adminId, setAdminId] = useState('');
   const [adminLabels, setAdminLabels] = useState<Record<string, string>>({});
   const [directoryStatus, setDirectoryStatus] =
@@ -307,6 +308,7 @@ export function CatalogManagement({
     setDuration('30');
     setCost('');
     setAdminId('');
+    setBulkIds([]);
     setDirectoryStatus('loading');
     setMode('FIXED');
     setSelectedPackage('');
@@ -351,7 +353,10 @@ export function CatalogManagement({
         text: `${label} با موفقیت انجام شد.`,
       });
       if (!keepOpen) setPopup(null);
-      else setAdminId('');
+      else {
+        setAdminId('');
+        setBulkIds([]);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'درخواست انجام نشد.');
     } finally {
@@ -987,10 +992,12 @@ export function CatalogManagement({
                   onSubmit={(e) =>
                     void write(
                       e,
-                      'memberships',
+                      bulkIds.length ? 'memberships/bulk' : 'memberships',
                       () => ({
                         sourceInstanceId: source,
-                        billingAdminId: integer(adminId),
+                        ...(bulkIds.length
+                          ? { billingAdminIds: bulkIds }
+                          : { billingAdminId: integer(adminId) }),
                         groupId: popup.groupId,
                       }),
                       'اختصاص مدیر به گروه',
@@ -999,6 +1006,7 @@ export function CatalogManagement({
                   }
                 >
                   <AdminDirectoryPicker
+                    bulk={{ ids: bulkIds, set: setBulkIds, disabled: busy }}
                     value={adminId}
                     onChange={setAdminId}
                     setLabels={setAdminLabels}
@@ -1006,9 +1014,15 @@ export function CatalogManagement({
                     onStatusChange={setDirectoryStatus}
                   />
                   <button
-                    disabled={busy || directoryStatus !== 'ready' || !adminId}
+                    disabled={
+                      busy ||
+                      directoryStatus !== 'ready' ||
+                      (!adminId && !bulkIds.length)
+                    }
                   >
-                    + افزودن مدیر به گروه
+                    {bulkIds.length
+                      ? `افزودن ${bulkIds.length} مدیر به گروه`
+                      : '+ افزودن مدیر به گروه'}
                   </button>
                 </form>
               </div>

@@ -285,44 +285,69 @@ export class PostgresCatalogStore {
     const s = source(input.sourceInstanceId);
     const admin = adminId(input.billingAdminId);
     const group = input.groupId === null ? null : id(input.groupId);
+    return this.db.transaction(
+      async (tx) => (await this.setMembership(tx, s, admin, group, false))!,
+    );
+  }
+
+  async addMembers(sourceId: string, groupId: string, members: string[]) {
+    const s = source(sourceId);
+    const group = id(groupId);
+    const ids = [...new Set(members.map(adminId))].sort();
     return this.db.transaction(async (tx) => {
-      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
-        `membership:${s}:${admin}`,
-      ]);
-      const [current] = await tx.query<{ groupId: string }[]>(
-        'SELECT group_id::text AS "groupId" FROM fair_admin_group_memberships WHERE source_instance_id=$1 AND billing_admin_id=$2',
-        [s, admin],
+      let changed = 0;
+      for (const admin of ids) {
+        const result = await this.setMembership(tx, s, admin, group, true);
+        if (result) changed++;
+      }
+      return { changed };
+    });
+  }
+
+  private async setMembership(
+    tx: EntityManager,
+    s: string,
+    admin: string,
+    group: string | null,
+    skipExisting: boolean,
+  ) {
+    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+      `membership:${s}:${admin}`,
+    ]);
+    const [current] = await tx.query<{ groupId: string }[]>(
+      'SELECT group_id::text AS "groupId" FROM fair_admin_group_memberships WHERE source_instance_id=$1 AND billing_admin_id=$2',
+      [s, admin],
+    );
+    const old = current?.groupId ?? null;
+    if (old === group && skipExisting) return null;
+    if (old === group) throw new CatalogError('INVALID_CATALOG_INPUT');
+    if (group !== null) {
+      const target = await tx.query<{ id: string }[]>(
+        'SELECT id FROM fair_admin_groups WHERE id=$1 AND source_instance_id=$2',
+        [group, s],
       );
-      const old = current?.groupId ?? null;
-      if (old === group) throw new CatalogError('INVALID_CATALOG_INPUT');
-      if (group !== null) {
-        const target = await tx.query<{ id: string }[]>(
-          'SELECT id FROM fair_admin_groups WHERE id=$1 AND source_instance_id=$2',
-          [group, s],
-        );
-        if (!target.length) throw new CatalogError('CATALOG_NOT_FOUND');
-        await tx.query(
-          `INSERT INTO fair_admin_group_memberships(source_instance_id,billing_admin_id,group_id)
+      if (!target.length) throw new CatalogError('CATALOG_NOT_FOUND');
+      await tx.query(
+        `INSERT INTO fair_admin_group_memberships(source_instance_id,billing_admin_id,group_id)
            VALUES($1,$2,$3) ON CONFLICT(source_instance_id,billing_admin_id)
            DO UPDATE SET group_id=EXCLUDED.group_id,updated_at=clock_timestamp()`,
-          [s, admin, group],
-        );
-      } else {
-        if (old === null) throw new CatalogError('CATALOG_NOT_FOUND');
-        await tx.query(
-          'DELETE FROM fair_admin_group_memberships WHERE source_instance_id=$1 AND billing_admin_id=$2',
-          [s, admin],
-        );
-      }
-      const action =
-        old === null ? 'ASSIGN' : group === null ? 'REMOVE' : 'TRANSFER';
-      await tx.query(
-        `INSERT INTO fair_admin_group_membership_audit(source_instance_id,billing_admin_id,old_group_id,new_group_id,action)
-         VALUES($1,$2,$3,$4,$5)`,
-        [s, admin, old, group, action],
+        [s, admin, group],
       );
-      return { billingAdminId: admin, oldGroupId: old, groupId: group, action };
-    });
+    } else {
+      if (old === null) throw new CatalogError('CATALOG_NOT_FOUND');
+      await tx.query(
+        'DELETE FROM fair_admin_group_memberships WHERE source_instance_id=$1 AND billing_admin_id=$2',
+        [s, admin],
+      );
+    }
+    const action =
+      old === null ? 'ASSIGN' : group === null ? 'REMOVE' : 'TRANSFER';
+    await tx.query(
+      `INSERT INTO fair_admin_group_membership_audit(source_instance_id,billing_admin_id,old_group_id,new_group_id,action)
+         VALUES($1,$2,$3,$4,$5)`,
+      [s, admin, old, group, action],
+    );
+    return { billingAdminId: admin, oldGroupId: old, groupId: group, action };
   }
 
   async createPackage(input: CatalogPackageInput) {

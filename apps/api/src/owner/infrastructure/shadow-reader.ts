@@ -1,6 +1,7 @@
 import { localJalaliDate } from '@fair-platform/calendar';
 import {
   shadowPeriodBounds,
+  jalaliToReportDate,
   type ReportPeriod,
   type ReportWeekStart,
 } from '../application/shadow-report-periods.js';
@@ -418,6 +419,140 @@ export class PostgresShadowReader {
       );
       return true;
     });
+  }
+
+  async liveReport(q: {
+    view:
+      | 'admins'
+      | 'day'
+      | 'week'
+      | 'month'
+      | 'transactions'
+      | 'ambiguities'
+      | 'manual'
+      | 'blocked'
+      | 'nonfinancial';
+    search?: string | undefined;
+    reason?: string | undefined;
+    action?: string | undefined;
+    from?: string | undefined;
+    to?: string | undefined;
+    admin?: string | undefined;
+    offset: number;
+    limit: number;
+  }) {
+    const args = [
+      q.admin ?? null,
+      q.from ?? null,
+      q.to ?? null,
+      q.limit + 1,
+      q.offset,
+      q.search || null,
+    ];
+    const dayScope = `source='primary' AND ($1::bigint IS NULL OR admin=$1::text)
+      AND ($2::text IS NULL OR day >= $2) AND ($3::text IS NULL OR day <= $3)`;
+    type Row = {
+      day: string;
+      admin: string | null;
+      name: string | null;
+      bytes: string | null;
+      amount: string | null;
+      pending: number;
+      detail: string | null;
+      account: string | null;
+    };
+    let rows: Row[];
+    if (
+      q.view === 'admins' ||
+      q.view === 'day' ||
+      q.view === 'week' ||
+      q.view === 'month'
+    ) {
+      const weekday = [
+        'SUNDAY',
+        'MONDAY',
+        'TUESDAY',
+        'WEDNESDAY',
+        'THURSDAY',
+        'FRIDAY',
+        'SATURDAY',
+      ].indexOf(this.weekStart);
+      const group = {
+        admins: 'r.admin',
+        day: 'r.day',
+        month: 'left(r.day,7)',
+        week: `(local_date - ((extract(dow from local_date)::int - ${weekday} + 7) % 7))`,
+      }[q.view];
+      const byAdmin = q.view === 'admins';
+      rows = await this.db.query<Row[]>(
+        `WITH scoped AS (SELECT r.*,(d.window_start AT TIME ZONE d.time_zone)::date AS local_date
+        FROM fair_shadow_day_reports r JOIN fair_shadow_days d ON d.id=r.day_id WHERE ${dayScope}
+        AND ($6::text IS NULL OR r.admin=$6 OR EXISTS(SELECT 1 FROM pasarguard_events e WHERE e.source_instance_id=r.source AND e.billing_admin_id=r.admin::bigint AND strpos(lower(e.billing_admin_username),lower($6))>0))), grouped AS (
+        SELECT min(r.day) AS day,${byAdmin ? 'r.admin' : 'NULL::text'} AS admin,
+        sum(sold_bytes)::text AS bytes,sum(amount_toman)::text AS amount,sum(pending)::int AS pending,
+        sum(sum(sold_bytes)) over()::text AS "totalBytes",sum(sum(amount_toman)) over()::text AS "totalAmount"
+        FROM scoped r GROUP BY ${group} ORDER BY min(r.day) DESC,admin LIMIT $4 OFFSET $5)
+        SELECT g.*,n.name,NULL::text AS detail,NULL::text AS account FROM grouped g
+        LEFT JOIN LATERAL (SELECT billing_admin_username AS name FROM pasarguard_events
+        WHERE source_instance_id='primary' AND billing_admin_id=g.admin::bigint ORDER BY id DESC LIMIT 1) n ON true
+        ORDER BY g.day DESC,g.admin`,
+        args,
+      );
+      if (q.view === 'week' || q.view === 'month')
+        for (const row of rows) {
+          const bounds = shadowPeriodBounds(row.day, q.view, this.weekStart);
+          row.day = bounds.start + ' — ' + bounds.end;
+        }
+      if (q.view === 'admins') for (const row of rows) row.day = '';
+    } else {
+      const predicate = {
+        transactions: 'true',
+        blocked:
+          'EXISTS(SELECT 1 FROM fair_shadow_day_reports d WHERE d.day_id=entries.day_id AND d.pending>0)',
+        ambiguities:
+          "decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED'))",
+        manual: 'decision IS NOT NULL AND package_id IS NULL',
+        nonfinancial:
+          "event_status='IGNORED_NON_FINANCIAL' OR reason IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')",
+      }[q.view];
+      const result = await this.db.query<(Row & { stamp: Date })[]>(
+        `WITH entries AS (
+        SELECT e.id,e.billing_admin_id::text AS admin,e.billing_admin_username AS name,e.username AS account,
+        e.source_enqueued_at AS stamp,e.event_status,e.action,i.reason_code AS reason,l.event_id IS NOT NULL AS late,
+        v.review_id AS decision,r.package_id,
+        CASE WHEN v.event_id IS NULL THEN i.amount_toman WHEN v.event_id=(SELECT min(event_id) FROM fair_shadow_review_events WHERE review_id=r.id) THEN r.amount_toman END AS amount,
+        CASE WHEN i.amount_toman IS NOT NULL THEN i.data_limit_bytes WHEN v.event_id=(SELECT min(event_id) FROM fair_shadow_review_events WHERE review_id=r.id) THEN r.package_bytes END AS bytes,
+        coalesce(i.local_day,l.local_day) AS day,coalesce(i.day_id,l.day_id) AS day_id
+        FROM pasarguard_events e LEFT JOIN fair_shadow_items i ON i.event_id=e.id
+        LEFT JOIN fair_shadow_late_events l ON l.event_id=e.id LEFT JOIN fair_shadow_review_events v ON v.event_id=e.id
+        LEFT JOIN fair_shadow_reviews r ON r.id=v.review_id
+        WHERE e.source_instance_id='primary' AND ($1::bigint IS NULL OR e.billing_admin_id=$1)
+        AND ($2::date IS NULL OR e.source_enqueued_at >= ($2::timestamp AT TIME ZONE $6))
+        AND ($3::date IS NULL OR e.source_enqueued_at < (($3::date+1)::timestamp AT TIME ZONE $6)))
+        SELECT day,stamp,admin,name,account,bytes::text,amount::text,
+        concat_ws(' · ',action,CASE WHEN decision IS NOT NULL THEN 'بررسی‌شده' WHEN late THEN 'LATE_EVENT_AFTER_CLOSE' ELSE reason END) AS detail,
+        CASE WHEN decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')) THEN 1 ELSE 0 END AS pending FROM entries WHERE (${predicate}) AND ($7::text IS NULL OR strpos(lower(concat_ws(' ',admin,name,account,action)),lower($7))>0) AND ($8::text IS NULL OR coalesce(reason,CASE WHEN late THEN 'LATE_EVENT_AFTER_CLOSE' END)=$8) AND ($9::text IS NULL OR action=$9) ORDER BY stamp DESC,id DESC LIMIT $4 OFFSET $5`,
+        [
+          q.admin ?? null,
+          q.from ? jalaliToReportDate(q.from, 'gregorian') : null,
+          q.to ? jalaliToReportDate(q.to, 'gregorian') : null,
+          q.limit + 1,
+          q.offset,
+          this.timeZone,
+          q.search || null,
+          q.reason || null,
+          q.action || null,
+        ],
+      );
+      rows = result.map(({ stamp, ...row }) => ({
+        ...row,
+        day: row.day ?? localJalaliDate(stamp, this.timeZone),
+      }));
+    }
+    return {
+      rows: rows.slice(0, q.limit),
+      nextOffset: rows.length > q.limit ? q.offset + q.limit : null,
+    };
   }
 
   async dayReports(filter: ShadowFilter, period: ReportPeriod = 'day') {

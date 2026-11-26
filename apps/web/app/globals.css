@@ -1861,3 +1861,25 @@ footer {
   gap: 0.75rem;
   padding: 1rem 1.25rem;
 }
+
+.password-settings {
+  width: min(100%, 560px);
+  margin-inline: auto;
+}
+.initialization-settings > .table-card {
+  padding: clamp(16px, 3vw, 28px);
+  margin-block: 20px;
+  display: grid;
+  gap: 16px;
+}
+.initialization-settings > .table-card > :is(h2, p, .section-heading) {
+  margin: 0;
+}
+.initialization-settings > .table-card > button {
+  justify-self: start;
+}
+.webhook-copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}

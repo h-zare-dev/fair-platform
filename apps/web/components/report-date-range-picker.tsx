@@ -34,12 +34,14 @@ export function ReportDateRangePicker({
   to,
   onChange,
   archiveEnd,
+  singleDay = false,
 }: {
   calendar: ReportCalendar;
   timeZone: string;
   weekStart: string;
   from: string;
   to: string;
+  singleDay?: boolean;
   archiveEnd?: string;
   onChange: (from: string, to: string) => void;
 }) {
@@ -86,7 +88,8 @@ export function ReportDateRangePicker({
   return (
     <div className="report-date-filter" ref={containerRef}>
       <span className="report-filter-label">
-        بازهٔ تاریخ ({calendar === 'jalali' ? 'شمسی' : 'میلادی'})
+        {singleDay ? 'روز' : 'بازهٔ تاریخ'} (
+        {calendar === 'jalali' ? 'شمسی' : 'میلادی'})
       </span>
       <button
         type="button"
@@ -98,9 +101,18 @@ export function ReportDateRangePicker({
       >
         <span>📅</span>
         <span>
-          از {from ? readableReportDate(from, calendar) : 'ابتدای آرشیو'}
+          {singleDay ? '' : 'از'}{' '}
+          {from
+            ? readableReportDate(from, calendar)
+            : singleDay
+              ? 'همهٔ روزها'
+              : 'ابتدای بازه'}
         </span>
-        <span>تا {to ? readableReportDate(to, calendar) : 'انتهای آرشیو'}</span>
+        {!singleDay && (
+          <span>
+            تا {to ? readableReportDate(to, calendar) : 'انتهای بازه'}
+          </span>
+        )}
       </button>
       {open && (
         <div
@@ -108,29 +120,31 @@ export function ReportDateRangePicker({
           role="dialog"
           aria-label="انتخاب بازهٔ تاریخ گزارش"
         >
-          <div className="report-date-boundaries">
-            {(['from', 'to'] as const).map((boundary) => (
-              <button
-                type="button"
-                key={boundary}
-                className={
-                  editing === boundary ? 'report-date-selected' : 'secondary'
-                }
-                onClick={() => setEditing(boundary)}
-                aria-pressed={editing === boundary}
-              >
-                <span>{boundary === 'from' ? 'از تاریخ' : 'تا تاریخ'}</span>
-                <strong>
-                  {(boundary === 'from' ? draftFrom : draftTo)
-                    ? readableReportDate(
-                        boundary === 'from' ? draftFrom : draftTo,
-                        calendar,
-                      )
-                    : 'انتخاب نشده'}
-                </strong>
-              </button>
-            ))}
-          </div>
+          {!singleDay && (
+            <div className="report-date-boundaries">
+              {(['from', 'to'] as const).map((boundary) => (
+                <button
+                  type="button"
+                  key={boundary}
+                  className={
+                    editing === boundary ? 'report-date-selected' : 'secondary'
+                  }
+                  onClick={() => setEditing(boundary)}
+                  aria-pressed={editing === boundary}
+                >
+                  <span>{boundary === 'from' ? 'از تاریخ' : 'تا تاریخ'}</span>
+                  <strong>
+                    {(boundary === 'from' ? draftFrom : draftTo)
+                      ? readableReportDate(
+                          boundary === 'from' ? draftFrom : draftTo,
+                          calendar,
+                        )
+                      : 'انتخاب نشده'}
+                  </strong>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="report-date-navigation">
             <button
               type="button"
@@ -205,6 +219,11 @@ export function ReportDateRangePicker({
                   aria-label={readableReportDate(value, calendar)}
                   aria-pressed={Boolean(boundary)}
                   onClick={() => {
+                    if (singleDay) {
+                      onChange(value, value);
+                      setOpen(false);
+                      return;
+                    }
                     if (editing === 'from') {
                       setDraftFrom(value);
                       setEditing('to');
@@ -230,7 +249,7 @@ export function ReportDateRangePicker({
                 setOpen(false);
               }}
             >
-              کل بازهٔ آرشیو
+              همهٔ تاریخ‌ها
             </button>
             <button
               type="button"
@@ -239,16 +258,18 @@ export function ReportDateRangePicker({
             >
               لغو
             </button>
-            <button
-              type="button"
-              disabled={invalid}
-              onClick={() => {
-                onChange(draftFrom, draftTo);
-                setOpen(false);
-              }}
-            >
-              اعمال بازه
-            </button>
+            {!singleDay && (
+              <button
+                type="button"
+                disabled={invalid}
+                onClick={() => {
+                  onChange(draftFrom, draftTo);
+                  setOpen(false);
+                }}
+              >
+                اعمال بازه
+              </button>
+            )}
           </div>
         </div>
       )}

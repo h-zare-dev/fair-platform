@@ -611,6 +611,45 @@ export async function createOwnerApi(
         throw new HttpException('SHADOW_REVIEW_CONFLICT', 409);
       return { saved: true };
     }
+    @Get('operations/accounting/reports') async liveReport(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      const date = z.string().refine((value) => {
+        try {
+          parseJalaliDate(value);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      const query = input(
+        shadowQuery
+          .pick({ admin: true, offset: true, limit: true })
+          .extend({
+            view: z.enum([
+              'admins',
+              'day',
+              'week',
+              'month',
+              'transactions',
+              'ambiguities',
+              'manual',
+              'blocked',
+              'nonfinancial',
+            ]),
+            search: z.string().max(64).optional(),
+            reason: shadowQuery.shape.reason,
+            action: z.string().max(64).optional(),
+            from: date.optional(),
+            to: date.optional(),
+          })
+          .refine((q) => !q.from || !q.to || q.from <= q.to),
+        req.query,
+      );
+      return shadow.liveReport(query);
+    }
     @Get('operations/accounting/days') async shadowDays(
       @Req() req: FastifyRequest,
     ) {

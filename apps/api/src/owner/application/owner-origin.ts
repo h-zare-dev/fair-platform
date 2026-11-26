@@ -21,8 +21,9 @@ export function isCanonicalOwnerOrigin(value: string): boolean {
     url.search ||
     url.hash ||
     host !== host.toLowerCase()
-  )
+  ) {
     return false;
+  }
   if (isIP(host) === 4) return host !== '0.0.0.0';
   if (host === 'localhost') return true;
   if (host.length > 253 || !host.includes('.')) return false;

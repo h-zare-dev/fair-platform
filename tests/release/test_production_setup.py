@@ -211,6 +211,9 @@ class ProductionSetupTests(unittest.TestCase):
         changed = (ROOT / 'scripts/production/change-host.sh').read_text()
         self.assertIn('io.fair-platform.owner-origin-configurable', changed)
         self.assertIn('ROLLED_BACK_TO_PREVIOUS_HOST', changed)
+        self.assertIn('if [[ "$shadow" == true ]]; then\n    compose+=(-f "$repo/docker/production/compose.shadow.yml")', changed)
+        self.assertLess(changed.index('compose.shadow.yml'), changed.index('compose.directory.yml'))
+        self.assertIn("die 'Cannot determine the running SHADOW mode.'", changed)
         self.assertNotIn('down -v', changed)
         self.assertNotIn('docker compose pull', changed)
         for forbidden in ('down -v', 'docker volume rm', 'git reset --hard',

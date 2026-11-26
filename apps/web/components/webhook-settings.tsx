@@ -60,11 +60,13 @@ export function WebhookSettings() {
         در پاسارگارد یک وب‌هوک دوم اضافه کنید و آدرس و رمز زیر را وارد کنید.
       </p>
       <input aria-label="آدرس وب‌هوک" dir="ltr" readOnly value={url} />
-      <button disabled={!url} onClick={() => void copy(false)}>
-        کپی آدرس
-      </button>
-      <button onClick={() => void copy(true)}>کپی رمز وب‌هوک</button>
-      <p role="status">{status}</p>
+      <div className="webhook-copy-actions">
+        <button disabled={!url} onClick={() => void copy(false)}>
+          کپی آدرس
+        </button>
+        <button onClick={() => void copy(true)}>کپی رمز وب‌هوک</button>
+      </div>
+      {status && <p role="status">{status}</p>}
       <a href="/dashboard">مشاهدهٔ رویدادهای وب‌هوک در داشبورد</a>
     </section>
   );

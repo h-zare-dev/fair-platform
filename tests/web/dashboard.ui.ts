@@ -478,31 +478,37 @@ test('saved archive selection cannot change live reports, dashboard or settings'
     'primary',
   );
   await expect(page.getByTestId('active-catalog-dataset')).toHaveCount(0);
-  await page.route('**/operations/accounting/days?**', (route) =>
+  await page.route('**/operations/accounting/reports?**', (route) =>
     route.fulfill({
-      json: [
-        {
-          source: 'primary',
-          admin: '12',
-          day: '1405-09-05',
-          soldBytes: '10737418240',
-          periodSoldBytes: '10737418240',
-          amountToman: '20000',
-          periodAmountToman: '20000',
-          pending: 0,
-        },
-      ],
+      json: {
+        rows: [
+          {
+            admin: '12',
+            name: 'FastVRay',
+            day: '',
+            bytes: '10737418240',
+            amount: '20000',
+            pending: 0,
+            detail: null,
+            account: null,
+          },
+        ],
+        nextOffset: null,
+      },
     }),
   );
   await page.goto('/reports');
   await expect(
     page.getByRole('cell', { name: '۱۰ گیگابایت', exact: true }),
   ).toBeVisible();
+  const drill = page.waitForRequest(
+    '**/operations/accounting/reports?**view=transactions**',
+  );
+  await page.getByRole('button', { name: 'FastVRay', exact: true }).click();
+  expect(new URL((await drill).url()).searchParams.get('admin')).toBe('12');
   const weekly = page.waitForRequest(
-    '**/operations/accounting/days?**period=week**',
+    '**/operations/accounting/reports?**view=week**',
   );
-  await page.getByLabel('بازه', { exact: true }).selectOption('week');
-  expect(new URL((await weekly).url()).searchParams.get('source')).toBe(
-    'primary',
-  );
+  await page.getByRole('button', { name: 'هفتگی', exact: true }).click();
+  expect(new URL((await weekly).url()).searchParams.has('source')).toBe(false);
 });

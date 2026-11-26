@@ -62,7 +62,7 @@ export default async function SettingsSectionPage({
           </>
         ) : section === 'initialization' ? (
           <section
-            className="settings-catalog"
+            className="settings-catalog initialization-settings"
             aria-label="راه‌اندازی اولیه حسابداری"
           >
             <div className="stage" data-staging-billing-mode="no-live-billing">

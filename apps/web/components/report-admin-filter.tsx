@@ -25,7 +25,7 @@ export function ReportAdminFilter({
   selectedName,
   onSelect,
 }: {
-  runId: string;
+  runId?: string;
   selectedId: string;
   selectedName: string;
   onSelect: (id: string, name: string) => void;
@@ -39,10 +39,10 @@ export function ReportAdminFilter({
   const { containerRef, triggerRef } = useReportPopoverDismiss(open, setOpen);
 
   useEffect(() => {
-    if (!open || !runId) return;
+    if (!open) return;
     const controller = new AbortController();
     const params = new URLSearchParams({
-      runId,
+      ...(runId ? { runId } : {}),
       search,
       offset: String(offset),
       limit: '25',
@@ -51,7 +51,9 @@ export function ReportAdminFilter({
     setData(null);
     setError('');
     void fetch(
-      `/api/v1/owner/operations/accounting/replay-shadow/audit/admins?${params}`,
+      runId
+        ? `/api/v1/owner/operations/accounting/replay-shadow/audit/admins?${params}`
+        : `/api/v1/owner/directory/admins?${params}`,
       {
         cache: 'no-store',
         signal: controller.signal,
@@ -63,7 +65,19 @@ export function ReportAdminFilter({
           throw new Error('نشست Owner منقضی شده است.');
         }
         if (!response.ok) throw new Error('فهرست مدیران در دسترس نیست.');
-        return response.json() as Promise<AdminPage>;
+        if (runId) return response.json() as Promise<AdminPage>;
+        const directory = (await response.json()) as {
+          admins: { id: string; username: string }[];
+          total: number;
+        };
+        return {
+          rows: directory.admins.map((a) => ({
+            billingAdminId: a.id,
+            adminName: a.username,
+            nameStatus: 'verified',
+          })),
+          nextOffset: offset + 25 < directory.total ? offset + 25 : null,
+        };
       })
       .then((page) => {
         if (!controller.signal.aborted) setData(page);

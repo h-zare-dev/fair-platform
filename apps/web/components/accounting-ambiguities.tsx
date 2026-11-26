@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { ReportAdminFilter } from './report-admin-filter';
+import { ReportDateRangePicker } from './report-date-range-picker';
 import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 
@@ -52,6 +54,7 @@ export function AccountingAmbiguities({
   reports = false,
 }: { reports?: boolean } = {}) {
   const [admin, setAdmin] = useState('');
+  const [adminName, setAdminName] = useState('');
   const [reason, setReason] = useState('');
   const [day, setDay] = useState('');
   const [applied, setApplied] = useState({
@@ -173,12 +176,6 @@ export function AccountingAmbiguities({
           <div>
             <h1>{reports ? 'گزارش‌های جامع حسابداری' : 'ابهامات ثبت شبانه'}</h1>
           </div>
-          <a
-            className="secondary"
-            href={reports ? '/accounting/ambiguities' : '/reports'}
-          >
-            {reports ? 'بررسی ابهامات' : 'گزارش‌ها'}
-          </a>
         </div>
         <form
           className="filters"
@@ -189,16 +186,14 @@ export function AccountingAmbiguities({
             setApplied({ source: 'primary', admin, reason, date: day });
           }}
         >
-          <label>
-            شناسهٔ مدیر
-            <input
-              dir="ltr"
-              inputMode="numeric"
-              placeholder="همه"
-              value={admin}
-              onChange={(e) => setAdmin(e.target.value)}
-            />
-          </label>
+          <ReportAdminFilter
+            selectedId={admin}
+            selectedName={adminName}
+            onSelect={(id, name) => {
+              setAdmin(id);
+              setAdminName(name);
+            }}
+          />
           {!reports && (
             <label>
               نوع ابهام
@@ -215,16 +210,15 @@ export function AccountingAmbiguities({
               </select>
             </label>
           )}
-          <label>
-            روز شمسی
-            <input
-              dir="ltr"
-              placeholder="1405-08-29"
-              pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
-              value={day}
-              onChange={(e) => setDay(e.target.value)}
-            />
-          </label>
+          <ReportDateRangePicker
+            singleDay
+            calendar="jalali"
+            timeZone="Asia/Tehran"
+            weekStart="SATURDAY"
+            from={day}
+            to={day}
+            onChange={setDay}
+          />
           <button className="secondary" type="submit" disabled={busy}>
             اعمال فیلتر
           </button>

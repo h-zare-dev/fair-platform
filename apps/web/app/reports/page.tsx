@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { ownerSession } from '../../lib/session';
-import { AccountingAmbiguities } from '../../components/accounting-ambiguities';
+import { WebhookReports } from '../../components/webhook-reports';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,5 +15,5 @@ export default async function ReportsPage() {
         <a href="/reports">تلاش دوباره</a>
       </main>
     );
-  return <AccountingAmbiguities reports />;
+  return <WebhookReports />;
 }

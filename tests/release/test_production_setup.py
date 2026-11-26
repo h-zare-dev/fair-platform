@@ -80,7 +80,7 @@ class ProductionSetupTests(unittest.TestCase):
     def test_site_host_is_validated_and_separate_from_immutable_image_pins(self):
         with tempfile.TemporaryDirectory() as directory:
             site = Path(directory) / 'site.env'
-            for host in ('panel2.fairisfair.ir', 'example.com', '91.107.132.246',
+            for host in ('panel.example.com', 'example.com', '203.0.113.10',
                          '127.0.0.1', 'localhost'):
                 site_config.write(site, host)
                 self.assertEqual(site_config.read(site), host)
@@ -156,6 +156,7 @@ class ProductionSetupTests(unittest.TestCase):
         self.assertNotIn('pasarguard_api_key', base)
         self.assertIn('PASARGUARD_API_KEY_FILE: /run/secrets/pasarguard_api_key', directory)
         self.assertIn('${PASARGUARD_BASE_URL:?directory URL required}', directory)
+        self.assertIn('${PASARGUARD_BASE_URL:?directory URL required}', shadow)
         self.assertNotIn('FAIR_SHADOW_ENABLED:', directory)
         self.assertNotIn('PASARGUARD_WEBHOOK_SECRET_FILE:', directory)
         self.assertNotIn('APP_ENCRYPTION_KEY_FILE:', directory)
@@ -194,6 +195,12 @@ class ProductionSetupTests(unittest.TestCase):
         self.assertIn('docker volume inspect fair-production_postgres_data', setup)
         self.assertIn('run --rm migrate node dist/owner/cli.js bootstrap', setup)
         self.assertIn('read -rs api_key', setup)
+        self.assertIn("existing_url=''", setup)
+        self.assertIn("[[ -n \"$directory_url\" ]] || die", setup)
+        self.assertIn('https://pasarguard.example.com', setup)
+        self.assertNotRegex(setup, r"existing_url=['\"]https?://")
+        self.assertNotRegex((ROOT / 'docker/production/compose.shadow.yml').read_text(),
+                            r'PASARGUARD_BASE_URL:\s+https?://')
         self.assertIn("site-config.py\" write \"$site_env\"", setup)
         self.assertIn('chown 1000:1000 "$key_tmp"', setup)
         self.assertIn('chmod 0600 "$key_tmp"', setup)

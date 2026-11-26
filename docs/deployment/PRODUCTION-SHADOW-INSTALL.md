@@ -72,7 +72,7 @@ interactive installer writes one root-owned `0600` endpoint setting:
 
 ```ini
 # /etc/fair-production/site.env (example only)
-OWNER_HOST=panel2.fairisfair.ir
+OWNER_HOST=panel.example.com
 ```
 
 The same setting configures both Caddy's TLS site name and the Owner API's
@@ -98,8 +98,9 @@ Merely fetching newer scripts or changing DNS does not update running images.
 
 For regular browser access, a public DNS hostname pointing at the server is
 recommended: Caddy obtains/renews trusted HTTPS certificates automatically.
-`https://91.107.132.246` and `https://localhost` are also valid configured
-origins, but Caddy normally gives IP/localhost an **internal-CA certificate**;
+`https://203.0.113.10` (documentation-only IP) and `https://localhost` are
+also valid configured origins, but Caddy normally gives IP/localhost an
+**internal-CA certificate**;
 remote browsers do not trust that CA unless the operator explicitly installs
 its trust root. `localhost` from your laptop means your **laptop**, not the
 remote server; use an SSH tunnel for local access. Never submit Owner passwords
@@ -110,7 +111,7 @@ Health and service check (read-only):
 ```sh
 ACTIVE=$(cat /etc/fair-production/active-bundle)
 docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env -f "$ACTIVE/docker/production/compose.yml" ps
-curl --fail --show-error https://panel2.fairisfair.ir/health/ready
+curl --fail --show-error https://panel.example.com/health/ready
 ```
 
 ## Optional later: Owner-authorized second webhook SHADOW pilot only
@@ -119,16 +120,19 @@ This is a separate **human activation**, not part of first install. Finish
 authentication and zero-charge smoke checks first; retain the legacy webhook
 destination. Provision a separate, read-only PasarGuard API key on the host as
 `/etc/fair-production/secrets/pasarguard_api_key`, owned by UID 1000 and mode
-0600, from a trusted non-logged channel. Never put it in shell history. The
-`shadow_webhook_secret` was randomly generated in the first-install secret
+0600, from a trusted non-logged channel. Configure the private upstream
+`PASARGUARD_BASE_URL` in `/etc/fair-production/directory.env` using the
+interactive installer's `directory` action; there is no shared default.
+Never put the API key in shell history. The `shadow_webhook_secret` was
+randomly generated in the first-install secret
 directory; configure it in PasarGuard as the independent **second** webhook
 secret without exposing it in chat or a repo. Then, after explicit Owner signoff:
 
 ```sh
 cd /opt/fair-platform
-docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env \
+docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env --env-file /etc/fair-production/directory.env \
   -f docker/production/compose.yml -f docker/production/compose.shadow.yml config --quiet
-docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env \
+docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env --env-file /etc/fair-production/directory.env \
   -f docker/production/compose.yml -f docker/production/compose.shadow.yml \
   up -d --no-deps owner-api
 ```

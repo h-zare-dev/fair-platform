@@ -259,6 +259,7 @@ export function AccountingAmbiguities({
             <label>
               بازه{' '}
               <select
+                aria-label="بازه"
                 value={period}
                 onChange={(e) => {
                   setPeriod(e.target.value);

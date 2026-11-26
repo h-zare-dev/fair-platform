@@ -74,12 +74,18 @@ class ProductionSetupTests(unittest.TestCase):
     def test_compose_is_isolated_and_shadow_requires_second_file(self):
         base = (ROOT / 'docker/production/compose.yml').read_text()
         shadow = (ROOT / 'docker/production/compose.shadow.yml').read_text()
+        directory = (ROOT / 'docker/production/compose.directory.yml').read_text()
         self.assertIn('name: fair-production', base)
         self.assertNotIn('fair_staging', base)
         self.assertIn("FAIR_SHADOW_ENABLED: 'false'", base)
         self.assertIn("FAIR_SHADOW_ENABLED: 'true'", shadow)
         self.assertNotIn('PASARGUARD_WEBHOOK_SECRET_FILE:', base)
         self.assertNotIn('pasarguard_api_key', base)
+        self.assertIn('PASARGUARD_API_KEY_FILE: /run/secrets/pasarguard_api_key', directory)
+        self.assertIn('${PASARGUARD_BASE_URL:?directory URL required}', directory)
+        self.assertNotIn('FAIR_SHADOW_ENABLED:', directory)
+        self.assertNotIn('PASARGUARD_WEBHOOK_SECRET_FILE:', directory)
+        self.assertNotIn('APP_ENCRYPTION_KEY_FILE:', directory)
         self.assertIn('backend:\n    internal: true', base)
         self.assertIn('ports: [\'443:443/tcp\']', base)
         self.assertEqual(base.count('ports:'), 1)
@@ -92,10 +98,34 @@ class ProductionSetupTests(unittest.TestCase):
             self.assertIn(name, grants)
 
     def test_operator_scripts_have_valid_bash_syntax(self):
-        for name in ('install.sh', 'backup.sh', 'resolve-release.sh'):
+        for name in ('install.sh', 'backup.sh', 'resolve-release.sh', 'setup.sh', 'bootstrap.sh'):
             result = subprocess.run(['bash', '-n', str(ROOT / 'scripts/production' / name)],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f'{name}: {result.stderr}')
+
+    def test_guided_installer_does_not_reinstall_existing_database(self):
+        bootstrap = (ROOT / 'scripts/production/bootstrap.sh').read_text()
+        setup = (ROOT / 'scripts/production/setup.sh').read_text()
+        self.assertIn('git clone --depth=1 --filter=blob:none --sparse', bootstrap)
+        self.assertIn('sparse-checkout set docker/production scripts/production', bootstrap)
+        self.assertIn('[[ -f /etc/fair-production/installed ]]', bootstrap)
+        self.assertIn('git -C "$repo" show "$sha:docker/production/compose.directory.yml"', bootstrap)
+        self.assertIn('git ls-remote "$origin" refs/heads/development', bootstrap)
+        self.assertIn('Hosts can intentionally retain only deployment files', bootstrap)
+        self.assertIn('Existing base Compose differs from the installed pinned release', bootstrap)
+        self.assertIn('[[ -f "$settings/installed" ]] && installed=true', setup)
+        self.assertIn('Existing Fair Platform installation found.', setup)
+        self.assertIn('FAIR_SHADOW_ENABLED=true', setup)
+        self.assertIn('docker volume inspect fair-production_postgres_data', setup)
+        self.assertIn('run --rm migrate node dist/owner/cli.js bootstrap', setup)
+        self.assertIn('read -rs api_key', setup)
+        self.assertIn('chown 1000:1000 "$key_tmp"', setup)
+        self.assertIn('chmod 0600 "$key_tmp"', setup)
+        self.assertIn('--force-recreate --wait owner-api', setup)
+        self.assertNotIn('compose.shadow.yml', setup)
+        for forbidden in ('down -v', 'docker volume rm', 'git reset --hard',
+                          'docker compose pull', 'echo "$api_key"'):
+            self.assertNotIn(forbidden, setup)
 
 
 if __name__ == '__main__':

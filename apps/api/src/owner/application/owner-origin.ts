@@ -12,28 +12,20 @@ export function isCanonicalOwnerOrigin(value: string): boolean {
     return false;
   }
   const host = url.hostname;
-  if (
-    url.origin !== value ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.pathname !== '/' ||
-    url.search ||
-    url.hash ||
-    host !== host.toLowerCase()
-  ) {
-    return false;
-  }
+  if (url.origin !== value) return false;
+  if (url.username || url.password || url.port) return false;
+  if (url.pathname !== '/' || url.search || url.hash) return false;
+  if (host !== host.toLowerCase()) return false;
   if (isIP(host) === 4) return host !== '0.0.0.0';
   if (host === 'localhost') return true;
   if (host.length > 253 || !host.includes('.')) return false;
   const labels = host.split('.');
   if (/^\d+$/.test(labels.at(-1) ?? '')) return false;
-  return labels.every(
-    (label) =>
-      label.length <= 63 &&
-      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
-  );
+  const labelPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+  return labels.every((label) => {
+    if (label.length > 63) return false;
+    return labelPattern.test(label);
+  });
 }
 
 export const ownerOriginSchema = z.string().refine(isCanonicalOwnerOrigin, {

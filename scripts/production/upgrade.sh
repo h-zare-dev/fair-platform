@@ -53,7 +53,7 @@ if [[ -f "$site" ]]; then
   [[ ! -L "$site" && $(stat -c %u "$site") == 0 && $(stat -c %a "$site") == 600 ]] || die 'Unsafe site.env.'
   host=$(python3 "$candidate/scripts/production/site-config.py" read "$site") || die 'Invalid site.env.'
 else
-  read -r -p 'Panel hostname, IPv4 or localhost (e.g. panel2.fairisfair.ir): ' host
+  read -r -p 'Panel hostname, IPv4 or localhost (e.g. panel.example.com): ' host
   python3 "$candidate/scripts/production/site-config.py" host "$host" >/dev/null || die 'Invalid hostname/IP.'
 fi
 printf '\nInstalled: %s\nPublished candidate: %s\nOwner UI: https://%s\n' "$old_sha" "$new_sha" "$host"

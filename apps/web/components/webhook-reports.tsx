@@ -18,6 +18,8 @@ const views = {
 };
 type View = keyof typeof views;
 type Row = {
+  totalBytes?: string;
+  totalAmount?: string;
   admin: string | null;
   name: string | null;
   day: string;
@@ -67,6 +69,12 @@ export function WebhookReports() {
       });
     return () => controller.abort();
   }, [view, admin, from, to, offset, retry]);
+  const details = [
+    'transactions',
+    'ambiguities',
+    'manual',
+    'nonfinancial',
+  ].includes(view);
   return (
     <>
       <OwnerHeader active="reports" />
@@ -132,9 +140,9 @@ export function WebhookReports() {
                 <thead>
                   <tr>
                     <th>مدیر</th>
-                    <th>تاریخ</th>
-                    <th>حساب</th>
-                    <th>عملیات</th>
+                    {view !== 'admins' && <th>تاریخ</th>}
+                    {details && <th>حساب</th>}
+                    {details && <th>عملیات</th>}
                     <th>حجم تأییدشده</th>
                     <th>مبلغ (تومان)</th>
                     <th>ابهام باز</th>
@@ -155,12 +163,12 @@ export function WebhookReports() {
                             {row.name || row.admin}
                           </button>
                         ) : (
-                          'همهٔ مدیران'
+                          name || 'همهٔ مدیران'
                         )}
                       </td>
-                      <td>{row.day || '—'}</td>
-                      <td>{row.account || '—'}</td>
-                      <td>{row.detail || '—'}</td>
+                      {view !== 'admins' && <td>{row.day || '—'}</td>}
+                      {details && <td>{row.account || '—'}</td>}
+                      {details && <td>{row.detail || '—'}</td>}
                       <td>{row.bytes === null ? '—' : formatGiB(row.bytes)}</td>
                       <td>
                         {row.amount === null ? '—' : formatInteger(row.amount)}
@@ -169,6 +177,16 @@ export function WebhookReports() {
                     </tr>
                   ))}
                 </tbody>
+                {page.rows[0]?.totalBytes && page.rows[0]?.totalAmount && (
+                  <tfoot>
+                    <tr>
+                      <th colSpan={view === 'admins' ? 1 : 2}>جمع بازه</th>
+                      <td>{formatGiB(page.rows[0].totalBytes)}</td>
+                      <td>{formatInteger(page.rows[0].totalAmount)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           )}

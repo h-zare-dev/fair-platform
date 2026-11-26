@@ -487,7 +487,8 @@ export class PostgresShadowReader {
         FROM fair_shadow_day_reports r JOIN fair_shadow_days d ON d.id=r.day_id WHERE ${dayScope}
         ${q.view === 'blocked' ? 'AND pending>0' : ''}), grouped AS (
         SELECT min(r.day) AS day,${byAdmin ? 'r.admin' : 'NULL::text'} AS admin,
-        sum(sold_bytes)::text AS bytes,sum(amount_toman)::text AS amount,sum(pending)::int AS pending
+        sum(sold_bytes)::text AS bytes,sum(amount_toman)::text AS amount,sum(pending)::int AS pending,
+        sum(sum(sold_bytes)) over()::text AS "totalBytes",sum(sum(amount_toman)) over()::text AS "totalAmount"
         FROM scoped r GROUP BY ${group} ORDER BY min(r.day) DESC,admin LIMIT $4 OFFSET $5)
         SELECT g.*,n.name,NULL::text AS detail,NULL::text AS account FROM grouped g
         LEFT JOIN LATERAL (SELECT billing_admin_username AS name FROM pasarguard_events
@@ -526,7 +527,7 @@ export class PostgresShadowReader {
         AND ($3::date IS NULL OR e.source_enqueued_at < (($3::date+1)::timestamp AT TIME ZONE $6)))
         SELECT day,stamp,admin,name,account,bytes::text,amount::text,
         concat_ws(' · ',action,CASE WHEN decision IS NOT NULL THEN 'بررسی‌شده' WHEN late THEN 'LATE_EVENT_AFTER_CLOSE' ELSE reason END) AS detail,
-        0 AS pending FROM entries WHERE ${predicate} ORDER BY stamp DESC,id DESC LIMIT $4 OFFSET $5`,
+        CASE WHEN decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')) THEN 1 ELSE 0 END AS pending FROM entries WHERE ${predicate} ORDER BY stamp DESC,id DESC LIMIT $4 OFFSET $5`,
         [
           q.admin ?? null,
           q.from ? jalaliToReportDate(q.from, 'gregorian') : null,

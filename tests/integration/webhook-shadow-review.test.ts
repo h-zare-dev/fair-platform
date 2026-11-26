@@ -89,6 +89,31 @@ it('holds only one admin/day and books a reviewed package once on its original d
     expect(
       (await reader.dayReports(filter)).filter((d) => d.pending > 0),
     ).toHaveLength(1);
+    const range = {
+      admin: '17',
+      from: resolvedDay,
+      to: resolvedDay,
+      offset: 0,
+      limit: 25,
+    };
+    for (const view of ['admins', 'day', 'week', 'month'] as const) {
+      const report = await reader.liveReport({ ...range, view });
+      expect(report.rows).toHaveLength(1);
+      expect(report.rows[0]).toMatchObject({
+        bytes: '53687091200',
+        amount: '100000',
+        pending: 0,
+      });
+    }
+    const details = await reader.liveReport({ ...range, view: 'transactions' });
+    expect(details.rows).toHaveLength(2);
+    expect(details.rows.filter((row) => row.amount !== null)).toHaveLength(1);
+    expect(
+      (await reader.liveReport({ ...range, view: 'ambiguities' })).rows,
+    ).toHaveLength(0);
+    expect(
+      (await reader.liveReport({ ...range, admin: '18', view: 'manual' })).rows,
+    ).toHaveLength(1);
   } finally {
     if (db.isInitialized) await db.destroy();
     await pg.stop();

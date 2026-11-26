@@ -36,6 +36,21 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 - pnpm 12.6.0
 - Docker with Compose support
 
+## Owner-operated production installation and updates
+
+On a dedicated Ubuntu server, download the single interactive installer:
+
+```bash
+curl -fsSLo /root/fair-platform-install.sh https://raw.githubusercontent.com/h-zare-dev/fair-platform/development/scripts/production/bootstrap.sh && bash /root/fair-platform-install.sh
+```
+
+The menu handles first-time installation, reviewed app-only updates, changing
+the panel hostname/IP, and the read-only admin directory. Explicit commands
+are `bash /root/fair-platform-install.sh install` and
+`bash /root/fair-platform-install.sh update`. No application source checkout is
+required; existing database volumes and passwords are preserved on updates.
+See the [operator safety checks](docs/deployment/PRODUCTION-SHADOW-INSTALL.md).
+
 Using mise:
 
 ```bash

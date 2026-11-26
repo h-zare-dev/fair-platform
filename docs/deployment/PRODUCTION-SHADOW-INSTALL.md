@@ -6,14 +6,24 @@ production host.
 No live financial billing or production CD is authorized. Review the commit
 and await all four `development` images and CI before installing a new release.
 
-## One-command interactive installation and directory configuration
+## One installer for first installation, safe updates and hostname changes
 
 Run as root on a dedicated amd64 Ubuntu console/SSH terminal **after the Owner
-merges the reviewed installer PR and its images are published**. Inspect the
-downloaded script if necessary before executing it:
+merges the reviewed PR, production CI is green, and its images are published**.
+The same downloaded script supports `install`, `update`, `host` and `directory`.
+Without an argument it shows a menu on existing installations. Download and
+inspect it before executing:
 
 ```bash
 curl -fsSLo /root/fair-platform-install.sh https://raw.githubusercontent.com/h-zare-dev/fair-platform/development/scripts/production/bootstrap.sh && bash /root/fair-platform-install.sh
+```
+
+For explicit actions (after the script has been downloaded):
+
+```bash
+bash /root/fair-platform-install.sh install  # Only a completely new host
+bash /root/fair-platform-install.sh update   # Existing installation; preserve database
+bash /root/fair-platform-install.sh host     # Change configured DNS name, IPv4 or localhost
 ```
 
 The installer asks permission to install missing Ubuntu Docker prerequisites.
@@ -27,13 +37,24 @@ HTTPS base URL and a hidden API key prompt. The key is stored exclusively at
 `/etc/fair-production/secrets/pasarguard_api_key`, UID 1000, mode 0600; it
 never enters Compose YAML, `release.env`, shell history or logs.
 
-On an **already installed host** with `/etc/fair-production/installed`, the
-same command retrieves the reviewed directory overlay and setup script from
-GitHub without overwriting custom files, **even if `.git` and application
-source have been removed**. It reuses the pinned release and
-existing DB, and **only recreates `owner-api`** to activate the directory;
-no database migration, new image pull, Owner re-bootstrap or Shadow activation.
-The directory config persists in `/etc/fair-production/directory.env`.
+On an **already installed host** with `/etc/fair-production/installed`, choose
+`update`. The script retrieves only the release metadata, production Compose
+and deployment scripts into a versioned directory (no app source checkout on
+the host). It pins verified new API/Web/Caddy digests, keeps the **existing
+immutable PostgreSQL image and database volume**, automatically creates and
+checks a local database dump, then asks for explicit approval before rolling
+the application containers. It retains the previous Compose bundle and image
+pins and attempts application rollback if the new containers fail health checks.
+Owner credentials, optional directory config and all database contents persist;
+no Owner re-bootstrap or Shadow activation is performed.
+
+The update deliberately refuses a release changing PostgreSQL, database
+migrations/connection setup or runtime SQL grants. Such a release requires a
+separately reviewed forward-migration/restore plan; pretending app rollback
+could undo SQL changes would be unsafe. The update is not unattended CD.
+An initial update of the old `292cc3d3...` release can set `site.env` via a
+single hostname/IP prompt. Subsequent updates reuse it without asking again.
+The directory config remains in `/etc/fair-production/directory.env`.
 
 Prerequisites: SSH key/console, SSH and TCP/443 firewall allowance, free port
 443 on fresh installs, and, for a DNS hostname, a DNS-only A record resolving
@@ -61,8 +82,7 @@ digests stay in the separate `release.env` and do not change with the host.
 To change an already-supported installation later, run only:
 
 ```bash
-cd /opt/fair-platform
-bash scripts/production/change-host.sh new-panel.example.com
+bash /root/fair-platform-install.sh host
 ```
 
 The command validates the new hostname/IPv4, asks for confirmation and
@@ -71,12 +91,10 @@ previous host configuration and retries the previous services. No code edit,
 image pull, DB migration, volume reset, secret rotation or PR is involved.
 
 **Important for previously installed hosts:** the original pinned
-`292cc3d3...` Owner API image and Compose/Caddyfile still hardcode
-`panel.fairisfair.ir`; `change-host.sh` deliberately **refuses** those old
-images. The Owner must first approve a **one-time reviewed production release
-upgrade** with these configurable-image changes and a verified off-host backup.
-Merely fetching a newer script or changing DNS will not upgrade a pinned
-release. Do not manually mix the new Compose with old images.
+`292cc3d3...` Owner API image still hardcodes `panel.fairisfair.ir`.
+Use `update` first, then `host` for future address changes. The update
+does not destroy the installed database, change Shadow or require source edits.
+Merely fetching newer scripts or changing DNS does not update running images.
 
 For regular browser access, a public DNS hostname pointing at the server is
 recommended: Caddy obtains/renews trusted HTTPS certificates automatically.
@@ -90,8 +108,8 @@ over untrusted plaintext HTTP. TCP/443 still needs to be reachable.
 Health and service check (read-only):
 
 ```sh
-cd /opt/fair-platform
-docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env -f docker/production/compose.yml ps
+ACTIVE=$(cat /etc/fair-production/active-bundle)
+docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env -f "$ACTIVE/docker/production/compose.yml" ps
 curl --fail --show-error https://panel2.fairisfair.ir/health/ready
 ```
 
@@ -133,14 +151,14 @@ choose their storage destination or certify a restore drill. No unattended
 backup deletion or database restore is provided. Do not run `down -v`, wipe
 volumes, reuse Staging secrets or import the old database automatically.
 
-The initial install is **not** a general update mechanism. For later releases,
-Owner reviews schema/migration changes, verifies a restorable off-host backup,
-pins the new four digests, runs forward-only approved migrations and rolls
-application services in a supervised maintenance window. Do **not** rerun
-`install.sh`, automatically replace the PostgreSQL image or borrow Staging's
-no-backup/privileged-password SSH and auto-deploy exceptions. A separately
-reviewed production release/rollback workflow is required before recurring
-unattended deployments.
+Use the public installer with `update` for schema-stable application releases.
+It obtains new immutable API/Web/Caddy digests while preserving the existing
+PostgreSQL digest; it must not substitute a database image or silently migrate
+the schema. Owner reviews the release SHA and approves the update in an
+interactive session. The local pre-update dump is not a substitute for a
+verified off-host copy/restore. DB-changing releases require separate Owner
+approval and an explicit forward-only migration plan. Never borrow Staging's
+no-backup/privileged-password SSH and auto-deploy exceptions.
 
 The historical 122-day SHADOW archive and private identity data remain on
 Test-Bot: the fresh database **does not** contain them. Re-import/transfer needs

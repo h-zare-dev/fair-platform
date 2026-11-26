@@ -1,12 +1,15 @@
 """Production candidate is a separate, fail-closed deployment; no real host access."""
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +26,8 @@ def script_module(name: str, filename: str):
 preflight = script_module('production_preflight', 'preflight.py')
 provisioning = script_module('production_provisioning', 'provision-secrets.py')
 site_config = script_module('production_site_config', 'site-config.py')
+sys.path.insert(0, str(ROOT / 'scripts/production'))
+pin_update = script_module('production_pin_update', 'pin-update.py')
 
 
 class ProductionSetupTests(unittest.TestCase):
@@ -93,6 +98,49 @@ class ProductionSetupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'UNSAFE'):
                 site_config.write(site, 'example.com')
 
+    def test_update_pins_only_app_images_and_keeps_existing_database_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current = self.example(Path(directory))
+            old = current.read_text()
+            output = Path(directory) / 'candidate.env'
+            with patch.object(pin_update, 'immutable_image', side_effect=lambda name, sha:
+                              f'ghcr.io/h-zare-dev/fair-platform-{name}@sha256:' + 'c' * 64) as mocked:
+                pin_update.stage(current, output, 'f' * 40)
+                self.assertEqual(mocked.call_count, 3)
+            new = preflight.validate(output)
+            self.assertEqual(current.read_text(), old)
+            self.assertEqual(new['RELEASE_SHA'], 'f' * 40)
+            self.assertEqual(new['POSTGRES_IMAGE'], preflight.validate(current)['POSTGRES_IMAGE'])
+            self.assertNotEqual(new['API_IMAGE'], preflight.validate(current)['API_IMAGE'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ValueError, 'OUTPUT_EXISTS'):
+                pin_update.stage(current, output, 'e' * 40)
+            with self.assertRaisesRegex(ValueError, 'SHA_INVALID'):
+                pin_update.stage(current, Path(directory) / 'bad.env', 'not-a-sha')
+
+    def test_update_refuses_untrusted_or_mutable_image_metadata(self):
+        name, sha = 'owner-api', 'f' * 40
+        valid_digest = 'ghcr.io/h-zare-dev/fair-platform-owner-api@sha256:' + 'c' * 64
+        valid = {
+            'Config': {'Labels': {
+                'org.opencontainers.image.source': pin_update.SOURCE,
+                'org.opencontainers.image.revision': sha,
+            }},
+            'RepoDigests': [valid_digest],
+        }
+        for variant in (
+            {**valid, 'RepoDigests': ['ghcr.io/h-zare-dev/fair-platform-owner-api:latest']},
+            {**valid, 'Config': {'Labels': {'org.opencontainers.image.source': 'https://evil.example',
+                                           'org.opencontainers.image.revision': sha}}},
+            {**valid, 'Config': {'Labels': {'org.opencontainers.image.source': pin_update.SOURCE,
+                                           'org.opencontainers.image.revision': 'a' * 40}}},
+        ):
+            responses = [subprocess.CompletedProcess([], 0, ''),
+                         subprocess.CompletedProcess([], 0, json.dumps([variant]))]
+            with patch.object(pin_update.subprocess, 'run', side_effect=responses):
+                with self.assertRaisesRegex(ValueError, 'IMAGE_'):
+                    pin_update.immutable_image(name, sha)
+
     def test_compose_is_isolated_and_shadow_requires_second_file(self):
         base = (ROOT / 'docker/production/compose.yml').read_text()
         shadow = (ROOT / 'docker/production/compose.shadow.yml').read_text()
@@ -123,7 +171,8 @@ class ProductionSetupTests(unittest.TestCase):
             self.assertIn(name, grants)
 
     def test_operator_scripts_have_valid_bash_syntax(self):
-        for name in ('install.sh', 'backup.sh', 'resolve-release.sh', 'setup.sh', 'bootstrap.sh', 'change-host.sh'):
+        for name in ('install.sh', 'backup.sh', 'resolve-release.sh', 'setup.sh', 'bootstrap.sh',
+                     'change-host.sh', 'upgrade.sh'):
             result = subprocess.run(['bash', '-n', str(ROOT / 'scripts/production' / name)],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f'{name}: {result.stderr}')
@@ -134,10 +183,11 @@ class ProductionSetupTests(unittest.TestCase):
         self.assertIn('git clone --depth=1 --filter=blob:none --sparse', bootstrap)
         self.assertIn('sparse-checkout set docker/production scripts/production', bootstrap)
         self.assertIn('[[ -f /etc/fair-production/installed ]]', bootstrap)
-        self.assertIn('git -C "$repo" show "$sha:docker/production/compose.directory.yml"', bootstrap)
         self.assertIn('git ls-remote "$origin" refs/heads/development', bootstrap)
-        self.assertIn('Hosts can intentionally retain only deployment files', bootstrap)
-        self.assertIn('Existing base Compose differs from the installed pinned release', bootstrap)
+        self.assertIn('install|update|host|directory', bootstrap)
+        self.assertIn('active-bundle', bootstrap)
+        self.assertIn('bash "$candidate/scripts/production/upgrade.sh" "$candidate" "$active"', bootstrap)
+        self.assertNotIn('git reset --hard', bootstrap)
         self.assertIn('[[ -f "$settings/installed" ]] && installed=true', setup)
         self.assertIn('Existing Fair Platform installation found.', setup)
         self.assertIn('FAIR_SHADOW_ENABLED=true', setup)
@@ -157,6 +207,21 @@ class ProductionSetupTests(unittest.TestCase):
         for forbidden in ('down -v', 'docker volume rm', 'git reset --hard',
                           'docker compose pull', 'echo "$api_key"'):
             self.assertNotIn(forbidden, setup)
+
+    def test_update_is_operator_approved_and_database_volume_is_never_reset(self):
+        upgrade = (ROOT / 'scripts/production/upgrade.sh').read_text()
+        pinning = (ROOT / 'scripts/production/pin-update.py').read_text()
+        self.assertIn('SCHEMA_OR_POSTGRES_CHANGED', upgrade)
+        self.assertIn('docker volume inspect fair-production_postgres_data', upgrade)
+        self.assertIn('bash "$previous/scripts/production/backup.sh"', upgrade)
+        self.assertIn('rollback()', upgrade)
+        self.assertIn('--no-deps --wait owner-api web caddy', upgrade)
+        self.assertIn('PRODUCTION_UPDATE_COMPLETE', upgrade)
+        self.assertNotIn('run --rm -T migrate', upgrade)
+        self.assertNotIn('down -v', upgrade)
+        self.assertNotIn('docker volume rm', upgrade)
+        self.assertNotIn('rm -rf', upgrade)
+        self.assertNotIn("('POSTGRES_IMAGE', 'postgres')", pinning)
 
 
 if __name__ == '__main__':

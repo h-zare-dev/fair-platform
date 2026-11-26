@@ -1,4 +1,4 @@
-# Production host candidate — Owner-controlled installation (SHADOW OFF)
+# Production host candidate — Owner-controlled installation (optional SHADOW)
 
 **Status:** Owner-controlled host installation tools. The previous Test-Bot
 panel at `panel.fairisfair.ir` must remain untouched. CI does not attest the
@@ -63,7 +63,7 @@ Preserve Test-Bot, its private archive and identity imports. If GHCR requires
 authentication, perform private `docker login ghcr.io` with a read-only token.
 `resolve-release.sh` checks image source/revision and immutable digests;
 `install.sh` refuses existing volumes, occupied port 443 or partial installs.
-SHADOW, real billing, Telegram delivery and synthetic seeding remain OFF.
+SHADOW defaults to OFF. Real billing, Telegram delivery and synthetic seeding stay disabled during the pilot.
 
 ### Hostnames and IP addresses are configuration, not code
 
@@ -113,32 +113,18 @@ docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-
 curl --fail --show-error https://panel2.fairisfair.ir/health/ready
 ```
 
-## Optional later: Owner-authorized second webhook SHADOW pilot only
+## Optional second webhook during guided setup
 
-This is a separate **human activation**, not part of first install. Finish
-authentication and zero-charge smoke checks first; retain the legacy webhook
-destination. Provision a separate, read-only PasarGuard API key on the host as
-`/etc/fair-production/secrets/pasarguard_api_key`, owned by UID 1000 and mode
-0600, from a trusted non-logged channel. Never put it in shell history. The
-`shadow_webhook_secret` was randomly generated in the first-install secret
-directory; configure it in PasarGuard as the independent **second** webhook
-secret without exposing it in chat or a repo. Then, after explicit Owner signoff:
+After configuring the PasarGuard directory, answer the SHADOW prompt. Enter
+accepts the default (off). Answering yes enables shadow calculations using the
+same directory URL and private API key. An update asks for confirmation to
+preserve an active pilot, including during application rollback.
 
-```sh
-cd /opt/fair-platform
-docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env \
-  -f docker/production/compose.yml -f docker/production/compose.shadow.yml config --quiet
-docker compose --env-file /etc/fair-production/release.env --env-file /etc/fair-production/site.env \
-  -f docker/production/compose.yml -f docker/production/compose.shadow.yml \
-  up -d --no-deps owner-api
-```
-
-The **Shadow overlay** is intentionally not used by the guided installer or
-`backup.sh`. It enables the directory **and** encrypted second-webhook
-ingestion in `SHADOW` only. The guided installer instead uses the independent
-`compose.directory.yml` without any webhook/billing changes. Before separately
-enabling Shadow, check the seven-day pilot instructions in
-[`WEBHOOK-PILOT.md`](WEBHOOK-PILOT.md) and the authoritative domain rules.
+In Settings → Initialization, copy the URL and secret into a second PasarGuard
+webhook entry alongside the legacy destination. Start the opening account
+import on the same page. Verify the completed import and the arrival of new
+events in the dashboard before comparing statements. Existing accounts incur
+no opening debt. Follow the [pilot checks](WEBHOOK-PILOT.md).
 
 ## Backups, release updates and blockers
 

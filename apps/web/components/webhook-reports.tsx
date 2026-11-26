@@ -63,10 +63,13 @@ export function WebhookReports() {
     if (to) params.set('to', to);
     setPage(null);
     setFailed(false);
-    void fetch('/api/v1/owner/operations/accounting/reports?' + params, {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
+    void fetch(
+      '/api/v1/owner/operations/accounting/reports?' + params.toString(),
+      {
+        cache: 'no-store',
+        signal: controller.signal,
+      },
+    )
       .then(async (response) => {
         if (response.status === 401) location.assign('/login');
         if (!response.ok) throw new Error();

@@ -1,4 +1,4 @@
-"""Regression assertions for the Owner-approved PR-full / staging-fast split.
+"""Regression assertions for fast PR checks and Owner-gated post-merge image release.
 
 These are intentionally stdlib-only: the release gate must not depend on an
 unreviewed package installer just to verify its own workflow invariants.
@@ -18,29 +18,34 @@ class FastDeliveryTests(unittest.TestCase):
         self.workflow = WORKFLOW.read_text()
         self.containers = self.workflow.split('\n  containers:\n', 1)[1].split(
             '\n  owner-merge:\n', 1)[0]
-        self.browser = self.containers.split(
+        self.images = self.workflow.split('\n  image-release:\n', 1)[1].split(
+            '\n  publish:\n', 1)[0]
+        self.browser = self.images.split(
             '      - name: Browser acceptance on local synthetic containers\n', 1)[1].split(
-                '      - name: Fast staging release safety regressions\n', 1)[0]
+                '      - name: Scan API image\n', 1)[0]
 
-    def test_full_e2e_and_backup_checks_still_run_before_owner_merge(self):
+    def test_e2e_and_backup_checks_run_only_after_owner_merge(self):
         self.assertIn('pull_request:\n    branches: [development, main]', self.workflow)
-        self.assertIn("if: github.event_name != 'push' || github.ref != 'refs/heads/development'",
-                      self.browser)
+        self.assertIn("needs.owner-merge.outputs.authorized == 'true'", self.images)
+        self.assertNotIn('      - name: Browser acceptance', self.containers)
         for command in ('pnpm test:web', 'pnpm test:backup', 'FAIR_RELEASE_DOCKER_TEST=1'):
             self.assertIn(command, self.browser)
 
-    def test_fast_postmerge_does_not_disable_quality_image_security_or_owner_gate(self):
+    def test_pr_is_lightweight_and_postmerge_preserves_security_gates(self):
         self.assertIn('      - name: Format check', self.workflow)
         self.assertIn('      - name: Lint', self.workflow)
         self.assertIn('      - name: Typecheck', self.workflow)
         self.assertIn('      - name: Test', self.workflow)
-        self.assertIn('      - name: Fast staging release safety regressions', self.containers)
-        self.assertIn('      - name: Scan API image', self.containers)
-        self.assertIn('      - name: Scan Web image', self.containers)
-        self.assertIn('      - name: Scan Caddy', self.containers)
-        self.assertIn('      - name: Scan PostgreSQL', self.containers)
-        self.assertIn('      - name: Validate Compose and Caddy', self.containers)
-        self.assertIn('needs: [quality, security, containers, owner-merge]', self.workflow)
+        self.assertIn('Validate Compose configuration without building images', self.containers)
+        self.assertNotIn('docker/build-push-action@', self.containers)
+        self.assertNotIn('image-ref:', self.containers)
+        self.assertIn('      - name: Scan API image', self.images)
+        self.assertIn('      - name: Scan Web image', self.images)
+        self.assertIn('      - name: Scan Caddy', self.images)
+        self.assertIn('      - name: Scan PostgreSQL', self.images)
+        self.assertIn('      - name: Validate built Caddy image', self.images)
+        self.assertIn('needs: [quality, security, containers, owner-merge]', self.images)
+        self.assertIn('needs: [image-release, owner-merge]', self.workflow)
         self.assertIn("needs.owner-merge.outputs.authorized == 'true'", self.workflow)
         self.assertIn('\n  publish:\n', self.workflow)
         self.assertNotIn('\n  deploy:\n', self.workflow)
@@ -48,9 +53,9 @@ class FastDeliveryTests(unittest.TestCase):
 
     def test_build_cache_scopes_isolate_all_four_images(self):
         for scope in ('fp-api', 'fp-web', 'fp-caddy', 'fp-postgres'):
-            self.assertIn(f'cache-from: type=gha,scope={scope}', self.containers)
-            self.assertIn(f'cache-to: type=gha,scope={scope},mode=max', self.containers)
-        self.assertEqual(self.containers.count('          load: true'), 4)
+            self.assertIn(f'cache-from: type=gha,scope={scope}', self.images)
+            self.assertIn(f'cache-to: type=gha,scope={scope},mode=max', self.images)
+        self.assertEqual(self.images.count('          load: true'), 4)
 
     def test_both_custom_go_builders_are_pinned_to_a_patched_toolchain(self):
         # A stale Caddy Go stdlib image failed PR #80's unchanged Trivy

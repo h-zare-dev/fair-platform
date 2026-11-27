@@ -151,6 +151,7 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          no-cache: true # Refresh the Alpine security packages for every PostgreSQL build.
           file: docker/Dockerfile.postgres
           platforms: linux/amd64
           load: true
@@ -307,7 +308,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
       actions: read
       packages: write
     outputs:
@@ -335,25 +336,10 @@ jobs:
             printf '%s=%s\n' "$key" "$digest" >> "$GITHUB_OUTPUT"
           done
 
-  channel:
-    needs: publish
-    runs-on: ubuntu-latest
-    concurrency:
-      group: release-channel-${{ github.ref_name }}
-      cancel-in-progress: false
-    permissions:
-      packages: write
-      contents: write
-    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |

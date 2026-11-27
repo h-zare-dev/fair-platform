@@ -1,3 +1,4 @@
+import { actions as eventActions } from '@fair-platform/pasarguard';
 import { z } from 'zod';
 const utc = z.iso
   .datetime({ offset: false })
@@ -16,11 +17,13 @@ const cursorSchema = z
     start: utc,
     end: utc,
     source: z.string().max(100).nullable(),
+    actions: z.string().optional(),
     kind: z.enum(['events', 'issues']),
   })
   .strict();
 const querySchema = z
   .object({
+    actions: z.string().max(300).optional(),
     window: z.enum(['1h', '24h', '7d', '30d']).default('24h'),
     start: utc.optional(),
     end: utc.optional(),
@@ -43,6 +46,7 @@ export interface OperationFilter {
   start: string;
   end: string;
   source: string | null;
+  actions?: string[];
   limit: number;
   cursor: z.infer<typeof cursorSchema> | null;
 }
@@ -60,6 +64,16 @@ export function operationFilter(
     : null;
   if (cursor && cursor.kind !== kind) throw new Error('INVALID_CURSOR');
   const source = query.source ?? null;
+  const actions =
+    query.actions === undefined
+      ? undefined
+      : [
+          ...new Set(
+            z
+              .array(z.enum(eventActions))
+              .parse(query.actions ? query.actions.split(',') : []),
+          ),
+        ].sort();
   const hours = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 }[query.window];
   if (!!query.start !== !!query.end) throw new Error('INVALID_RANGE');
   const end = query.end ?? cursor?.end ?? now.toISOString();
@@ -75,13 +89,21 @@ export function operationFilter(
   if (
     cursor &&
     (cursor.source !== source ||
+      cursor.actions !== actions?.join(',') ||
       cursor.start !== start ||
       cursor.end !== end ||
       micros(cursor.time) < micros(start) ||
       micros(cursor.time) >= micros(end))
   )
     throw new Error('INVALID_CURSOR');
-  return { start, end, source, limit: query.limit, cursor };
+  return {
+    start,
+    end,
+    source,
+    ...(actions ? { actions } : {}),
+    limit: query.limit,
+    cursor,
+  };
 }
 export function nextCursor(
   filter: OperationFilter,
@@ -96,6 +118,7 @@ export function nextCursor(
       start: filter.start,
       end: filter.end,
       source: filter.source,
+      actions: filter.actions?.join(','),
       kind,
     }),
   ).toString('base64url');

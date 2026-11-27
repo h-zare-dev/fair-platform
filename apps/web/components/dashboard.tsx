@@ -529,7 +529,7 @@ export function Dashboard() {
                   .sort((a, b) => a - b)
                   .map((n, index, items) => (
                     <span key={n}>
-                      {index > 0 && n - items[index - 1]! > 1 && ' … '}
+                      {index > 0 && n - items[index - 1] > 1 && ' … '}
                       <button
                         className="secondary"
                         aria-label={`صفحهٔ ${formatInteger(n)}`}

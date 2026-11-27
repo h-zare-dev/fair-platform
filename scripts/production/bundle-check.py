@@ -32,7 +32,7 @@ def verify(candidate, previous, old_sha, migration_mode=False):
                if protected(p) and old.get(p) != new.get(p)}
     prefix = 'apps/api/src/owner/infrastructure/'
     gib_upgrade = changes == {
-        prefix+'database.ts': ('042634b4f3461c0e2a7abdfbe49a3d140a0d5f83', '1d673b6e5e6f2c0eabbc04ab50bb78caebb719c1'),
+        prefix+'database.ts': ('042634b4f3461c0e2a7abdfbe49a3d140a0d5f83', 'dae80777603b5bbf2021353481272d9592348942'),
         prefix+'gib-review-migration.ts': (None, '7f7d4d837d4d5f616c5a087e1440482ac4a86430'),
     }
     if not old or (changes and not gib_upgrade):

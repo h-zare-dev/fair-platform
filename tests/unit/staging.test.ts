@@ -15,33 +15,22 @@ it('release failure/recovery state machine passes its adversarial suite', () => 
   expect(result.stderr, result.stdout).not.toContain('FAILED');
   expect(result.status, result.stderr).toBe(0);
 });
-it('CI deploy is gated, PR-safe and pinned; only publish receives package write', () => {
+it('CI publishes scanned images but never deploys to the retired staging host', () => {
   const ci = read('.github/workflows/ci.yml');
   expect(ci).not.toContain('pull_request_target');
   expect(ci).not.toContain('self-hosted');
   expect(ci.match(/packages: write/g)).toHaveLength(1);
   expect(ci).toContain('github.ref_protected');
-  const deploy = ci.split('  deploy:')[1]!;
-  expect(deploy).toContain("github.event_name == 'push'");
-  expect(deploy).toContain("github.ref == 'refs/heads/development'");
-  expect(deploy).toContain('environment: staging-bootstrap');
-  expect(deploy).toContain('packages: read');
-  expect(deploy).toContain('secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256');
-  expect(deploy).toContain('bash scripts/staging/ci-post-merge-local.sh');
-  expect(deploy).not.toContain('vars.FP003B_STAGING_ACTIVATED');
-  expect(deploy).toContain('cancel-in-progress: false');
-  expect(ci.split('  deploy:')[0]).not.toContain('secrets.STAGING_');
+  expect(ci).toContain('  publish:');
+  expect(ci).toContain('needs: [quality, security, containers, owner-merge]');
+  expect(ci).toContain('docker push "$image"');
+  expect(ci).not.toContain('\n  deploy:');
+  expect(ci).not.toContain('secrets.STAGING_BOOTSTRAP_');
+  expect(ci).not.toContain('bash scripts/staging/ci-post-merge-local.sh');
   for (const match of ci.matchAll(/uses: ([^\s]+)/g))
     expect(match[1]).toMatch(/@[a-f0-9]{40}$/);
-  const ssh = read('scripts/staging/ci-post-merge-local.sh');
-  expect(ssh).toContain('StrictHostKeyChecking=yes');
-  expect(ssh).toContain('UserKnownHostsFile=');
-  expect(ssh).toContain('ssh-keyscan');
-  expect(ssh).toContain('PINNED_SSH_HOST_KEY_MISMATCH');
-  expect(ssh).toContain('fair-deploy@');
-  expect(ssh).toContain('registry-temporary.sh logout');
-  expect(read('scripts/staging/backup-local.sh')).not.toContain('rclone');
 });
+
 it('staging publishes only Caddy TCP443, persists data and retains webhook guard', () => {
   const compose = read('docker/staging/compose.yml');
   expect(compose.match(/ports:/g)).toHaveLength(1);

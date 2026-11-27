@@ -133,6 +133,7 @@ mv -f -- "$env_tmp" "$directory_env"
 trap - EXIT
 
 compose=(docker compose --env-file "$release")
+[[ ! -f "$settings/shadow-schedule.env" ]] || compose+=(--env-file "$settings/shadow-schedule.env")
 if [[ -f "$site_env" ]]; then
   [[ ! -L "$site_env" ]] || die 'Owner site config is a symlink.'
   compose+=(--env-file "$site_env")

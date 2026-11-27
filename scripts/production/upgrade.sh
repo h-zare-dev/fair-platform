@@ -89,6 +89,10 @@ elif [[ -n "$legacy_close" ]]; then
   printf 'FAIR_SHADOW_CLOSE_TIME=%s\n' "$legacy_close" > "$schedule_tmp"
   mv -T -- "$schedule_tmp" "$schedule"
 fi
+if [[ -f "$schedule" ]]; then
+  old_compose+=(--env-file "$schedule")
+  new_compose+=(--env-file "$schedule")
+fi
 "${new_compose[@]}" config --quiet || die 'Candidate Compose invalid.'
 
 printf 'Creating a local database dump before updating containers...\n'

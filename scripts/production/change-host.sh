@@ -40,6 +40,7 @@ read -r -p 'Confirm change and restart only Owner API/Caddy [y/N]: ' answer
 [[ "$answer" == [yY] || "$answer" == [yY][eE][sS] ]] || die 'Cancelled.'
 
 compose=(docker compose --env-file "$release" --env-file "$site")
+[[ ! -f "$settings/shadow-schedule.env" ]] || compose+=(--env-file "$settings/shadow-schedule.env")
 if [[ -f "$settings/directory.env" ]]; then
   [[ ! -L "$settings/directory.env" ]] || die 'Unsafe directory config.'
   compose+=(--env-file "$settings/directory.env" -f "$repo/docker/production/compose.yml")

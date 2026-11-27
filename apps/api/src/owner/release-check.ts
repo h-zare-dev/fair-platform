@@ -31,6 +31,7 @@ async function main() {
       'OwnerPasswordRuntimeGrant1792400000000',
       'ReplaySourceIdentity1792500000000',
       'ShadowReview1792600000000',
+      'GibReview1792700000000',
     ];
     const configuredMigrations = db.migrations
       .map((m) => m.name ?? m.constructor.name)
@@ -61,6 +62,7 @@ async function main() {
       'dist/owner/infrastructure/password-runtime-grant-migration.js',
       'dist/owner/infrastructure/replay-source-identity-migration.js',
       'dist/owner/infrastructure/shadow-review-migration.js',
+      'dist/owner/infrastructure/gib-review-migration.js',
     ];
     const hashes: Record<string, string> = {};
     for (const file of files)

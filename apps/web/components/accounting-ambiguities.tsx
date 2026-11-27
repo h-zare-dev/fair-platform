@@ -6,6 +6,18 @@ import { shadowReasons as names } from '../lib/shadow-reasons';
 import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 
+const diagnosticText: Record<string, string> = {
+  MULTIPLE_CHANGES:
+    'در زمان بستن روز، بیش از دو رویداد ویرایش یا ریست برای این حساب وجود داشت.',
+  NO_SINGLE_PAIR: 'در زمان بستن روز دقیقاً یک ویرایش و یک ریست وجود نداشت.',
+  SOURCE_REVIEW: 'حداقل یکی از دو وبهوک برای بررسی حسابداری آماده نبود.',
+  PAIR_WINDOW: 'فاصلهٔ دو رویداد بیش از پنج دقیقه است.',
+  DURATION_CONFLICT: 'وبهوک‌ها دو مدت متفاوت ثبت کرده‌اند.',
+  CHECK_CLOSE_TARIFF:
+    'در زمان بستن روز، نرخ گیگی یکتا برای این مدیر یافت نشد. تخصیص تعرفه و عضویت مدیر در آن تاریخ را بررسی کنید.',
+  CHECK_CLOSE_PAIR:
+    'یک ویرایش و یک ریست در بازه پیدا شد. علت دقیق در ثبت قدیمی ذخیره نشده است.',
+};
 interface Summary {
   closedDays: string;
   pendingDays: string;
@@ -16,8 +28,14 @@ interface Summary {
 interface Case {
   eventId: string;
   accountId: string;
+  rateAssignmentId: string | null;
+  rateTomanPerGib: string | null;
+  accountName: string | null;
+  ownerName: string | null;
+  actorName: string | null;
   action: string;
   code: string;
+  diagnostic?: string;
   sourceInstanceId: string;
   billingAdminId: string;
   localDay: string;
@@ -131,7 +149,24 @@ export function AccountingAmbiguities({
       active = false;
     };
   }, [applied, offset, revision, period, reportOffset, reports]);
-  async function decide(chosen: string | null) {
+  const selection = page.rows.filter((r) => selected.includes(r.eventId));
+  const first = selection[0];
+  const rate =
+    first?.rateAssignmentId &&
+    first.rateTomanPerGib &&
+    BigInt(first.dataLimitBytes) > 0n &&
+    selection.every(
+      (r) =>
+        r.accountId === first.accountId &&
+        r.billingAdminId === first.billingAdminId &&
+        r.localDay === first.localDay &&
+        r.sourceInstanceId === first.sourceInstanceId &&
+        r.dataLimitBytes === first.dataLimitBytes &&
+        r.rateAssignmentId === first.rateAssignmentId,
+    )
+      ? first
+      : null;
+  async function decide(chosen: string | null, rateAssignmentId?: string) {
     setSaving(true);
     setError('');
     try {
@@ -144,6 +179,7 @@ export function AccountingAmbiguities({
             id: crypto.randomUUID(),
             eventIds: selected,
             packageId: chosen,
+            rateAssignmentId,
           }),
         },
       );
@@ -320,26 +356,49 @@ export function AccountingAmbiguities({
             <section className="table-card">
               <div className="section-heading">
                 <h2>موارد نیازمند بررسی</h2>
-                <label>
-                  بسته{' '}
-                  <select
-                    value={packageId}
-                    onChange={(e) => setPackageId(e.target.value)}
+                {rate && (
+                  <button
+                    disabled={saving || busy}
+                    onClick={() => void decide(null, rate.rateAssignmentId!)}
                   >
-                    <option value="">انتخاب بسته</option>
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  disabled={busy || saving || !selected.length || !packageId}
-                  onClick={() => void decide(packageId)}
-                >
-                  ثبت یک بسته
-                </button>
+                    تأیید یک تمدید · {formatGiB(rate.dataLimitBytes)} ×{' '}
+                    {formatInteger(rate.rateTomanPerGib!)} تومان ={' '}
+                    {formatInteger(
+                      (BigInt(rate.dataLimitBytes) *
+                        BigInt(rate.rateTomanPerGib!) +
+                        1073741823n) /
+                        1073741824n,
+                    )}{' '}
+                    تومان
+                  </button>
+                )}
+                {packages.length > 0 && (
+                  <>
+                    {' '}
+                    <label>
+                      بسته{' '}
+                      <select
+                        value={packageId}
+                        onChange={(e) => setPackageId(e.target.value)}
+                      >
+                        <option value="">انتخاب بسته</option>
+                        {packages.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      disabled={
+                        busy || saving || !selected.length || !packageId
+                      }
+                      onClick={() => void decide(packageId)}
+                    >
+                      ثبت یک بسته
+                    </button>
+                  </>
+                )}
                 <button
                   disabled={busy || saving || !selected.length}
                   onClick={() => void decide(null)}
@@ -360,9 +419,10 @@ export function AccountingAmbiguities({
                     <thead>
                       <tr>
                         <th>انتخاب</th>
+                        <th>حساب و عملیات</th>
                         <th>نوع ابهام</th>
-                        <th>روز و مدیر</th>
-                        <th>پکیج</th>
+                        <th>مدیر مالک و روز</th>
+                        <th>حجم و مدت</th>
                         <th>زمان رویداد</th>
                         <th>شناسهٔ رویداد</th>
                       </tr>
@@ -387,22 +447,44 @@ export function AccountingAmbiguities({
                             />
                           </td>
                           <td>
-                            <strong>{names[item.code] ?? item.code}</strong>
-                            <small dir="ltr">
-                              {item.action} · {item.accountId}
+                            <strong>
+                              <bdi>
+                                {item.accountName || 'نام کاربری ثبت نشده'}
+                              </bdi>
+                            </strong>
+                            <small>
+                              شناسهٔ حساب: {formatInteger(item.accountId)}
+                            </small>
+                            <small>
+                              {item.action === 'user_updated'
+                                ? 'ویرایش کاربر'
+                                : item.action === 'data_usage_reset'
+                                  ? 'بازنشانی مصرف'
+                                  : item.action}
                             </small>
                           </td>
                           <td>
-                            {item.localDay}
+                            <strong>{names[item.code] ?? item.code}</strong>
+                            {item.diagnostic && (
+                              <small>{diagnosticText[item.diagnostic]}</small>
+                            )}
                             <small>
-                              مدیر: {formatInteger(item.billingAdminId)}
+                              انجام‌دهنده:{' '}
+                              <bdi>{item.actorName || 'ثبت نشده'}</bdi>
                             </small>
+                          </td>
+                          <td>
+                            <strong>
+                              <bdi>{item.ownerName || 'نام مدیر ثبت نشده'}</bdi>{' '}
+                              ({formatInteger(item.billingAdminId)})
+                            </strong>
+                            <small>{item.localDay}</small>
                           </td>
                           <td>
                             {formatGiB(item.dataLimitBytes)}
                             <small>
                               {item.durationDays === null
-                                ? 'مدت نامشخص'
+                                ? 'مدت روزانه در رویداد مشخص نیست'
                                 : `${formatInteger(item.durationDays)} روز`}
                             </small>
                           </td>

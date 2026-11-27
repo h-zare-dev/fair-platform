@@ -1,4 +1,5 @@
 export const shadowReasons: Record<string, string> = {
+  DURATION_CONFLICT: 'مدت ثبت‌شده در ویرایش و بازنشانی متفاوت است',
   MISSING_DURATION: 'مدت پکیج قابل اثبات نیست',
   PRICING_MISSING: 'پکیج یا قیمت متناظر تعریف نشده',
   UNEXPECTED_UNLIMITED: 'حجم نامحدود نیازمند بررسی است',

@@ -18,7 +18,7 @@ def metadata(entries):
             (protected(row['path']) or row['path'].startswith(('docker/production/', 'scripts/production/')))}
 
 
-def verify(candidate, previous, old_sha):
+def verify(candidate, previous, old_sha, migration_mode=False):
     if not re.fullmatch('[0-9a-f]{40}', old_sha):
         raise ValueError('Invalid installed revision')
     if (previous / 'REVISION').is_file():
@@ -28,7 +28,14 @@ def verify(candidate, previous, old_sha):
     else:
         old = json.loads((candidate / 'legacy.json').read_text())[old_sha]
     new = json.loads((candidate / 'bundle.json').read_text())
-    if not old or {p:s for p,s in old.items() if protected(p)} != {p:s for p,s in new.items() if protected(p)}:
+    changes = {p: (old.get(p), new.get(p)) for p in old.keys() | new.keys()
+               if protected(p) and old.get(p) != new.get(p)}
+    prefix = 'apps/api/src/owner/infrastructure/'
+    gib_upgrade = changes == {
+        prefix+'database.ts': ('042634b4f3461c0e2a7abdfbe49a3d140a0d5f83', 'dae80777603b5bbf2021353481272d9592348942'),
+        prefix+'gib-review-migration.ts': (None, '5f677835c73f3094cf6c73e4b77efb897b59a3f1'),
+    }
+    if not old or (changes and not gib_upgrade):
         raise ValueError('SCHEMA_OR_POSTGRES_CHANGED')
     close_time = None
     for path, expected in old.items():
@@ -44,8 +51,10 @@ def verify(candidate, previous, old_sha):
             if hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() != expected:
                 raise ValueError('Modified installed file: ' + path)
 
+    if migration_mode:
+        return 'gib-review' if gib_upgrade else 'none'
     return close_time or ''
 
 
 if __name__ == '__main__':
-    print(verify(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]))
+    print(verify(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4:] == ['--migration']))

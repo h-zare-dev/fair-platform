@@ -173,6 +173,24 @@ describe('nightly renewal attribution', () => {
     on_hold_expire_duration_seconds: '2592000',
     event_status: 'READY_FOR_ACCOUNTING',
   });
+  it('prices a same-second renewal once at the assigned GiB rate even when durations differ', () => {
+    const update = change('1', 'user_updated');
+    const reset = {
+      ...change('2', 'data_usage_reset'),
+      source_enqueued_at: update.source_enqueued_at,
+      on_hold_expire_duration_seconds: '5184000',
+    };
+    const pair = [update, reset];
+    const result = classifyRenewals(pair, [
+      { ...perGiB, rate_toman_per_gib: '2000' },
+    ]);
+    expect(result.get('1')).toMatchObject({
+      amount: '100000',
+      durationDays: null,
+    });
+    expect(result.get('2')?.reason).toBe('RENEWAL_EVIDENCE');
+    expect(classifyRenewals(pair, []).get('1')?.reason).toBe('PRICING_MISSING');
+  });
   it('counts an update/reset once and holds repeated clicks for the Owner', () => {
     const pair = [change('1', 'user_updated'), change('2', 'data_usage_reset')];
     const classified = classifyRenewals(pair, [fixed]);

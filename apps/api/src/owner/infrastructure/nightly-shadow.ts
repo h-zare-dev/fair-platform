@@ -155,13 +155,6 @@ export function classifyRenewals(events: CreateRow[], rules: Rule[]) {
     return result;
   const update = first.action === 'user_updated' ? first : second;
   const reset = first === update ? second : first;
-  if (
-    update.on_hold_expire_duration_seconds &&
-    reset.on_hold_expire_duration_seconds &&
-    update.on_hold_expire_duration_seconds !==
-      reset.on_hold_expire_duration_seconds
-  )
-    return result;
   const duration =
     update.on_hold_expire_duration_seconds ??
     (update.data_limit_bytes === reset.data_limit_bytes
@@ -174,7 +167,32 @@ export function classifyRenewals(events: CreateRow[], rules: Rule[]) {
     false,
     false,
   );
-  if (charge.reason) return result;
+  if (charge.reason) {
+    for (const event of changes) hold(event, charge.reason);
+    return result;
+  }
+  if (
+    update.on_hold_expire_duration_seconds &&
+    reset.on_hold_expire_duration_seconds &&
+    update.on_hold_expire_duration_seconds !==
+      reset.on_hold_expire_duration_seconds
+  ) {
+    const other = classifyCreate(
+      update.data_limit_bytes,
+      reset.on_hold_expire_duration_seconds,
+      rules,
+      false,
+      false,
+    );
+    if (
+      charge.packageId !== null ||
+      other.assignmentId !== charge.assignmentId
+    ) {
+      for (const event of changes) hold(event, 'DURATION_CONFLICT');
+      return result;
+    }
+    charge.durationDays = null;
+  }
   result.set(update.id, charge);
   hold(reset, 'RENEWAL_EVIDENCE');
   return result;

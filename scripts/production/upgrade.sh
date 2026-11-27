@@ -101,6 +101,13 @@ printf 'Local dump is NOT an off-host disaster-recovery backup.\n'
 read -r -p 'I have reviewed the backup/recovery risk and approve the app-only update [y/N]: ' backup_approval
 [[ "$backup_approval" == [yY] || "$backup_approval" == [yY][eE][sS] ]] || die 'Backup approval declined.'
 
+migration=$(python3 "$candidate/scripts/production/bundle-check.py" "$candidate" "$previous" "$old_sha" --migration) || die 'Bundle verification failed.'
+if [[ "$migration" == gib-review ]]; then
+  read -r -p 'Apply the additive per-GiB SHADOW review migration [y/N]: ' schema_approval
+  [[ "$schema_approval" == [yY] || "$schema_approval" == [yY][eE][sS] ]] || die 'Migration declined.'
+  "${new_compose[@]}" run --rm --no-deps -T migrate node dist/owner/cli.js migrate-gib-review || die 'Review migration failed.'
+fi
+
 backup_manifest="$settings/release-$old_sha.env"
 if [[ -e "$backup_manifest" ]]; then
   [[ -f "$backup_manifest" && ! -L "$backup_manifest" ]] || die 'Unsafe previous release snapshot.'

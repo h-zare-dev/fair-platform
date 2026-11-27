@@ -61,6 +61,7 @@ try:
     assert proof['configuredMigrations'] == [
         'AtomicCatalog1791300000000',
         'FairShadowCreate1791600000000',
+        'GibReview1792700000000',
         'OpeningBaseline1791700000000',
         'OpeningBaselineControl1791800000000',
         'OwnerDashboard1791000000000',

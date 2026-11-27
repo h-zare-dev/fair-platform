@@ -681,6 +681,12 @@ it('additive migrations upgrade prior schema and reverse only in disposable DB',
   await db.undoLastMigration({ transaction: 'all' });
   expect(
     await db.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='fair_shadow_reviews' AND column_name='rate_assignment_id'",
+    ),
+  ).toEqual([]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
       "SELECT to_regclass('fair_shadow_day_reports')::text AS name",
     ),
   ).toEqual([{ name: null }]);
@@ -902,3 +908,52 @@ it('PostgreSQL container restart retains synthetic rows and server-side sessions
     await db.query('SELECT count(*)::int AS n FROM pasarguard_events'),
   ).toEqual([{ n: 11 }]);
 }, 60000);
+
+it('shows the account, owner and separate actor recorded on a review event', async () => {
+  await seedSynthetic(db, '11'.repeat(32));
+  await db.query(`WITH day AS (
+    INSERT INTO fair_shadow_days (source_instance_id,billing_admin_id,local_day,time_zone,
+      window_start,window_end,source_watermark,status,total_toman,create_count,ambiguity_count)
+    SELECT source_instance_id,billing_admin_id,'1405-09-06','Asia/Tehran',now()-interval '1 day',now(),now(),'SHADOW_READY',0,0,0
+    FROM pasarguard_events WHERE id=1 RETURNING *
+  ) INSERT INTO fair_shadow_late_events (event_id,day_id,source_instance_id,billing_admin_id,local_day)
+    SELECT 1,id,source_instance_id,billing_admin_id,local_day FROM day`);
+  await db.query(
+    "UPDATE pasarguard_events SET username='sample-account', billing_admin_username='sample-owner', actor_admin_username='sample-actor' WHERE id=1",
+  );
+  const { PostgresShadowReader } =
+    await import('../../apps/api/dist/owner/infrastructure/shadow-reader.js');
+  const [assignment] = await db.query<
+    { id: string }[]
+  >(`INSERT INTO fair_tariff_assignments
+    (source_instance_id,target_kind,billing_admin_id,rate_toman_per_gib,local_start_date,time_zone,effective_from,created_at)
+    SELECT source_instance_id,'ADMIN',billing_admin_id,2000,'1405-09-05','Asia/Tehran',window_start,window_start
+    FROM fair_shadow_days WHERE local_day='1405-09-06' RETURNING id::text`);
+  if (!assignment) throw new Error('Missing fixture tariff');
+  const reader = new PostgresShadowReader(db);
+  const page = await reader.ambiguities({
+    source: null,
+    admin: null,
+    date: null,
+    reason: null,
+    limit: 25,
+    offset: 0,
+  });
+  expect(page.rows).toContainEqual(
+    expect.objectContaining({
+      eventId: '1',
+      accountName: 'sample-account',
+      ownerName: 'sample-owner',
+      actorName: 'sample-actor',
+    }),
+  );
+  const request = '10000000-0000-4000-8000-000000000001';
+  expect(await reader.review(request, ['1'], null, assignment.id)).toBe(true);
+  expect(await reader.review(request, ['1'], null, assignment.id)).toBe(true);
+  expect(
+    await db.query(
+      'SELECT rate_toman_per_gib::text AS rate,amount_toman::text AS amount FROM fair_shadow_reviews WHERE id=$1',
+      [request],
+    ),
+  ).toEqual([{ rate: '2000', amount: '20000' }]);
+});

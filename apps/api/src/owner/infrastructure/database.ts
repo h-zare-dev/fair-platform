@@ -19,6 +19,8 @@ import { ReplaySourceIdentity1792500000000 } from './replay-source-identity-migr
 
 import { ShadowReview1792600000000 } from './shadow-review-migration.js';
 
+import { GibReview1792700000000 } from './gib-review-migration.js';
+
 export function createOwnerDataSource(url: string) {
   const database = createDataSource(url);
   database.setOptions({
@@ -40,6 +42,7 @@ export function createOwnerDataSource(url: string) {
       OwnerPasswordRuntimeGrant1792400000000,
       ReplaySourceIdentity1792500000000,
       ShadowReview1792600000000,
+      GibReview1792700000000,
     ],
     extra: { max: 10, connectionTimeoutMillis: 5000, statement_timeout: 5000 },
   });

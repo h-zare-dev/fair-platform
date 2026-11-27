@@ -666,6 +666,20 @@ export class PostgresShadowReader {
        SELECT c.event_id::text AS "eventId", e.external_user_id::text AS "accountId",
          tariff.id::text AS "rateAssignmentId",tariff.rate::text AS "rateTomanPerGib",e.username AS "accountName",e.billing_admin_username AS "ownerName",
          e.actor_admin_username AS "actorName",e.action,c.reason_code AS code,
+         CASE WHEN c.reason_code='AMBIGUOUS_CORRELATION' AND e.action IN ('user_updated','data_usage_reset') THEN (
+           SELECT CASE
+             WHEN count(*) FILTER (WHERE x.action IN ('user_updated','data_usage_reset'))>2 THEN 'MULTIPLE_CHANGES'
+             WHEN count(*) FILTER (WHERE x.action='user_updated')<>1 OR count(*) FILTER (WHERE x.action='data_usage_reset')<>1 THEN 'NO_SINGLE_PAIR'
+             WHEN bool_or(x.event_status<>'READY_FOR_ACCOUNTING') FILTER (WHERE x.action IN ('user_updated','data_usage_reset')) THEN 'SOURCE_REVIEW'
+             WHEN max(x.source_enqueued_at) FILTER (WHERE x.action IN ('user_updated','data_usage_reset'))
+               - min(x.source_enqueued_at) FILTER (WHERE x.action IN ('user_updated','data_usage_reset')) > interval '5 minutes' THEN 'PAIR_WINDOW'
+             WHEN count(DISTINCT x.on_hold_expire_duration_seconds) FILTER (WHERE x.action IN ('user_updated','data_usage_reset'))>1 THEN 'DURATION_CONFLICT'
+             WHEN tariff.id IS NULL THEN 'CHECK_CLOSE_TARIFF'
+             ELSE 'CHECK_CLOSE_PAIR' END
+           FROM pasarguard_events x WHERE x.source_instance_id=d.source_instance_id AND x.billing_admin_id=d.billing_admin_id
+             AND x.external_user_id=e.external_user_id AND x.first_seen_at<=d.source_watermark
+             AND x.source_enqueued_at>=d.window_start AND x.source_enqueued_at<d.window_end
+         ) END AS diagnostic,
          c.source_instance_id AS "sourceInstanceId", c.billing_admin_id::text AS "billingAdminId",
          c.local_day AS "localDay",c.data_limit_bytes::text AS "dataLimitBytes",
          COALESCE(c.duration_days, CASE WHEN e.on_hold_expire_duration_seconds BETWEEN 1 AND 3153600000

@@ -917,7 +917,12 @@ it('shows the account, owner and separate actor recorded on a review event', asy
   );
   const { PostgresShadowReader } =
     await import('../../apps/api/dist/owner/infrastructure/shadow-reader.js');
-  const page = await new PostgresShadowReader(db).ambiguities({
+  const [assignment] = await db.query(`INSERT INTO fair_tariff_assignments
+    (source_instance_id,target_kind,billing_admin_id,rate_toman_per_gib,local_start_date,time_zone,effective_from,created_at)
+    SELECT source_instance_id,'ADMIN',billing_admin_id,2000,'1405-09-05','Asia/Tehran',window_start,window_start
+    FROM fair_shadow_days WHERE local_day='1405-09-06' RETURNING id::text`);
+  const reader = new PostgresShadowReader(db);
+  const page = await reader.ambiguities({
     source: null,
     admin: null,
     date: null,
@@ -933,4 +938,13 @@ it('shows the account, owner and separate actor recorded on a review event', asy
       actorName: 'sample-actor',
     }),
   );
+  const request = '10000000-0000-4000-8000-000000000001';
+  expect(await reader.review(request, ['1'], null, assignment.id)).toBe(true);
+  expect(await reader.review(request, ['1'], null, assignment.id)).toBe(true);
+  expect(
+    await db.query(
+      'SELECT rate_toman_per_gib::text AS rate,amount_toman::text AS amount FROM fair_shadow_reviews WHERE id=$1',
+      [request],
+    ),
+  ).toEqual([{ rate: '2000', amount: '20000' }]);
 });

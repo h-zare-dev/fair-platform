@@ -6,6 +6,18 @@ import { shadowReasons as names } from '../lib/shadow-reasons';
 import { OwnerHeader } from './owner-header';
 import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
 
+const diagnosticText: Record<string, string> = {
+  MULTIPLE_CHANGES:
+    'در زمان بستن روز، بیش از دو رویداد ویرایش یا ریست برای این حساب وجود داشت.',
+  NO_SINGLE_PAIR: 'در زمان بستن روز دقیقاً یک ویرایش و یک ریست وجود نداشت.',
+  SOURCE_REVIEW: 'حداقل یکی از دو وبهوک برای بررسی حسابداری آماده نبود.',
+  PAIR_WINDOW: 'فاصلهٔ دو رویداد بیش از پنج دقیقه است.',
+  DURATION_CONFLICT: 'وبهوک‌ها دو مدت متفاوت ثبت کرده‌اند.',
+  CHECK_CLOSE_TARIFF:
+    'در زمان بستن روز، نرخ گیگی یکتا برای این مدیر یافت نشد. تخصیص تعرفه و عضویت مدیر در آن تاریخ را بررسی کنید.',
+  CHECK_CLOSE_PAIR:
+    'یک ویرایش و یک ریست در بازه پیدا شد. علت دقیق در ثبت قدیمی ذخیره نشده است.',
+};
 interface Summary {
   closedDays: string;
   pendingDays: string;
@@ -23,6 +35,7 @@ interface Case {
   actorName: string | null;
   action: string;
   code: string;
+  diagnostic?: string;
   sourceInstanceId: string;
   billingAdminId: string;
   localDay: string;
@@ -452,6 +465,9 @@ export function AccountingAmbiguities({
                           </td>
                           <td>
                             <strong>{names[item.code] ?? item.code}</strong>
+                            {item.diagnostic && (
+                              <small>{diagnosticText[item.diagnostic]}</small>
+                            )}
                             <small>
                               انجام‌دهنده:{' '}
                               <bdi>{item.actorName || 'ثبت نشده'}</bdi>

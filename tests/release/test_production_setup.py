@@ -181,10 +181,10 @@ class ProductionSetupTests(unittest.TestCase):
     def test_guided_installer_does_not_reinstall_existing_database(self):
         bootstrap = (ROOT / 'scripts/production/bootstrap.sh').read_text()
         setup = (ROOT / 'scripts/production/setup.sh').read_text()
-        self.assertIn('git clone --depth=1 --filter=blob:none --sparse', bootstrap)
-        self.assertIn('sparse-checkout set docker/production scripts/production', bootstrap)
+        self.assertNotIn('git clone', bootstrap)
+        self.assertIn('docker cp', bootstrap)
         self.assertIn('[[ -f /etc/fair-production/installed ]]', bootstrap)
-        self.assertIn('git ls-remote "$origin" refs/heads/development', bootstrap)
+        self.assertIn('default_channel=latest', bootstrap)
         self.assertIn('install|update|host|directory', bootstrap)
         self.assertIn('active-bundle', bootstrap)
         self.assertIn('bash "$candidate/scripts/production/upgrade.sh" "$candidate" "$active"', bootstrap)

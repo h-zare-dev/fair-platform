@@ -16,7 +16,9 @@ RETRY_SECONDS = 4
 
 
 def verify_owner_merge(repository, sha, fetch, pause=time.sleep,
-                       attempts=MAX_ATTEMPTS):
+                       attempts=MAX_ATTEMPTS, branch='development'):
+    if branch not in ('main', 'development'):
+        raise ValueError('INVALID_RELEASE_BRANCH')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('INVALID_REPOSITORY')
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
@@ -32,7 +34,7 @@ def verify_owner_merge(repository, sha, fetch, pause=time.sleep,
                 raise ValueError('INVALID_PULL_ASSOCIATION')
             number = pull.get('number')
             if (pull.get('merge_commit_sha') != sha
-                    or pull.get('base', {}).get('ref') != 'development'
+                    or pull.get('base', {}).get('ref') != branch
                     or type(number) is not int or number < 1):
                 continue
 
@@ -41,7 +43,7 @@ def verify_owner_merge(repository, sha, fetch, pause=time.sleep,
             detail = fetch(f'https://api.github.com/repos/{repository}/pulls/{number}')
             if (detail.get('merged') is True
                     and detail.get('merge_commit_sha') == sha
-                    and detail.get('base', {}).get('ref') == 'development'
+                    and detail.get('base', {}).get('ref') == branch
                     and (detail.get('merged_by') or {}).get('login') == repository.split('/')[0]):
                 return True
         if attempt + 1 < attempts:
@@ -63,7 +65,7 @@ def main():
             return json.load(response)
 
     if not verify_owner_merge(os.environ['GITHUB_REPOSITORY'],
-                              os.environ['GITHUB_SHA'], fetch):
+                              os.environ['GITHUB_SHA'], fetch, branch=os.environ['GITHUB_REF_NAME']):
         raise SystemExit('OWNER_MERGED_DEVELOPMENT_REQUIRED')
 
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:

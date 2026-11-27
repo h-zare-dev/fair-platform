@@ -151,6 +151,7 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          no-cache: true # Refresh the Alpine security packages for every PostgreSQL build.
           file: docker/Dockerfile.postgres
           platforms: linux/amd64
           load: true
@@ -265,10 +266,10 @@ jobs:
       - id: config
         run: echo "hash=$(python3 scripts/staging/config-hash.py)" >> "$GITHUB_OUTPUT"
       - name: Save scanned images
-        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main')
         run: docker save ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} -o images.tar
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main')
         with:
           name: scanned-images
           path: images.tar
@@ -281,7 +282,7 @@ jobs:
           retention-days: 30
 
   owner-merge:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/development' && github.ref_protected
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main') && github.ref_protected
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -299,12 +300,15 @@ jobs:
         run: python3 scripts/staging/verify-owner-merge.py
 
   publish:
+    concurrency:
+      group: publish-channel-${{ github.ref_name }}
+      cancel-in-progress: false
     needs: [quality, security, containers, owner-merge]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/development' && needs.owner-merge.outputs.authorized == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main') && needs.owner-merge.outputs.authorized == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
       actions: read
       packages: write
     outputs:
@@ -331,6 +335,16 @@ jobs:
             if [ "$service" = owner-api ]; then key=api; else key="$service"; fi
             printf '%s=%s\n' "$key" "$digest" >> "$GITHUB_OUTPUT"
           done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)
+          if [[ "$tip" == "$GITHUB_SHA" ]]; then bash scripts/release/publish-channel.sh; fi
 
   deploy:
     needs: [publish, containers]

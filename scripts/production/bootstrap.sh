@@ -13,7 +13,7 @@ die() { printf 'FAIR_BOOTSTRAP_ERROR: %s\n' "$*" >&2; exit 1; }
 [[ "$ID" == ubuntu ]] || die 'Ubuntu required.'
 
 mode=${1:-auto}
-[[ $# -le 1 ]] || die 'Usage: fair-platform-install.sh [install|update|host|directory]'
+[[ $# -le 2 ]] || die 'Usage: fair-platform-install.sh [install|update|host|directory]'
 installed=false
 [[ -f /etc/fair-production/installed ]] && installed=true
 if [[ "$mode" == auto ]]; then
@@ -36,13 +36,13 @@ case "$mode" in
   *) die 'Usage: fair-platform-install.sh [install|update|host|directory]' ;;
 esac
 
-if ! command -v git >/dev/null || ! command -v python3 >/dev/null || \
+if ! command -v curl >/dev/null || ! command -v python3 >/dev/null || \
    ! command -v ss >/dev/null || ! command -v flock >/dev/null || \
    ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
   read -r -p 'Install missing Ubuntu Docker/Compose and deployment prerequisites via apt? [y/N]: ' consent
   [[ "$consent" == [yY] || "$consent" == [yY][eE][sS] ]] || die 'Prerequisite install declined.'
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 git python3 curl util-linux iproute2
+  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 python3 curl util-linux iproute2
   systemctl enable --now docker
 fi
 docker info >/dev/null 2>&1 || die 'Docker daemon unavailable.'
@@ -51,7 +51,7 @@ if [[ "$installed" == true ]]; then
   flock -n 7 || die 'Another installer invocation is running.'
 fi
 
-origin=https://github.com/h-zare-dev/fair-platform.git
+registry=ghcr.io/h-zare-dev/fair-platform-deploy
 legacy=/opt/fair-platform
 releases=/opt/fair-production-releases
 active_file=/etc/fair-production/active-bundle
@@ -67,31 +67,51 @@ if [[ "$installed" == true ]]; then
     die 'Active production deployment bundle is missing. Nothing modified.'
 fi
 
-if [[ "$mode" == install ]]; then
-  [[ ! -e "$legacy" ]] || die 'Existing /opt/fair-platform. Cannot overwrite a partial installation.'
-  printf 'Fetching only production Compose and scripts; application source is not needed.\n'
-  git clone --depth=1 --filter=blob:none --sparse --branch development --single-branch "$origin" "$legacy"
-  git -C "$legacy" sparse-checkout set docker/production scripts/production
-  bash "$legacy/scripts/production/setup.sh"
-elif [[ "$mode" == update ]]; then
-  remote_tip=$(git ls-remote "$origin" refs/heads/development)
-  read -r sha _ <<< "$remote_tip"
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die 'Cannot verify development release SHA.'
-  current=$(sed -n 's/^RELEASE_SHA=//p' /etc/fair-production/release.env)
-  [[ "$current" =~ ^[0-9a-f]{40}$ ]] || die 'Installed release is invalid.'
-  [[ "$sha" != "$current" ]] || { printf 'PRODUCTION_ALREADY_UP_TO_DATE %s\n' "$sha"; exit 0; }
+if [[ "$mode" == install || "$mode" == update ]]; then
+  settings=/etc/fair-production
+  install -d -m 0700 "$settings"
+  if [[ "$installed" == false ]]; then
+    exec 7>"$settings/bootstrap.lock"
+    flock -n 7 || die 'Another installation is running.'
+  fi
+  default_channel=latest
+  if [[ -f "$settings/channel" ]]; then read -r default_channel < "$settings/channel"; fi
+  channel=${2:-}
+  if [[ -z "$channel" ]]; then
+    read -r -p "Channel: latest (stable), dev, or vX.Y.Z [$default_channel]: " channel
+    channel=${channel:-$default_channel}
+  fi
+  [[ "$channel" =~ ^(latest|dev|v[0-9]+\.[0-9]+\.[0-9]+)$ ]] || die 'Invalid channel.'
+  docker pull "$registry:$channel"
+  image=$(docker image inspect --format '{{.Id}}' "$registry:$channel")
+  sha=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die 'Invalid bundle revision.'
   install -d -m 0755 -o root -g root "$releases"
   candidate="$releases/$sha"
-  [[ ! -L "$candidate" ]] || die 'Candidate release path is a symlink.'
-  if [[ ! -e "$candidate" ]]; then
-    printf 'Fetching a deployment bundle for reviewed commit %s\n' "$sha"
-    git clone --depth=1 --filter=blob:none --sparse --branch development --single-branch "$origin" "$candidate"
-    git -C "$candidate" sparse-checkout set docker/production scripts/production
+  stage=$(mktemp -d "$releases/.incoming.XXXXXXXX")
+  container=''
+  cleanup() {
+    if [[ -n "$container" ]]; then docker rm "$container" >/dev/null || true; fi
+    rm -rf -- "$stage"
+  }
+  trap cleanup EXIT
+  container=$(docker create --network none "$image" /unused)
+  docker cp "$container:/bundle/." "$stage/"
+  [[ $(cat "$stage/REVISION") == "$sha" ]] || die 'Bundle revision mismatch.'
+  if [[ -e "$candidate" ]]; then
+    [[ ! -L "$candidate" ]] && diff -qr --exclude=__pycache__ "$candidate" "$stage" >/dev/null || die 'Existing bundle differs.'
+  else
+    mv -T -- "$stage" "$candidate"
   fi
-  [[ -d "$candidate/.git" && $(git -C "$candidate" rev-parse HEAD) == "$sha" ]] || die 'Candidate checkout not pinned to expected SHA.'
-  [[ $(git -C "$candidate" remote get-url origin) == "$origin" ]] || die 'Candidate repository origin invalid.'
-  [[ -z $(git -C "$candidate" status --porcelain -- docker/production scripts/production) ]] || die 'Candidate bundle modified; do not run.'
-  bash "$candidate/scripts/production/upgrade.sh" "$candidate" "$active"
+  export PYTHONDONTWRITEBYTECODE=1
+  if [[ "$mode" == install ]]; then
+    # Persist the location even if optional directory setup is interrupted.
+    printf '%s\n' "$candidate" > "$settings/active-bundle"
+    bash "$candidate/scripts/production/setup.sh"
+  elif [[ $(sed -n 's/^RELEASE_SHA=//p' "$settings/release.env") != "$sha" ]]; then
+    bash "$candidate/scripts/production/upgrade.sh" "$candidate" "$active"
+  fi
+  printf '%s\n' "$channel" > "$settings/channel"
 elif [[ "$mode" == host ]]; then
   [[ -f "$active/scripts/production/change-host.sh" ]] || die 'Upgrade the old production release first.'
   read -r -p 'New panel hostname, IPv4 or localhost: ' new_host

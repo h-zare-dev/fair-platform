@@ -48,10 +48,10 @@ else
   printf 'For a public trusted HTTPS certificate, use a DNS name pointing to this server.\n'
   read -r -p 'Owner UI host (e.g. panel.example.com or 203.0.113.10): ' owner_host
   python3 "$repo/scripts/production/site-config.py" host "$owner_host" >/dev/null || die 'Invalid Owner UI hostname/IP.'
-  release_sha=$(git -C "$repo" rev-parse HEAD)
+  release_sha=$(cat "$repo/REVISION")
   [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || die 'Cannot determine exact release commit.'
   printf 'Published release commit to verify: %s\n' "$release_sha"
-  ask_yes 'I reviewed this development commit and approve installing its published images' || die 'Release not approved.'
+  ask_yes 'I reviewed this release and approve installing its published images' || die 'Release not approved.'
   read -r -p 'ACME certificate contact email: ' acme_email
   [[ -n "$acme_email" ]] || die 'ACME email required.'
   [[ ! -e "$site_env" && ! -L "$site_env" ]] || die 'Partial installation: site.env exists. Reconcile manually.'

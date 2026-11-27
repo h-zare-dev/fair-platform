@@ -681,6 +681,12 @@ it('additive migrations upgrade prior schema and reverse only in disposable DB',
   await db.undoLastMigration({ transaction: 'all' });
   expect(
     await db.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='fair_shadow_reviews' AND column_name='rate_assignment_id'",
+    ),
+  ).toEqual([]);
+  await db.undoLastMigration({ transaction: 'all' });
+  expect(
+    await db.query(
       "SELECT to_regclass('fair_shadow_day_reports')::text AS name",
     ),
   ).toEqual([{ name: null }]);

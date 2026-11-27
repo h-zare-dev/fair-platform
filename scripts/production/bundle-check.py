@@ -33,7 +33,7 @@ def verify(candidate, previous, old_sha, migration_mode=False):
     prefix = 'apps/api/src/owner/infrastructure/'
     gib_upgrade = changes == {
         prefix+'database.ts': ('042634b4f3461c0e2a7abdfbe49a3d140a0d5f83', 'dae80777603b5bbf2021353481272d9592348942'),
-        prefix+'gib-review-migration.ts': (None, '5f9fe8e43d670b85a65bd4dd141d61cff3f8eb77'),
+        prefix+'gib-review-migration.ts': (None, '5f677835c73f3094cf6c73e4b77efb897b59a3f1'),
     }
     if not old or (changes and not gib_upgrade):
         raise ValueError('SCHEMA_OR_POSTGRES_CHANGED')

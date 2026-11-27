@@ -14,7 +14,9 @@ export class GibReview1792700000000 implements MigrationInterface {
           AND rate_toman_per_gib>0 AND package_id IS NULL AND package_bytes>0
           AND amount_toman=ceil(package_bytes::numeric*rate_toman_per_gib/1073741824)))`);
   }
-  async down(): Promise<void> {
-    throw new Error('Cannot discard reviewed per-GiB decisions');
+  down(): Promise<void> {
+    return Promise.reject(
+      new Error('Cannot discard reviewed per-GiB decisions'),
+    );
   }
 }

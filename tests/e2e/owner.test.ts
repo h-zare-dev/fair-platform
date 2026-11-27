@@ -917,10 +917,13 @@ it('shows the account, owner and separate actor recorded on a review event', asy
   );
   const { PostgresShadowReader } =
     await import('../../apps/api/dist/owner/infrastructure/shadow-reader.js');
-  const [assignment] = await db.query(`INSERT INTO fair_tariff_assignments
+  const [assignment] = await db.query<
+    { id: string }[]
+  >(`INSERT INTO fair_tariff_assignments
     (source_instance_id,target_kind,billing_admin_id,rate_toman_per_gib,local_start_date,time_zone,effective_from,created_at)
     SELECT source_instance_id,'ADMIN',billing_admin_id,2000,'1405-09-05','Asia/Tehran',window_start,window_start
     FROM fair_shadow_days WHERE local_day='1405-09-06' RETURNING id::text`);
+  if (!assignment) throw new Error('Missing fixture tariff');
   const reader = new PostgresShadowReader(db);
   const page = await reader.ambiguities({
     source: null,

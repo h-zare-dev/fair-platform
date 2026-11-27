@@ -43,7 +43,7 @@ export class PostgresOwnerOperations implements OperationsReader {
     // Count and page events by the historical receipt window of their inbox
     // batch. `e.created_at` is the *new server's* normalization time, which
     // would incorrectly put an entire 30-day replay into today's totals.
-    return this.scope(
+    const events = this.scope(
       m
         .getRepository(EventEntity)
         .createQueryBuilder('e')
@@ -52,6 +52,11 @@ export class PostgresOwnerOperations implements OperationsReader {
       'b.received_at',
       'b.source_instance_id',
     );
+    if (f.actions)
+      events.andWhere('e.action = ANY(CAST(:actions AS text[]))', {
+        actions: f.actions,
+      });
+    return events;
   }
   async summary(f: OperationFilter) {
     return this.db.transaction('REPEATABLE READ', async (m) => {
@@ -77,6 +82,10 @@ export class PostgresOwnerOperations implements OperationsReader {
         .andWhere('e.created_at < now()');
       if (f.source)
         recent.andWhere('e.source_instance_id=:source', { source: f.source });
+      if (f.actions)
+        recent.andWhere('e.action = ANY(CAST(:actions AS text[]))', {
+          actions: f.actions,
+        });
       // Independent throughput metric: processing *now*, not event history.
       const processedLast24h = await count(recent);
       const openIngestionIssues = await count(
@@ -135,6 +144,10 @@ export class PostgresOwnerOperations implements OperationsReader {
       .select('e.id::text', 'id')
       .addSelect('e.action', 'action')
       .addSelect('e.external_user_id::text', 'externalUserId')
+      .addSelect('e.username', 'accountName')
+      .addSelect('e.billing_admin_username', 'ownerName')
+      .addSelect('e.actor_admin_username', 'actorName')
+      .addSelect('e.actor_admin_id::text', 'actorId')
       .addSelect('e.user_status', 'userStatus')
       .addSelect('e.data_limit_bytes::text', 'dataLimitBytes')
       .addSelect(timestamp('b.received_at'), 'receivedAt')
@@ -154,6 +167,10 @@ export class PostgresOwnerOperations implements OperationsReader {
         id: string;
         action: string;
         externalUserId: string;
+        accountName: string;
+        ownerName: string;
+        actorName: string | null;
+        actorId: string | null;
         userStatus: string;
         dataLimitBytes: string;
         receivedAt: string;

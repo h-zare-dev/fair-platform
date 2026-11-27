@@ -93,6 +93,21 @@ test('protected login, synthetic dashboard, filters and logout on desktop/mobile
   await expect(
     page.getByRole('heading', { name: 'تاریخچهٔ رویدادهای اخیر' }),
   ).toBeVisible();
+  const eventFilter = page.getByRole('group', { name: 'نوع رویداد' });
+  await expect(eventFilter.locator('input:checked')).toHaveCount(3);
+  for (const name of ['ایجاد کاربر', 'ویرایش کاربر', 'بازنشانی مصرف'])
+    await expect(
+      eventFilter.getByRole('checkbox', { name, exact: true }),
+    ).toBeChecked();
+  const nextEvents = page.waitForRequest(
+    (r) =>
+      new URL(r.url()).pathname.endsWith('/operations/events') &&
+      new URL(r.url()).searchParams.get('actions')?.includes('user_deleted') ===
+        true,
+  );
+  await eventFilter.getByRole('checkbox', { name: 'حذف کاربر' }).check();
+  await nextEvents;
+  await expect(page.locator('.kpis')).toHaveAttribute('aria-busy', 'false');
   const summaryRoute = '**/operations/summary?**';
   let releaseRefresh!: () => void;
   const pausedRefresh = new Promise<void>((resolve) => {

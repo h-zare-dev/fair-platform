@@ -513,6 +513,28 @@ it('microsecond receipt-time cursors never skip events or issues, and projection
     cursor = p.nextCursor;
   } while (cursor);
   expect(ids.size).toBe(11);
+  const filtered = await reader.events(
+    operationFilter(
+      {
+        ...query,
+        actions: 'user_created,user_updated,data_usage_reset',
+        limit: '100',
+      },
+      'events',
+    ),
+  );
+  expect(filtered.rows.length).toBeGreaterThan(0);
+  for (const row of filtered.rows) {
+    expect(['user_created', 'user_updated', 'data_usage_reset']).toContain(
+      row.action,
+    );
+    expect(row.accountName).toBeTruthy();
+    expect(row.ownerName).toBeTruthy();
+  }
+  expect(
+    (await reader.events(operationFilter({ ...query, actions: '' }, 'events')))
+      .rows,
+  ).toHaveLength(0);
   const issueIds = new Set<string>();
   let issueCursor: string | null = null;
   do {

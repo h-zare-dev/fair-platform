@@ -16,6 +16,10 @@ interface Summary {
 interface EventRow {
   id: string;
   action: string;
+  accountName: string;
+  ownerName: string;
+  actorName: string | null;
+  actorId: string | null;
   externalUserId: string;
   userStatus: string;
   dataLimitBytes: string;
@@ -49,7 +53,7 @@ const eventNames: Record<string, string> = {
   user_enabled: 'فعال‌سازی کاربر',
   user_disabled: 'غیرفعال‌سازی کاربر',
   data_usage_reset: 'بازنشانی مصرف',
-  subscription_revoked: 'لغو اشتراک',
+  subscription_revoked: 'ابطال لینک اشتراک',
   data_reset_by_next: 'بازنشانی با طرح بعدی',
 };
 const statusNames: Record<string, string> = {
@@ -118,6 +122,12 @@ function DataTable({
 }
 export function Dashboard() {
   const [windowRange, setWindowRange] = useState('24h');
+  const [actions, setActions] = useState<string[]>([
+    'user_created',
+    'user_updated',
+    'data_usage_reset',
+  ]);
+  const actionFilter = actions.join(',');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [events, setEvents] = useState<Page<EventRow>>({
     rows: [],
@@ -137,7 +147,7 @@ export function Dashboard() {
     if (browsingHistory) return;
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 10000);
-    const query = windowRange;
+    const query = windowRange + actionFilter;
     if (displayedQuery.current !== query) {
       displayedQuery.current = null;
       setBusy(true);
@@ -149,6 +159,7 @@ export function Dashboard() {
     const params = new URLSearchParams({
       window: windowRange,
       source: 'primary',
+      actions: actionFilter,
     });
     void (async () => {
       try {
@@ -188,7 +199,7 @@ export function Dashboard() {
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [windowRange, refresh, browsingHistory]);
+  }, [windowRange, refresh, browsingHistory, actionFilter]);
   useEffect(() => {
     if (browsingHistory || busy || pageBusy) return;
     const timer = window.setInterval(() => {
@@ -207,6 +218,7 @@ export function Dashboard() {
       end: summary.end,
       cursor,
       source: 'primary',
+      actions: actionFilter,
     });
     try {
       if (kind === 'events')
@@ -289,6 +301,37 @@ export function Dashboard() {
               <option value="30d">۳۰ روز گذشته</option>
             </select>
           </label>
+          <fieldset className="event-action-filter" disabled={pageBusy}>
+            <legend>نوع رویداد</legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={actions.length === Object.keys(eventNames).length}
+                onChange={(e) => {
+                  setBrowsingHistory(false);
+                  setActions(e.target.checked ? Object.keys(eventNames) : []);
+                }}
+              />
+              همهٔ رویدادها
+            </label>
+            {Object.entries(eventNames).map(([key, label]) => (
+              <label key={key}>
+                <input
+                  type="checkbox"
+                  checked={actions.includes(key)}
+                  onChange={(e) => {
+                    setBrowsingHistory(false);
+                    setActions(
+                      e.target.checked
+                        ? [...actions, key]
+                        : actions.filter((v) => v !== key),
+                    );
+                  }}
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
         </div>
         {error && (
           <div className="error-banner" role="alert">
@@ -386,7 +429,8 @@ export function Dashboard() {
                           <td>
                             <strong>{translation(e.action, eventNames)}</strong>
                             <small>
-                              کاربر {formatInteger(e.externalUserId)} ·{' '}
+                              <bdi>{e.accountName}</bdi> · شناسهٔ{' '}
+                              {formatInteger(e.externalUserId)} ·{' '}
                               {translation(e.userStatus, statusNames)}
                             </small>
                           </td>
@@ -399,14 +443,21 @@ export function Dashboard() {
                           <td>
                             {formatGiB(e.dataLimitBytes)}
                             <small>
-                              مدیر حساب: {formatInteger(e.billingAdminId)}
+                              مدیر مالک حساب: <bdi>{e.ownerName}</bdi> (
+                              {formatInteger(e.billingAdminId)})
                             </small>
                           </td>
                           <td>
                             {translation(e.eventStatus, statusNames)}
                             <small>
                               انجام‌دهنده:{' '}
-                              {translation(e.actorStatus, statusNames)}
+                              {e.actorName ? (
+                                <bdi>{e.actorName}</bdi>
+                              ) : e.actorId ? (
+                                formatInteger(e.actorId)
+                              ) : (
+                                translation(e.actorStatus, statusNames)
+                              )}
                             </small>
                           </td>
                           <td>{formatInteger(e.occurrenceCount)}</td>

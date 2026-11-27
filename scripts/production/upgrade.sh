@@ -26,7 +26,7 @@ new_sha=$(cat "$candidate/REVISION")
 
 # A generic no-data-loss update cannot safely roll back an unknown SQL migration.
 # Require a separate reviewed migration procedure if schema/grants/PostgreSQL change.
-python3 "$candidate/scripts/production/bundle-check.py" "$candidate" "$previous" "$old_sha" || die 'SCHEMA_OR_POSTGRES_CHANGED or active bundle cannot be verified.'
+legacy_close=$(python3 "$candidate/scripts/production/bundle-check.py" "$candidate" "$previous" "$old_sha") || die 'SCHEMA_OR_POSTGRES_CHANGED or active bundle cannot be verified.'
 shadow=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' fair-production-owner-api-1 | sed -n 's/^FAIR_SHADOW_ENABLED=//p')
 case "$shadow" in
   true)
@@ -78,6 +78,16 @@ if [[ -f "$settings/directory.env" ]]; then
 else
   old_compose+=(-f "$previous/docker/production/compose.yml")
   new_compose+=(-f "$candidate/docker/production/compose.yml")
+fi
+schedule="$settings/shadow-schedule.env"
+if [[ -e "$schedule" || -L "$schedule" ]]; then
+  [[ -f "$schedule" && ! -L "$schedule" && $(stat -c '%u:%a' "$schedule") == 0:600 ]] || die 'Unsafe SHADOW schedule file.'
+  [[ $(wc -l < "$schedule") == 1 ]] && grep -Exq 'FAIR_SHADOW_CLOSE_TIME=([01][0-9]|2[0-3]):[0-5][0-9]' "$schedule" || die 'Invalid SHADOW schedule.'
+  [[ -z "$legacy_close" || $(cat "$schedule") == "FAIR_SHADOW_CLOSE_TIME=$legacy_close" ]] || die 'SHADOW schedule conflicts with installed Compose.'
+elif [[ -n "$legacy_close" ]]; then
+  schedule_tmp=$(mktemp "$settings/.shadow-schedule.XXXXXXXX")
+  printf 'FAIR_SHADOW_CLOSE_TIME=%s\n' "$legacy_close" > "$schedule_tmp"
+  mv -T -- "$schedule_tmp" "$schedule"
 fi
 "${new_compose[@]}" config --quiet || die 'Candidate Compose invalid.'
 

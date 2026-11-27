@@ -105,8 +105,6 @@ jobs:
   containers:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      config-hash: ${{ steps.config.outputs.hash }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -263,8 +261,6 @@ jobs:
           API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid OWNER_HOST=panel2.example.com SECRETS_DIR=/tmp/fair-secrets PASARGUARD_BASE_URL=https://pasarguard.example.com docker compose -f docker/production/compose.yml -f docker/production/compose.shadow.yml config --quiet
           docker run --rm --network none -e ACME_EMAIL=operator@example.invalid -v "$PWD/docker/staging/Caddyfile:/etc/caddy/Caddyfile:ro" ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           docker run --rm --network none -e ACME_EMAIL=operator@example.invalid -e OWNER_HOST=panel2.example.com -v "$PWD/docker/production/Caddyfile:/etc/caddy/Caddyfile:ro" ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - id: config
-        run: echo "hash=$(python3 scripts/staging/config-hash.py)" >> "$GITHUB_OUTPUT"
       - name: Save scanned images
         if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main')
         run: docker save ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} -o images.tar
@@ -345,38 +341,3 @@ jobs:
         run: |
           tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)
           if [[ "$tip" == "$GITHUB_SHA" ]]; then bash scripts/release/publish-channel.sh; fi
-
-  deploy:
-    needs: [publish, containers]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/development' && github.ref_protected
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    # Already configured by the human Owner, restricted to development.
-    environment: staging-bootstrap
-    concurrency:
-      group: fair-staging-deployment
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Install restricted ephemeral deploy key and deploy to staging
-        env:
-          STAGING_BOOTSTRAP_HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
-          STAGING_BOOTSTRAP_ROOT_PASSWORD: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
-          STAGING_BOOTSTRAP_HOSTKEY_SHA256: ${{ secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256 }}
-          API: ${{ needs.publish.outputs.api }}
-          WEB: ${{ needs.publish.outputs.web }}
-          CADDY: ${{ needs.publish.outputs.caddy }}
-          CONFIG_HASH: ${{ needs.containers.outputs.config-hash }}
-          GH_PACKAGES_READ_TOKEN: ${{ github.token }}
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq sshpass
-          bash scripts/staging/ci-post-merge-local.sh
-      - name: Sanitized failure alert
-        if: failure()
-        run: echo 'STAGING_DEPLOY_FAILED — Owner intervention may be required. See restricted host diagnostics.' >> "$GITHUB_STEP_SUMMARY"

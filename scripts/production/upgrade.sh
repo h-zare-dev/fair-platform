@@ -20,27 +20,13 @@ python3 "$candidate/scripts/production/preflight.py" "$release" >/dev/null
 exec 8>"$settings/setup.lock"
 flock -n 8 || die 'Another production operation is running.'
 old_sha=$(sed -n 's/^RELEASE_SHA=//p' "$release")
-new_sha=$(git -C "$candidate" rev-parse HEAD)
+new_sha=$(cat "$candidate/REVISION")
 [[ "$old_sha" =~ ^[0-9a-f]{40}$ && "$new_sha" =~ ^[0-9a-f]{40}$ ]] || die 'Invalid release commit.'
 [[ "$old_sha" != "$new_sha" ]] || { printf 'PRODUCTION_ALREADY_UP_TO_DATE %s\n' "$old_sha"; exit 0; }
 
 # A generic no-data-loss update cannot safely roll back an unknown SQL migration.
 # Require a separate reviewed migration procedure if schema/grants/PostgreSQL change.
-git -C "$candidate" fetch --depth=1 origin "$old_sha" >/dev/null
-git -C "$candidate" cat-file -e "$old_sha^{commit}" || die 'Old release commit cannot be verified.'
-if ! git -C "$candidate" diff --quiet "$old_sha" "$new_sha" -- \
-  apps/api/src/owner/migrations apps/api/src/owner/infrastructure/database.ts \
-  docker/production/runtime-grants.sql docker/Dockerfile.postgres; then
-  die 'SCHEMA_OR_POSTGRES_CHANGED: a reviewed migration/backup plan is required. Nothing modified.'
-fi
-
-# Fail closed if a previous operator made unreviewed changes to the active config.
-git -C "$candidate" show "$old_sha:docker/production/compose.yml" | cmp -s - "$previous/docker/production/compose.yml" || \
-  die 'Active Compose does not match the installed release.'
-git -C "$candidate" show "$old_sha:docker/production/Caddyfile" | cmp -s - "$previous/docker/production/Caddyfile" || \
-  die 'Active Caddyfile does not match the installed release.'
-git -C "$candidate" show "$old_sha:scripts/production/backup.sh" | cmp -s - "$previous/scripts/production/backup.sh" || \
-  die 'Active backup script does not match the installed release.'
+python3 "$candidate/scripts/production/bundle-check.py" "$candidate" "$previous" "$old_sha" || die 'SCHEMA_OR_POSTGRES_CHANGED or active bundle cannot be verified.'
 shadow=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' fair-production-owner-api-1 | sed -n 's/^FAIR_SHADOW_ENABLED=//p')
 case "$shadow" in
   true)

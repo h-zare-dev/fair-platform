@@ -41,8 +41,12 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 On a dedicated Ubuntu server, download the single interactive installer:
 
 ```bash
-curl -fsSLo /root/fair-platform-install.sh https://raw.githubusercontent.com/h-zare-dev/fair-platform/development/scripts/production/bootstrap.sh && bash /root/fair-platform-install.sh
+curl -fsSLo /root/fair-platform-install.sh https://github.com/h-zare-dev/fair-platform/releases/latest/download/bootstrap.sh && bash /root/fair-platform-install.sh
 ```
+
+Choose `latest` for the current stable release (default), `dev` for the last published development build, or an explicit version such as `v1.0.0`. Updates remember the last successful selection. For an existing installation, download the launcher above once and choose update. PostgreSQL data, credentials and site configuration remain in their existing locations. GitHub Actions builds the images. The server pulls four runtime images and extracts only production Compose files and operator scripts from the deployment image. The deployment image never runs. The first upgrade checks the existing deployment files against their original release hashes included in the bundle.
+
+A human Owner merges development into protected main after CI succeeds. Set VERSION before promotion. CI publishes the reviewed SHA images, version aliases and latest, then creates the GitHub release. Development publishes dev aliases independently. Neither channel automatically updates a running production server.
 
 The menu handles first-time installation, reviewed app-only updates, changing
 the panel hostname/IP, and the read-only admin directory. Explicit commands

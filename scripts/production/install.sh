@@ -44,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / 'scripts/production'))
 from preflight import validate
 v = validate(Path(sys.argv[1]))
-tip = subprocess.check_output(['git', '-C', sys.argv[2], 'rev-parse', 'HEAD'], text=True).strip()
+tip = (Path(sys.argv[2]) / 'REVISION').read_text().strip()
 assert tip == v['RELEASE_SHA'], 'PRODUCTION_CHECKOUT_SHA_MISMATCH'
 print(v['RELEASE_SHA'])
 for key in ('API_IMAGE', 'WEB_IMAGE', 'CADDY_IMAGE', 'POSTGRES_IMAGE'):

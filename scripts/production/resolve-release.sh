@@ -7,7 +7,7 @@ sha=$1
 acme_email=$2
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo PRODUCTION_SHA_INVALID >&2; exit 1; }
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-[[ $(git -C "$repo" rev-parse HEAD) == "$sha" ]] || { echo PRODUCTION_CHECKOUT_SHA_MISMATCH >&2; exit 1; }
+[[ $(cat "$repo/REVISION") == "$sha" ]] || { echo PRODUCTION_CHECKOUT_SHA_MISMATCH >&2; exit 1; }
 settings=/etc/fair-production
 install -d -m 0700 -o root -g root "$settings"
 [[ ! -e "$settings/release.env" ]] || { echo PRODUCTION_RELEASE_ENV_ALREADY_EXISTS >&2; exit 1; }

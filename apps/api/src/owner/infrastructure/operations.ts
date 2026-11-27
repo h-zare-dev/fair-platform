@@ -138,7 +138,7 @@ export class PostgresOwnerOperations implements OperationsReader {
     if (f.cursor)
       q.andWhere(
         '(b.received_at,e.id)<(CAST(:time AS timestamptz),CAST(:id AS bigint))',
-        f.cursor,
+        { time: f.cursor.time, id: f.cursor.id },
       );
     const rows = await q
       .select('e.id::text', 'id')
@@ -198,7 +198,7 @@ export class PostgresOwnerOperations implements OperationsReader {
     if (f.cursor)
       q.andWhere(
         '(b.received_at,i.id)<(CAST(:time AS timestamptz),CAST(:id AS bigint))',
-        f.cursor,
+        { time: f.cursor.time, id: f.cursor.id },
       );
     const rows = await q
       .select('i.id::text', 'id')

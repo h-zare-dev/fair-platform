@@ -227,16 +227,6 @@ class UpgradeTests(unittest.TestCase):
                                  report(names, hashes), report(names + [upgrade.GROUP_MIGRATION],
                                     {**new_hashes, upgrade.NEW_MIGRATION_FILE: 'f' * 64}), 'group-delete')
 
-    def test_group_delete_workflow_is_owner_only_and_serialized(self):
-        workflow = (REPO / '.github/workflows/staging-fp004-group-delete-approval.yml').read_text()
-        self.assertIn('workflow_dispatch:', workflow)
-        self.assertIn("github.actor == 'h-zare-dev'", workflow)
-        self.assertIn('github.ref_protected', workflow)
-        self.assertIn('group: fair-staging-deployment', workflow)
-        self.assertIn('environment: staging-bootstrap', workflow)
-        self.assertIn('APPROVE_FP004_GROUP_DELETE', workflow)
-        self.assertIn('group-delete', workflow)
-
     def test_opening_baseline_approves_only_one_additive_migration(self):
         (self.root / 'compose.yml').write_bytes(self.proposed)
         self.accepted['configHash'] = release.config_hash(self.root)
@@ -260,15 +250,6 @@ class UpgradeTests(unittest.TestCase):
             upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
                                  report(names, hashes), report(names + [upgrade.OPENING_MIGRATION],
                                      {**updated, 'unexpected.js': 'a' * 64}), 'opening-baseline')
-
-    def test_opening_baseline_workflow_requires_owner_protected_branch(self):
-        workflow = (REPO / '.github/workflows/staging-fp006-opening-baseline-approval.yml').read_text()
-        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
-                         'github.ref_protected', 'group: fair-staging-deployment',
-                         'environment: staging-bootstrap', 'APPROVE_FP006_OPENING_BASELINE',
-                         'opening-baseline'):
-            self.assertIn(required, workflow)
-        self.assertNotIn('pull_request:', workflow)
 
     def test_shadow_journal_approves_only_two_new_migrations_and_false_default_env(self):
         # Simulate accepted development after existing OpeningBaseline approval.
@@ -302,15 +283,6 @@ class UpgradeTests(unittest.TestCase):
             upgrade.check_proofs({'configuredMigrations': sorted(names), 'hashes': hashes},
                                  report(names, hashes), report(new_names + ['Unreviewed'], new_hashes),
                                  'accounting-shadow')
-
-    def test_shadow_journal_workflow_is_manual_owner_only(self):
-        workflow = (REPO / '.github/workflows/staging-accounting-shadow-approval.yml').read_text()
-        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
-                         'github.ref_protected', 'group: fair-staging-deployment',
-                         'environment: staging-bootstrap', 'APPROVE_ACCOUNTING_SHADOW_STAGE',
-                         'accounting-shadow'):
-            self.assertIn(required, workflow)
-        self.assertNotIn('pull_request:', workflow)
 
     def test_shadow_audit_approves_only_one_migration_and_saturday_week_env(self):
         old_compose = self.proposed.replace(
@@ -350,15 +322,6 @@ class UpgradeTests(unittest.TestCase):
                                  report(names + [upgrade.REPLAY_AUDIT_MIGRATION, 'Unreviewed'],
                                         new_hashes), 'shadow-audit')
 
-    def test_shadow_audit_workflow_is_manual_owner_only(self):
-        workflow = (REPO / '.github/workflows/staging-shadow-audit-approval.yml').read_text()
-        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
-                         'github.ref_protected', 'group: fair-staging-deployment',
-                         'environment: staging-bootstrap', 'APPROVE_SHADOW_AUDIT_STAGE',
-                         'shadow-audit'):
-            self.assertIn(required, workflow)
-        self.assertNotIn('pull_request:', workflow)
-
     def test_report_calendar_approval_accepts_only_one_exact_env_mapping_and_no_migration(self):
         proposed = (REPO / 'docker/staging/compose.yml').read_bytes()
         previous = proposed.replace(upgrade.REPORT_CALENDAR_ADDITION, b'')
@@ -383,15 +346,6 @@ class UpgradeTests(unittest.TestCase):
                                  report(OLD, OLD_HASHES),
                                  report(OLD + ['UnapprovedMigration'], OLD_HASHES),
                                  'report-calendar')
-
-    def test_report_calendar_workflow_is_manual_owner_only(self):
-        workflow = (REPO / '.github/workflows/staging-report-calendar-approval.yml').read_text()
-        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
-                         'github.ref_protected', 'group: fair-staging-deployment',
-                         'environment: staging-bootstrap', 'APPROVE_REPORT_CALENDAR_STAGE',
-                         'report-calendar'):
-            self.assertIn(required, workflow)
-        self.assertNotIn('pull_request:', workflow)
 
     def test_private_identity_approves_one_additive_migration_without_compose_change(self):
         (self.root / 'compose.yml').write_bytes(self.proposed)
@@ -444,32 +398,5 @@ class UpgradeTests(unittest.TestCase):
             upgrade.check_proofs(approved, old, report(names, {**hashes, 'old-a.js': 'd' * 64}), mode)
         with self.assertRaises(upgrade.UpgradeError):
             upgrade.check_compose(b'current', b'changed', mode)
-        workflow = (REPO / '.github/workflows/staging-replay-source-identity-approval.yml').read_text()
-        for gate in ('workflow_dispatch:', "github.actor == 'h-zare-dev'", 'github.ref_protected',
-                     "github.ref == 'refs/heads/development'", '$GITHUB_SHA replay-source-identity'):
-            self.assertIn(gate, workflow)
-
-    def test_private_identity_workflow_is_manual_owner_only(self):
-        workflow = (REPO / '.github/workflows/staging-private-identity-approval.yml').read_text()
-        for required in ('workflow_dispatch:', "github.actor == 'h-zare-dev'",
-                         'github.ref_protected', 'group: fair-staging-deployment',
-                         'environment: staging-bootstrap', 'APPROVE_PRIVATE_IDENTITY_STAGE',
-                         'private-identity'):
-            self.assertIn(required, workflow)
-        self.assertNotIn('pull_request:', workflow)
-
-    def test_workflow_is_manual_owner_only_protected_and_serialized(self):
-        workflow = (REPO / '.github/workflows/staging-fp004-operator-upgrade.yml').read_text()
-        self.assertIn('workflow_dispatch:', workflow)
-        self.assertNotIn('pull_request:', workflow)
-        self.assertIn("github.actor == 'h-zare-dev'", workflow)
-        self.assertIn('github.ref_protected', workflow)
-        self.assertIn('group: fair-staging-deployment', workflow)
-        self.assertIn('environment: staging-bootstrap', workflow)
-        self.assertIn('APPROVE_FP004_STAGING_UPGRADE', workflow)
-        self.assertIn('docker/staging/compose.yml', workflow)
-        self.assertNotIn('STAGING_BOOTSTRAP_ROOT_PASSWORD: ${{ github.token }}', workflow)
-
-
 if __name__ == '__main__':
     unittest.main()

@@ -42,7 +42,9 @@ class FastDeliveryTests(unittest.TestCase):
         self.assertIn('      - name: Validate Compose and Caddy', self.containers)
         self.assertIn('needs: [quality, security, containers, owner-merge]', self.workflow)
         self.assertIn("needs.owner-merge.outputs.authorized == 'true'", self.workflow)
-        self.assertIn('bash scripts/staging/ci-post-merge-local.sh', self.workflow)
+        self.assertIn('\n  publish:\n', self.workflow)
+        self.assertNotIn('\n  deploy:\n', self.workflow)
+        self.assertNotIn('secrets.STAGING_BOOTSTRAP_', self.workflow)
 
     def test_build_cache_scopes_isolate_all_four_images(self):
         for scope in ('fp-api', 'fp-web', 'fp-caddy', 'fp-postgres'):

@@ -25,7 +25,7 @@ it('CI publishes scanned images but never deploys to the retired staging host', 
   expect(ci).toContain('needs: [quality, security, containers, owner-merge]');
   expect(ci).toContain('needs: [image-release, owner-merge]');
   expect(ci).toContain('docker push "$image"');
-  const preMerge = ci.split('\n  containers:')[1]!.split('\n  owner-merge:')[0]!;
+  const preMerge = ci.split('\n  owner-merge:')[0]!;
   expect(preMerge).not.toContain('docker/build-push-action@');
   expect(preMerge).not.toContain('image-ref:');
   expect(ci).toContain("needs.owner-merge.outputs.authorized == 'true'");

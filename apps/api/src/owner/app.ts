@@ -159,6 +159,7 @@ const shadowQuery = z
     admin: decimal.optional(),
     reason: z
       .enum([
+        'DURATION_CONFLICT',
         'MISSING_DURATION',
         'PRICING_MISSING',
         'UNEXPECTED_UNLIMITED',
@@ -603,11 +604,19 @@ export async function createOwnerApi(
             id: z.string().uuid(),
             eventIds: z.array(positive).min(1).max(100),
             packageId: positive.nullable(),
+            rateAssignmentId: positive.optional(),
           })
           .strict(),
         req.body,
       );
-      if (!(await shadow.review(q.id, q.eventIds, q.packageId)))
+      if (
+        !(await shadow.review(
+          q.id,
+          q.eventIds,
+          q.packageId,
+          q.rateAssignmentId,
+        ))
+      )
         throw new HttpException('SHADOW_REVIEW_CONFLICT', 409);
       return { saved: true };
     }

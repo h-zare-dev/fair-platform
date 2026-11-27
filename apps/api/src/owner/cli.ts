@@ -25,6 +25,7 @@ async function main() {
       'revoke-sessions',
       'cleanup',
       'migrate',
+      'migrate-gib-review',
       'seed',
       'import-private-replay-identities',
       'import-replay-archive',
@@ -42,7 +43,21 @@ async function main() {
       await passwords.hash(randomUUID()),
     );
     if (command === 'migrate') await db.runMigrations({ transaction: 'all' });
-    else if (command === 'import-replay-archive') {
+    else if (command === 'migrate-gib-review') {
+      const applied: { name: string }[] = await db.query(
+        'SELECT name FROM migrations',
+      );
+      const configured = db.migrations.map((m) => m.name ?? m.constructor.name);
+      const pending = configured.filter(
+        (n) => !applied.some((r) => r.name === n),
+      );
+      if (
+        applied.some((r) => !configured.includes(r.name)) ||
+        pending.some((n) => n !== 'GibReview1792700000000')
+      )
+        throw new Error('UNEXPECTED_SCHEMA');
+      if (pending.length) await db.runMigrations({ transaction: 'all' });
+    } else if (command === 'import-replay-archive') {
       if (process.env.FAIR_SHADOW_ENABLED !== 'true')
         throw new Error('SHADOW_ONLY_IMPORT_REQUIRED');
       const reviewKeys = await readReplayReviewKeys(extra[0]!);

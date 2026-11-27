@@ -16,6 +16,8 @@ interface Summary {
 interface Case {
   eventId: string;
   accountId: string;
+  rateAssignmentId: string | null;
+  rateTomanPerGib: string | null;
   accountName: string | null;
   ownerName: string | null;
   actorName: string | null;
@@ -134,7 +136,24 @@ export function AccountingAmbiguities({
       active = false;
     };
   }, [applied, offset, revision, period, reportOffset, reports]);
-  async function decide(chosen: string | null) {
+  const selection = page.rows.filter((r) => selected.includes(r.eventId));
+  const first = selection[0];
+  const rate =
+    first?.rateAssignmentId &&
+    first.rateTomanPerGib &&
+    BigInt(first.dataLimitBytes) > 0n &&
+    selection.every(
+      (r) =>
+        r.accountId === first.accountId &&
+        r.billingAdminId === first.billingAdminId &&
+        r.localDay === first.localDay &&
+        r.sourceInstanceId === first.sourceInstanceId &&
+        r.dataLimitBytes === first.dataLimitBytes &&
+        r.rateAssignmentId === first.rateAssignmentId,
+    )
+      ? first
+      : null;
+  async function decide(chosen: string | null, rateAssignmentId?: string) {
     setSaving(true);
     setError('');
     try {
@@ -147,6 +166,7 @@ export function AccountingAmbiguities({
             id: crypto.randomUUID(),
             eventIds: selected,
             packageId: chosen,
+            rateAssignmentId,
           }),
         },
       );
@@ -323,26 +343,49 @@ export function AccountingAmbiguities({
             <section className="table-card">
               <div className="section-heading">
                 <h2>موارد نیازمند بررسی</h2>
-                <label>
-                  بسته{' '}
-                  <select
-                    value={packageId}
-                    onChange={(e) => setPackageId(e.target.value)}
+                {rate && (
+                  <button
+                    disabled={saving || busy}
+                    onClick={() => void decide(null, rate.rateAssignmentId!)}
                   >
-                    <option value="">انتخاب بسته</option>
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  disabled={busy || saving || !selected.length || !packageId}
-                  onClick={() => void decide(packageId)}
-                >
-                  ثبت یک بسته
-                </button>
+                    تأیید یک تمدید · {formatGiB(rate.dataLimitBytes)} ×{' '}
+                    {formatInteger(rate.rateTomanPerGib!)} تومان ={' '}
+                    {formatInteger(
+                      (BigInt(rate.dataLimitBytes) *
+                        BigInt(rate.rateTomanPerGib!) +
+                        1073741823n) /
+                        1073741824n,
+                    )}{' '}
+                    تومان
+                  </button>
+                )}
+                {packages.length > 0 && (
+                  <>
+                    {' '}
+                    <label>
+                      بسته{' '}
+                      <select
+                        value={packageId}
+                        onChange={(e) => setPackageId(e.target.value)}
+                      >
+                        <option value="">انتخاب بسته</option>
+                        {packages.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      disabled={
+                        busy || saving || !selected.length || !packageId
+                      }
+                      onClick={() => void decide(packageId)}
+                    >
+                      ثبت یک بسته
+                    </button>
+                  </>
+                )}
                 <button
                   disabled={busy || saving || !selected.length}
                   onClick={() => void decide(null)}

@@ -1,0 +1,78 @@
+name: Staging release diagnostics (Owner only)
+
+on:
+  # One automatic, read-only report after the Owner merges this diagnostic tool.
+  # Ordinary app merges do not run it; manual Owner-only diagnosis remains available.
+  push:
+    branches: [development]
+    paths:
+      - .github/workflows/staging-diagnostics.yml
+      - scripts/staging/diagnose-release.py
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DIAGNOSE_STAGING to run a restricted read-only host inspection'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fair-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: >-
+      github.ref == 'refs/heads/development' &&
+      github.ref_protected &&
+      github.actor == 'h-zare-dev' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' &&
+        inputs.confirmation == 'DIAGNOSE_STAGING'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging-bootstrap
+    steps:
+      - name: Checkout reviewed protected branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Inspect staging with pinned host identity and redacted output
+        env:
+          HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+          HOSTKEY_SHA256: ${{ secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256 }}
+          SSHPASS: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import ipaddress,os,re
+          address=ipaddress.ip_address(os.environ['HOST'])
+          assert address.version==4 and address.is_global
+          assert os.environ['SSHPASS']
+          assert re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}',os.environ['HOSTKEY_SHA256'])
+          PY
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          ssh_dir=$(mktemp -d)
+          chmod 700 "$ssh_dir"
+          ssh-keyscan -T 12 -p 22 -t ed25519 "$HOST" > "$ssh_dir/known_hosts" 2>/dev/null
+          fingerprint=$(ssh-keygen -lf "$ssh_dir/known_hosts" -E sha256 | awk '{print $2}')
+          [[ "$fingerprint" == "$HOSTKEY_SHA256" ]] || {
+            echo 'PINNED_SSH_HOST_KEY_MISMATCH'
+            exit 1
+          }
+
+          ssh_opts=(-T -p 22 -o StrictHostKeyChecking=yes -o BatchMode=no
+                    -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password
+                    -o PubkeyAuthentication=no -o "UserKnownHostsFile=$ssh_dir/known_hosts"
+                    -o ConnectTimeout=15 -o LogLevel=ERROR)
+          # No caller-controlled command, no secret output, no server file upload.
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" 'python3 -' \
+            < scripts/staging/diagnose-release.py
+
+          echo 'STAGING_READ_ONLY_DIAGNOSTICS_COMPLETED'

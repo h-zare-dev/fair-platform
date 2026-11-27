@@ -110,6 +110,49 @@ describe('approved Pasarguard contract', () => {
     user.data_limit = Number.MAX_SAFE_INTEGER + 1;
     expect(normalize(input, 'primary').event).toBeNull();
   });
+  it('retains exact verified create/expiry/on-hold projections without changing identity', () => {
+    const example = fixture();
+    const user = example.user as Record<string, unknown>;
+    user.created_at = '2026-11-20T14:20:30.123456Z';
+    user.expire = null;
+    user.edit_at = '2026-11-20T15:20:30+03:30';
+    user.on_hold_expire_duration = 2_592_000;
+    user.data_limit = 536_870_912;
+    const projected = normalize(example, 'primary').event!;
+    expect(projected.source_user_created_at).toBe(user.created_at);
+    expect(projected.source_user_expire_at).toBeNull();
+    expect(projected.source_user_edit_at).toBe(user.edit_at);
+    expect(projected.on_hold_expire_duration_seconds).toBe('2592000');
+    expect(projected.data_limit_bytes).toBe('536870912');
+    expect(projected.semantic_fingerprint).toBe(
+      normalize(
+        {
+          ...example,
+          user: {
+            ...user,
+            created_at: null,
+            edit_at: null,
+            on_hold_expire_duration: null,
+          },
+        },
+        'primary',
+      ).event!.semantic_fingerprint,
+    );
+  });
+  it.each([
+    'today',
+    '2026-13-45T22:99:99Z',
+    '2026-02-30T09:00:00Z',
+    '2026-11-20',
+    12,
+  ])(
+    'rejects malformed optional source dates instead of guessing %#',
+    (created_at) => {
+      const example = fixture();
+      (example.user as Record<string, unknown>).created_at = created_at;
+      expect(normalize(example, 'primary').event).toBeNull();
+    },
+  );
   it('flags non-null Next Plan without assuming its shape', () => {
     const input = fixture();
     (input.user as Record<string, unknown>).next_plan = {
@@ -306,4 +349,87 @@ it('FP001-R2: timestamp storage precision does not change numeric fingerprint id
   );
   expect(results.every(Boolean)).toBe(true);
   expect(new Set(results).size).toBe(results.length);
+});
+
+describe('FP-001B independent nullable Actor contract', () => {
+  it.each([
+    [{ id: 502, username: 'synthetic-actor' }, '502', 'synthetic-actor'],
+    [{ id: null, username: 'synthetic-actor' }, null, 'synthetic-actor'],
+    [null, null, null],
+    [undefined, null, null],
+  ])(
+    'accepts Actor shape %# without substituting Billing Admin',
+    (by, id, username) => {
+      const input: Record<string, unknown> = { ...fixture(), by };
+      if (by === undefined) delete input.by;
+      const result = normalize(input, 'primary');
+      expect(result.issues).toEqual([]);
+      expect(result.event).toMatchObject({
+        actor_admin_id: id,
+        actor_admin_username: username,
+        billing_admin_id: '501',
+        event_status: 'READY_FOR_ACCOUNTING',
+      });
+    },
+  );
+  it.each([
+    {},
+    { username: 'synthetic' },
+    { id: null },
+    { id: 502 },
+    { id: null, username: '' },
+    { id: null, username: null },
+    { id: null, username: 'x'.repeat(256) },
+    { id: null, username: 'synthetic\u0000actor' },
+    { id: '502', username: 'synthetic' },
+    { id: 'null', username: 'synthetic' },
+    { id: -1, username: 'synthetic' },
+    { id: 0.5, username: 'synthetic' },
+    { id: Number.MAX_SAFE_INTEGER + 1, username: 'synthetic' },
+    [],
+    'synthetic',
+  ])('rejects malformed Actor %#', (by) => {
+    expect(normalize({ ...fixture(), by }, 'primary').event).toBeNull();
+  });
+  it.each([
+    undefined,
+    null,
+    {},
+    { id: null, username: 'billing' },
+    { id: '501', username: 'billing' },
+    { id: 501 },
+  ])('keeps Billing Admin required and strict %#', (admin) => {
+    const input = fixture();
+    (input.user as Record<string, unknown>).admin = admin;
+    expect(
+      normalize({ ...input, by: { id: null, username: 'actor' } }, 'primary')
+        .event,
+    ).toBeNull();
+  });
+  it.each(['data_usage_reset', 'user_deleted'])(
+    'accepts %s with null Actor ID',
+    (action) => {
+      const input = fixture();
+      (input.user as Record<string, unknown>).data_limit_reset_strategy =
+        'month';
+      const result = normalize(
+        { ...input, action, by: { id: null, username: 'actor' } },
+        'primary',
+      );
+      expect(result.issues).toEqual([]);
+      expect(result.event).toMatchObject({
+        actor_admin_id: null,
+        actor_admin_username: 'actor',
+        reset_strategy: 'month',
+        event_status: 'READY_FOR_ACCOUNTING',
+      });
+      (input.user as Record<string, unknown>).next_plan = { unverified: true };
+      expect(
+        normalize(
+          { ...input, action, by: { id: null, username: 'actor' } },
+          'primary',
+        ).event?.event_status,
+      ).toBe('NEEDS_REVIEW');
+    },
+  );
 });

@@ -12,7 +12,7 @@ import {
   DenyWebhookAuthenticator,
   DevelopmentWebhookAuthenticator,
 } from '../../apps/api/dist/modules/webhooks/application/authenticator.js';
-import { fixture } from '../helpers/fixtures.js';
+import { actorContractBatch, fixture } from '../helpers/fixtures.js';
 import {
   configFor,
   migratedDatabase,
@@ -147,4 +147,84 @@ it('malformed JSON cannot reflect a sensitive input fragment in an error respons
   expect(response.statusCode).toBe(400);
   expect(response.body).not.toContain('synthetic-sensitive-marker');
   expect(response.body).not.toContain('subscription_url');
+});
+
+it('FP-001B monthly reset and delete retain nullable Actor attribution through HTTP and worker', async () => {
+  const reset: Record<string, unknown> = {
+    ...fixture(),
+    action: 'data_usage_reset',
+    by: { id: null, username: 'synthetic-actor' },
+  };
+  (reset.user as Record<string, unknown>).data_limit_reset_strategy = 'month';
+  const payload = [
+    reset,
+    { ...reset, action: 'user_deleted' },
+    { ...reset, by: { id: null } },
+  ];
+  for (let delivery = 0; delivery < 2; delivery++)
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/webhooks/pasarguard',
+          payload,
+        })
+      ).statusCode,
+    ).toBe(202);
+  const worker = new BatchProcessor(
+    database,
+    new PayloadEncryption('11'.repeat(32)),
+    5,
+  );
+  await worker.processNext();
+  const rows = await database.getRepository(EventEntity).find();
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    expect(row.actor_admin_id).toBeNull();
+    expect(row.actor_admin_username).toBe('synthetic-actor');
+    expect(row.billing_admin_id).toBe('501');
+    expect(row.event_status).toBe('READY_FOR_ACCOUNTING');
+  }
+  expect(await database.getRepository(BatchEntity).count()).toBe(1);
+});
+
+it('FP-001B HTTP batch isolates invalid Actor and Billing Admin identities', async () => {
+  const { payload, accepted } = actorContractBatch();
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/pasarguard',
+        payload,
+      })
+    ).statusCode,
+  ).toBe(202);
+  await new BatchProcessor(
+    database,
+    new PayloadEncryption('11'.repeat(32)),
+    5,
+  ).processNext();
+  const rows = await database
+    .getRepository(EventEntity)
+    .find({ order: { id: 'ASC' } });
+  expect(rows.map((row) => Number(row.external_user_id))).toEqual(accepted);
+  expect(rows.map((row) => row.actor_admin_id)).toEqual([
+    '502',
+    null,
+    null,
+    null,
+  ]);
+  expect(rows.map((row) => row.actor_admin_username)).toEqual([
+    'synthetic-actor',
+    'synthetic-actor',
+    null,
+    null,
+  ]);
+  expect(
+    rows.every(
+      (row) =>
+        row.billing_admin_id === '501' &&
+        row.event_status === 'READY_FOR_ACCOUNTING',
+    ),
+  ).toBe(true);
 });

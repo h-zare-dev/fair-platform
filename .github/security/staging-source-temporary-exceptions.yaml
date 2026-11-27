@@ -1,0 +1,22 @@
+# Source-tree scanner only; never load in API/Web/PostgreSQL image scans.
+# Every exception is specific to one vulnerability AND one package version.
+# Exceptions are time-limited, not remediations; all other findings still fail.
+vulnerabilities:
+  - id: CVE-2026-116587
+    purls:
+      - pkg:golang/github.com/go-jose/go-jose/v3@v3.0.5
+    expired_at: 2026-12-15
+    statement: >-
+      Existing Owner-approved Caddy build-time transitive go-jose/v3
+      exception. See docs/security/CADDY_CVE_2026_116587_EXCEPTION.md.
+  - id: CVE-2026-112366
+    purls:
+      - pkg:npm/picomatch@4.0.7
+    expired_at: 2026-12-02
+    statement: >-
+      GitHub Advisory GHSA-fc5q-39xc-vjpf was withdrawn on 2026-11-18,
+      but NVD CVE-2026-112366 remains published and no patched release
+      has been established. Picomatch 4.0.7 enters the Vitest/Vite development
+      toolchain AND the production API image through TypeORM/tinyglobby.
+      The precise status and scanning behavior must be revisited by
+      2026-12-02; no untrusted glob-input unreachability was proven.

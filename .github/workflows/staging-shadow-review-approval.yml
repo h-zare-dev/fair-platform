@@ -1,0 +1,103 @@
+name: Staging shadow review migration approval (Owner only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type APPROVE_SHADOW_REVIEW_STAGE to authorize one additive shadow review migration, no Compose changes'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fair-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    if: >-
+      github.ref == 'refs/heads/development' &&
+      github.ref_protected &&
+      github.actor == 'h-zare-dev' &&
+      inputs.confirmation == 'APPROVE_SHADOW_REVIEW_STAGE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging-bootstrap
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout reviewed protected commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Verify only the shadow review schema proof
+        env:
+          HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+          HOSTKEY_SHA256: ${{ secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256 }}
+          SSHPASS: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
+          GH_PACKAGES_READ_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import ipaddress, os, re
+          address=ipaddress.ip_address(os.environ['HOST'])
+          assert address.version == 4 and address.is_global
+          assert os.environ['SSHPASS']
+          assert re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', os.environ['HOSTKEY_SHA256'])
+          PY
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          work=$(mktemp -d)
+          registry_logged_in=false
+          ssh_opts=(-T -p 22 -o StrictHostKeyChecking=yes -o BatchMode=no
+                    -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password
+                    -o PubkeyAuthentication=no -o "UserKnownHostsFile=$work/known_hosts"
+                    -o ConnectTimeout=15 -o LogLevel=ERROR)
+          scp_opts=(-T -P 22 -o StrictHostKeyChecking=yes -o BatchMode=no
+                    -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password
+                    -o PubkeyAuthentication=no -o "UserKnownHostsFile=$work/known_hosts"
+                    -o ConnectTimeout=15 -o LogLevel=ERROR)
+          cleanup() {
+            if [[ "$registry_logged_in" == true ]]; then
+              sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+                'bash /opt/fair-staging/tooling/registry-temporary.sh logout' >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$work"
+          }
+          trap cleanup EXIT
+          ssh-keyscan -T 12 -p 22 -t ed25519 "$HOST" > "$work/known_hosts" 2>/dev/null
+          actual=$(ssh-keygen -lf "$work/known_hosts" -E sha256 | awk '{print $2}')
+          [[ "$actual" == "$HOSTKEY_SHA256" ]] || { echo PINNED_SSH_HOST_KEY_MISMATCH; exit 1; }
+
+          sshpass -e scp -q "${scp_opts[@]}" scripts/staging/approve-fp004-upgrade.py \
+            "root@$HOST:/opt/fair-staging/tooling/approve-fp004-upgrade.py" \
+            2>"$work/ssh-error" || { echo STAGING_OPERATOR_TOOL_INSTALL_FAILED; exit 1; }
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            'chown root:root /opt/fair-staging/tooling/approve-fp004-upgrade.py && chmod 0700 /opt/fair-staging/tooling/approve-fp004-upgrade.py' \
+            2>"$work/ssh-error" || { echo STAGING_OPERATOR_TOOL_PERMISSIONS_FAILED; exit 1; }
+          printf '%s' "$GH_PACKAGES_READ_TOKEN" | sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            'bash /opt/fair-staging/tooling/registry-temporary.sh login' \
+            2>"$work/ssh-error" || { echo STAGING_GHCR_TRANSIENT_AUTH_FAILED; exit 1; }
+          unset GH_PACKAGES_READ_TOKEN
+          registry_logged_in=true
+
+          # This step pins one additive shadow review migration proof.
+          # It does not migrate, deploy, move identity files, connect a webhook,
+          # post accounting entries or change a PasarGuard balance.
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            "python3 /opt/fair-staging/tooling/approve-fp004-upgrade.py $GITHUB_SHA shadow-review" \
+            < docker/staging/compose.yml 2>"$work/ssh-error" || {
+              grep -E '^STAGING_[A-Z0-9_]+$' "$work/ssh-error" | head -n 1 || true
+              echo STAGING_SHADOW_REVIEW_APPROVAL_FAILED
+              exit 1
+            }
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            'bash /opt/fair-staging/tooling/registry-temporary.sh logout' \
+            2>"$work/ssh-error" || { echo STAGING_GHCR_AUTH_CLEANUP_FAILED; exit 1; }
+          registry_logged_in=false
+          echo 'One additive shadow review migration approved. Re-run protected development Deploy before starting the week of SHADOW observation. No SQL migration, private data transfer, webhook or LIVE financial mutation occurred in this approval.' >> "$GITHUB_STEP_SUMMARY"

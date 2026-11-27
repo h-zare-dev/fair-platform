@@ -1,0 +1,6 @@
+{
+  "approval": "DISABLED",
+  "schema": "fp003b-v1",
+  "acmeEmail": "operator@example.invalid",
+  "secretsDir": "/etc/fair-staging/secrets"
+}

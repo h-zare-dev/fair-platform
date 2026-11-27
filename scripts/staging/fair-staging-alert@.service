@@ -1,0 +1,6 @@
+[Unit]
+Description=Fair staging sanitized operator alert
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/fair-staging/tooling/alert.py

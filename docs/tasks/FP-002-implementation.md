@@ -1,5 +1,7 @@
 # FP-002 implementation and local operation
 
+> **Historical FP-002 implementation/operations guide.** Merged to `development` via PR #27. This module contains an immutable SHADOW ledger and idempotent exception storage but no automatic pricing/financial classification. See [`ROADMAP.md`](../ROADMAP.md) for FP-003B (next) and later financial milestones.
+
 FP-002 is an independent accounting foundation under `packages/accounting`. Its domain and application exports contain only pure TypeScript contracts and validation. PostgreSQL/TypeORM code is exported separately through `@fair-platform/accounting/infrastructure`. Neither the webhook API nor ingestion worker invokes accounting.
 
 ## Contracts

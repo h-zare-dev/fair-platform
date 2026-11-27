@@ -1,0 +1,9 @@
+FROM golang:1.27.4-alpine3.24@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
+WORKDIR /src
+COPY docker/caddy/go.mod docker/caddy/go.sum ./
+RUN go mod download && go mod verify
+COPY docker/caddy/main.go ./
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false -ldflags='-s -w -buildid= -X github.com/caddyserver/caddy/v2.CustomVersion=v2.11.9-fair-security.1' -o /out/caddy .
+
+FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+COPY --from=build /out/caddy /usr/bin/caddy

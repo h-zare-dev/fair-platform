@@ -1,0 +1,104 @@
+name: Staging FP-005 shadow ingestion approval (Owner only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type APPROVE_FP005_SHADOW_STAGING to approve exact Staging-only config, additive schema and PostgreSQL patch'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fair-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    if: >-
+      github.ref == 'refs/heads/development' &&
+      github.ref_protected &&
+      github.actor == 'h-zare-dev' &&
+      inputs.confirmation == 'APPROVE_FP005_SHADOW_STAGING'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging-bootstrap
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout exact reviewed protected commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Authorize exact staging shadow delta without app restart
+        env:
+          HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+          HOSTKEY_SHA256: ${{ secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256 }}
+          SSHPASS: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
+          PASARGUARD_WEBHOOK_SECRET: ${{ secrets.PASARGUARD_WEBHOOK_SECRET }}
+          GH_PACKAGES_READ_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import ipaddress, os, re
+          address=ipaddress.ip_address(os.environ['HOST'])
+          assert address.version==4 and address.is_global
+          assert os.environ['SSHPASS']
+          assert re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}',os.environ['HOSTKEY_SHA256'])
+          assert re.fullmatch(r'[A-Za-z0-9_-]{32,128}',os.environ['PASARGUARD_WEBHOOK_SECRET'])
+          PY
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          work=$(mktemp -d)
+          registry_logged_in=false
+          ssh_opts=(-T -p 22 -o StrictHostKeyChecking=yes -o BatchMode=no
+                    -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password
+                    -o PubkeyAuthentication=no -o "UserKnownHostsFile=$work/known_hosts"
+                    -o ConnectTimeout=15 -o LogLevel=ERROR)
+          scp_opts=(-T -P 22 -o StrictHostKeyChecking=yes -o BatchMode=no
+                    -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password
+                    -o PubkeyAuthentication=no -o "UserKnownHostsFile=$work/known_hosts"
+                    -o ConnectTimeout=15 -o LogLevel=ERROR)
+          cleanup() {
+            if [[ "$registry_logged_in" == true ]]; then
+              sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+                'bash /opt/fair-staging/tooling/registry-temporary.sh logout' >/dev/null 2>&1 || true
+            fi
+            sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+              'rm -f /opt/fair-staging/tooling/fp005-proposed-compose.yml /opt/fair-staging/tooling/fp005-proposed-Caddyfile' \
+              >/dev/null 2>&1 || true
+            rm -rf -- "$work"
+          }
+          trap cleanup EXIT
+          ssh-keyscan -T 12 -p 22 -t ed25519 "$HOST" > "$work/known_hosts" 2>/dev/null
+          actual=$(ssh-keygen -lf "$work/known_hosts" -E sha256 | awk '{print $2}')
+          [[ "$actual" == "$HOSTKEY_SHA256" ]] || { echo PINNED_SSH_HOST_KEY_MISMATCH; exit 1; }
+          for spec in \
+            'scripts/staging/approve-fp005-shadow.py:approve-fp005-shadow.py' \
+            'docker/staging/compose.yml:fp005-proposed-compose.yml' \
+            'docker/staging/Caddyfile:fp005-proposed-Caddyfile'; do
+            src=${spec%%:*}; dst=${spec#*:}
+            sshpass -e scp -q "${scp_opts[@]}" "$src" "root@$HOST:/opt/fair-staging/tooling/$dst" \
+              2>"$work/ssh-error" || { echo STAGING_FP005_TOOL_COPY_FAILED; exit 1; }
+          done
+          sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            'chown root:root /opt/fair-staging/tooling/approve-fp005-shadow.py /opt/fair-staging/tooling/fp005-proposed-compose.yml /opt/fair-staging/tooling/fp005-proposed-Caddyfile && chmod 0700 /opt/fair-staging/tooling/approve-fp005-shadow.py && chmod 0600 /opt/fair-staging/tooling/fp005-proposed-compose.yml /opt/fair-staging/tooling/fp005-proposed-Caddyfile' \
+            2>"$work/ssh-error" || { echo STAGING_FP005_TOOL_PERMISSIONS_FAILED; exit 1; }
+          printf '%s' "$GH_PACKAGES_READ_TOKEN" | sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            'bash /opt/fair-staging/tooling/registry-temporary.sh login' \
+            2>"$work/ssh-error" || { echo STAGING_FP005_GHCR_AUTH_FAILED; exit 1; }
+          unset GH_PACKAGES_READ_TOKEN
+          registry_logged_in=true
+          printf '%s' "$PASARGUARD_WEBHOOK_SECRET" | sshpass -e ssh "${ssh_opts[@]}" "root@$HOST" \
+            "python3 /opt/fair-staging/tooling/approve-fp005-shadow.py $GITHUB_SHA /opt/fair-staging/tooling/fp005-proposed-compose.yml /opt/fair-staging/tooling/fp005-proposed-Caddyfile" \
+            2>"$work/ssh-error" || {
+              grep -E '^STAGING_[A-Z0-9_]+$' "$work/ssh-error" | head -n 1 || true
+              echo STAGING_FP005_OPERATOR_APPROVAL_FAILED
+              exit 1
+            }
+          unset PASARGUARD_WEBHOOK_SECRET
+          echo 'Config, encrypted receiver secret, two additive migrations and package-only PostgreSQL security update approved without any DB or app modification. Re-run only the latest protected development Deploy job. Preserve legacy webhook #1; add Fair as webhook #2 with the same separately provisioned secret only after healthy deploy.' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,1 @@
+restrict,command="/opt/fair-staging/tooling/ssh-release.sh"

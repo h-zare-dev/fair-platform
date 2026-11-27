@@ -3,7 +3,7 @@
 Use this skill when implementing, reviewing, QA-testing, or fixing a Fair Platform feature.
 
 ## Objective
-Keep the entire feature lifecycle on one feature branch and one Draft PR until implementation, review, QA, CI, and human approval are complete.
+Keep the entire feature lifecycle on one feature branch and one Draft PR until implementation, review, QA, CI, and human approval are complete. Read `docs/ROADMAP.md` and the explicitly Owner-approved detailed task spec first; a draft FP-003B design/docs PR does not authorize implementation or initial staging deployment.
 
 ## Procedure
 1. Work only on the assigned feature branch created from `development`.
@@ -14,8 +14,8 @@ Keep the entire feature lifecycle on one feature branch and one Draft PR until i
 6. QA repeats until `QA_STATUS: PASS`.
 7. Production-code changes after a PASS invalidate that PASS when they affect the reviewed/tested behavior.
 8. Require CI green after the final changes.
-9. Require explicit human approval before marking Ready or merging.
-10. After merge to `development`, operational/integration testing is separate from the feature-agent cycle; promotion to `main` uses a separate PR.
+9. **Never mark Ready or Merge yourself; only the human Owner** personally performs both actions, regardless of technical PASS or general instruction.
+10. After Owner merge to `development`, verify the real post-merge CI. In a future Owner-authorized FP-003B staging environment, protected `development` merges may trigger automatic **staging-only** release; first activation and all production releases remain Owner-controlled. Promotion to `main` uses a separate Owner-only PR.
 
 ## Required status lines
 

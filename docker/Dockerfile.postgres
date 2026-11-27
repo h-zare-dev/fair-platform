@@ -1,0 +1,12 @@
+FROM golang:1.27.4-alpine3.24@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
+WORKDIR /src
+COPY docker/gosu/go.mod docker/gosu/go.sum ./
+RUN go mod download && go mod verify
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gosu github.com/tianon/gosu
+
+FROM postgres:17.11-alpine@sha256:e5d2edd28b1f8d40a0a6c0c9cdc545b19b56a0d5d88f94bc11a97d970d4700d0
+# The immutable upstream digest includes libxml2 2.13.9-r2 (CVE-2026-86144).
+# Upgrade it from the signed Alpine 3.24 repositories before vulnerability scanning.
+RUN apk add --no-cache 'krb5-libs=1.22.3-r0' 'libxslt=1.1.43-r4' && \
+    apk upgrade --no-cache libxml2
+COPY --from=build /out/gosu /usr/local/bin/gosu

@@ -1,0 +1,151 @@
+name: fair-production
+
+# This is the Owner UI/DB installation, not approval to post real charges.
+# A second, explicit Owner action is required to apply compose.shadow.yml.
+x-common: &common
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: { max-size: '10m', max-file: '3' }
+
+services:
+  caddy:
+    <<: *common
+    image: ${CADDY_IMAGE:?reviewed immutable Caddy digest required}
+    ports: ['443:443/tcp']
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME contact required}
+      OWNER_HOST: ${OWNER_HOST:?Owner DNS name or IPv4 address required in site.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      web: { condition: service_healthy }
+      owner-api: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          CMD,
+          caddy,
+          validate,
+          --config,
+          /etc/caddy/Caddyfile,
+          --adapter,
+          caddyfile,
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+
+  web:
+    <<: *common
+    image: ${WEB_IMAGE:?reviewed immutable Web digest required}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    networks: [edge]
+    depends_on:
+      owner-api: { condition: service_healthy }
+    mem_limit: 512m
+
+  owner-api:
+    <<: *common
+    image: ${API_IMAGE:?reviewed immutable API digest required}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    environment:
+      OWNER_ORIGIN: https://${OWNER_HOST:?Owner DNS name or IPv4 address required in site.env}
+      FAIR_TIME_ZONE: Asia/Tehran
+      FAIR_REPORT_CALENDAR: ${FAIR_REPORT_CALENDAR:-jalali}
+      FAIR_REPORT_WEEK_START_DAY: ${FAIR_REPORT_WEEK_START_DAY:-SATURDAY}
+      FAIR_SHADOW_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/runtime_database_url
+    secrets: [runtime_database_url]
+    networks: [edge, backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+
+  postgres:
+    <<: *common
+    image: ${POSTGRES_IMAGE:?reviewed immutable PostgreSQL digest required}
+    environment:
+      POSTGRES_DB: fair_platform
+      POSTGRES_USER: fair_migrator
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test:
+        [CMD-SHELL, pg_isready -h 127.0.0.1 -U fair_migrator -d fair_platform]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 1g
+
+  migrate:
+    image: ${API_IMAGE:?reviewed immutable API digest required}
+    profiles: [tools]
+    entrypoint: [sh, /app/entrypoint.sh]
+    command: [node, dist/owner/cli.js, migrate]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/admin_database_url
+      FAIR_DATA_MODE: production
+    secrets: [admin_database_url]
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+
+  backup:
+    image: ${POSTGRES_IMAGE:?reviewed immutable PostgreSQL digest required}
+    profiles: [tools]
+    user: '70:70'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      PGPASSFILE: /run/secrets/backup_pgpass
+    secrets: [backup_pgpass]
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    command:
+      [
+        pg_dump,
+        --host=postgres,
+        --username=fair_backup,
+        --dbname=fair_platform,
+        --format=custom,
+        --no-owner,
+        --no-acl,
+      ]
+
+networks:
+  edge:
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  runtime_database_url:
+    file: ${SECRETS_DIR:?}/runtime_database_url
+  admin_database_url:
+    file: ${SECRETS_DIR:?}/admin_database_url
+  postgres_password:
+    file: ${SECRETS_DIR:?}/postgres_password
+  backup_pgpass:
+    file: ${SECRETS_DIR:?}/backup_pgpass

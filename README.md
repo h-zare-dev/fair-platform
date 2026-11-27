@@ -2,7 +2,7 @@
 
 Fair Platform is a production-focused modular platform for Pasarguard accounting, pricing, reporting, automation, and future sales services.
 
-> Status: early development. FP-001 implements durable Pasarguard ingestion and normalization. Production webhook activation remains blocked pending verified authentication and deployed-source evidence.
+> **Staging status (2026-11-25).** The Owner completed the 122-day historical SHADOW replay with original PasarGuard identifiers and reviewed the statement totals. Staging already has an authenticated second-webhook endpoint, opening baseline import and a nightly Create-only closer. Historical Update/Reset support and period reports are available in replay. Follow the [webhook pilot](docs/deployment/WEBHOOK-PILOT.md) for the smoke test and the remaining settlement work.
 
 ## Technology
 - Node.js 24 LTS
@@ -24,10 +24,10 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 - `apps/web` — Next.js Owner UI.
 - `packages/accounting` — accounting domain boundary.
 - `packages/pricing` — pricing domain boundary.
-- `packages/calendar` — Jalali reporting/calendar boundary.
+- `packages/calendar` — planned shared Jalali reporting/calendar boundary (not yet a complete reporting service).
 - `packages/pasarguard` — Pasarguard integration boundary.
-- `packages/contracts` — validated shared contracts.
-- `packages/shared` — genuinely cross-cutting primitives only.
+- `packages/contracts` — reserved shared contract boundary (partial/placeholder).
+- `packages/shared` — reserved cross-cutting primitives boundary (partial/placeholder).
 - `tests` — contract, E2E, fixture, and golden-test assets.
 - `docs` — authoritative architecture, domain, security, testing, and workflow documentation.
 
@@ -35,6 +35,27 @@ Fair Platform is a production-focused modular platform for Pasarguard accounting
 - Node.js 24
 - pnpm 12.6.0
 - Docker with Compose support
+
+## Owner-operated production installation and updates
+
+On a dedicated Ubuntu server, download the single interactive installer:
+
+```bash
+curl -fsSLo /root/fair-platform-install.sh https://github.com/h-zare-dev/fair-platform/releases/latest/download/bootstrap.sh && bash /root/fair-platform-install.sh
+```
+
+Choose `latest` for the current stable release (default), `dev` for the last published development build, or an explicit version such as `v1.0.0`. Updates remember the last successful selection. For an existing installation, download the launcher above once and choose update. PostgreSQL data, credentials and site configuration remain in their existing locations. GitHub Actions builds the images. The server pulls four runtime images and extracts only production Compose files and operator scripts from the deployment image. The deployment image never runs. The first upgrade checks the existing deployment files against their original release hashes included in the bundle.
+
+A human Owner merges development into protected main after CI succeeds. Set VERSION before promotion. CI publishes the reviewed SHA images, version aliases and latest, then creates the GitHub release. Development publishes dev aliases independently. Neither channel automatically updates a running production server.
+
+The menu handles first-time installation, reviewed app-only updates, changing
+the panel hostname/IP, and the read-only admin directory. Explicit commands
+are `bash /root/fair-platform-install.sh install` and
+`bash /root/fair-platform-install.sh update`. No application source checkout is
+required; existing database volumes and passwords are preserved on updates.
+During setup, configure the PasarGuard directory and choose whether to enable SHADOW (default off). If enabled, open Settings → Initialization, add the second webhook alongside the existing webhook and start the opening account import. Existing accounts create no opening debt. App updates prompt to preserve active SHADOW.
+
+See the [operator safety checks](docs/deployment/PRODUCTION-SHADOW-INSTALL.md).
 
 Using mise:
 
@@ -71,6 +92,13 @@ pnpm build
 
 ## Documentation
 Start with `AGENTS.md`, then read:
+- [`docs/deployment/PRODUCTION-SHADOW-INSTALL.md`](docs/deployment/PRODUCTION-SHADOW-INSTALL.md) — Owner-only isolated production-host installation candidate (Shadow OFF; not financial go-live).
+- **[`docs/ROADMAP.md`](docs/ROADMAP.md) — canonical roadmap, current statuses and Owner-only merge gates.**
+- [`docs/CURRENT_STATE_AND_POLICY_2026-11-19.md`](docs/CURRENT_STATE_AND_POLICY_2026-11-19.md) — **current** implemented/Owner-observed status and Staging risk exceptions; read before historical planning docs.
+- [`docs/tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md`](docs/tasks/FP-ACCOUNTING-NIGHTLY-SETTLEMENT-DRAFT.md) — Owner-approved **future design**, not yet implemented or authorized for live billing.
+- [`docs/tasks/FP-003B-operational-dashboard.md`](docs/tasks/FP-003B-operational-dashboard.md) — historical approved implementation contract.
+- [`docs/deployment/FP-003B-staging-runbook.md`](docs/deployment/FP-003B-staging-runbook.md) — current release notes plus explicitly marked historical operator procedures.
+- [`docs/adr/0015-public-https-staging-and-controlled-delivery.md`](docs/adr/0015-public-https-staging-and-controlled-delivery.md), [0016](docs/adr/0016-disposable-staging-local-backup-and-owner-merge-cd.md), [0017](docs/adr/0017-no-automatic-backup-for-disposable-synthetic-staging.md) — Staging decision sequence; later scope-limited exceptions override earlier plans.
 - `docs/PROJECT_BLUEPRINT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DOMAIN_RULES.md`
@@ -80,3 +108,8 @@ Start with `AGENTS.md`, then read:
 
 ## License
 No license has been selected yet. All rights are reserved unless and until a license is explicitly added.
+
+For the seven-day parallel webhook accounting pilot, open **Settings → Initialization**
+to copy the second webhook URL and credential. Inspect receipts on the dashboard
+and nightly totals and pending decisions under accounting ambiguities.
+See [the Staging pilot procedure](docs/deployment/WEBHOOK-PILOT.md).

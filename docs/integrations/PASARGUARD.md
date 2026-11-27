@@ -3,6 +3,8 @@
 ## Scope
 v1.0 integrates with one Pasarguard instance through official Webhooks and API. Fair never depends on or modifies Pasarguard database schema.
 
+Feature order/status: [`ROADMAP.md`](../ROADMAP.md), [current state](../CURRENT_STATE_AND_POLICY_2026-11-19.md). FP-003A is offline replay only. FP-003B is the Owner-reported activated **public HTTPS, Owner-authenticated SYNTHETIC STAGING dashboard** at `panel.fairisfair.ir`, with isolated Fair PostgreSQL and protected post-Owner-merge delivery. **No real source webhook/billing route, live monetary classification or direct Pasarguard/Pasarjew database connection** is authorized. A future narrow, Owner-approved **read-only real Pasarguard admin `id`/`username` directory** via the official API is proposed in [FP-004 addendum](../tasks/FP-004-owner-ui-admin-directory-and-timezone.md), but is not active without separately provisioned restricted credentials. Preserve the webhook authenticator's fail-closed guard.
+
 ## Source Identity
 Fair assigns its own `source_instance_id`. External identity is `(source_instance_id, pasarguard_user_id)` and similarly for admins. v1.0 exposes only one source, but schema remains future-ready.
 
@@ -64,10 +66,10 @@ Store a deterministic batch payload hash for detecting repeat deliveries/storage
 Processing is designed for at-least-once delivery. Reprocessing the same logical financial event must not create duplicate accounting effects. Exact key implementation is chosen from stable source fields and canonical fingerprints and is covered by contract tests.
 
 ## Ordering and Correlation
-Event ordering cannot be assumed. Correlation is scoped to stable user identity, state semantics, and the Owner-configurable correlation window (default 120 seconds). The setting must not be hard-coded.
+Webhook arrival ordering cannot be assumed. Correlation is scoped to stable user identity, source-time ordering, state semantics, and the Owner-configurable correlation window (Owner-corrected default 600 seconds). Source-time window and HTTP delivery lateness are separate controls; this value must not be hard-coded into event logic.
 
 ## Actor vs Billing Admin
-`by`/actor may differ from `user.admin`. Use Billing Admin for financial ownership and Actor Admin for audit.
+`by`/actor may differ from `user.admin`. Use Billing Admin for financial ownership and Actor Admin for audit. Actor may be missing, null, or an object with an explicit null ID and valid username; preserve null identity and independent username attribution. Missing Actor alone does not require human approval for otherwise valid actual resets. Automatic accounting still requires separately verified reset occurrence, final package, correlation, pricing and financial idempotency; ingestion does not post money.
 
 ## Automatic Reset
 Actual reset events are billable according to Domain Rules; merely configuring reset strategy is not.

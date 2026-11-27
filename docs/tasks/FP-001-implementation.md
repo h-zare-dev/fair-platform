@@ -1,5 +1,7 @@
 # FP-001 implementation and local operation
 
+> **Historical implementation/operations guide.** FP-001 merged via PR #6; the Owner-approved FP-001B nullable Actor contract later amended valid `by.id=null` projection (PR #32). Refer to [`ROADMAP.md`](../ROADMAP.md) for current feature order. Live webhook authentication remains unverified.
+
 The approved scope is durable ingestion and normalization only. `READY_FOR_ACCOUNTING` denotes a valid projection awaiting future accounting; no charge, pricing decision, correlation or notification is produced.
 
 ## Evidence and production gate

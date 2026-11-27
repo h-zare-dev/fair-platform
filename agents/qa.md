@@ -4,11 +4,12 @@
 Adversarially verify the approved feature after implementation and review. Focus on behavior, failure recovery, concurrency, retries, security boundaries, and regressions. Do not change business rules.
 
 ## Required reading
-Read `AGENTS.md`, `agents/feature-lifecycle.md`, the task spec, testing policy, security policy, the Draft PR conversation, and the current PR diff.
+Read `AGENTS.md`, **`docs/ROADMAP.md`**, `agents/feature-lifecycle.md`, the explicitly Owner-approved task spec, testing and security policies, the Draft PR conversation, and the current PR diff. A design brief alone is not implementation approval; offline replay PASS is not live financial acceptance.
 
 ## QA rules
 - Begin QA only after the current implementation has `REVIEW_STATUS: PASS`, unless a human explicitly requests exploratory QA earlier.
 - Test the acceptance criteria plus realistic failure modes.
+- On the **current FP-003B synthetic Staging**, test one-Owner CLI/concurrency, session/CSRF, public HTTPS-only 443, IPv4/IPv6 reachability, no internal published ports, protected CI/GHCR deploy paths, pinned SSH host identity, **ADR 0016 root-password bootstrap/ephemeral key risk**, reviewed migration/app rollback, and **ADR 0017 NO automatic host backup/restore**. CI's disposable `test:backup` remains an isolated integration test, not a host recovery promise. Do not access servers or private materials without the Owner's specific permission; report missing environment evidence as BLOCKED, never manufacture a PASS.
 - Prefer reproducible automated tests when practical.
 - Exercise duplicate delivery, retries, malformed input, race conditions, crashes/restarts, time boundaries, and dependency failures relevant to the task.
 - Never use production secrets or unsanitized production payloads.
@@ -17,7 +18,7 @@ Read `AGENTS.md`, `agents/feature-lifecycle.md`, the task spec, testing policy, 
 - Test the current feature branch/PR state, not an earlier commit snapshot.
 - A previous PASS is invalidated when later changes affect behavior covered by QA; retest the affected area.
 - If a QA-driven fix materially changes production code, require targeted Review Agent re-review before final merge gates can pass.
-- Do not merge the PR and do not mark it Ready for Review.
+- Only the human Owner marks PRs Ready or merges; the QA Agent never performs either transition.
 
 ## Output
 Post exactly one status line in the Draft PR conversation:

@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Fair staging backup
+[Timer]
+Unit=fair-staging-backup.service
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+[Install]
+WantedBy=timers.target

@@ -15,3 +15,7 @@ logs/
 .tmp/
 tmp/
 *.tsbuildinfo
+
+__pycache__/
+playwright-report/
+test-results/

@@ -10,8 +10,8 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @fair-platform/api --filter @fair-platform/worker --filter @fair-platform/web dev",
-    "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm test:prepare && pnpm -r --if-present typecheck && tsc -p tests/tsconfig.json",
+    "build": "pnpm -r --if-present build && tsc -p scripts/replay/tsconfig.json && tsc -p scripts/orchestrator/tsconfig.json",
+    "typecheck": "pnpm test:prepare && pnpm -r --if-present typecheck && tsc -p tests/tsconfig.json && tsc -p scripts/replay/tsconfig.json --noEmit && tsc -p scripts/orchestrator/tsconfig.json --noEmit",
     "lint": "pnpm test:prepare && eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -19,22 +19,27 @@
     "test:unit": "pnpm test:prepare && vitest run tests/unit",
     "test:integration": "pnpm test:prepare && vitest run tests/integration",
     "test:e2e": "pnpm test:prepare && vitest run tests/e2e",
-    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/api --filter @fair-platform/worker build"
+    "test:prepare": "pnpm --filter @fair-platform/accounting --filter @fair-platform/pasarguard --filter @fair-platform/pricing --filter @fair-platform/calendar --filter @fair-platform/api --filter @fair-platform/worker build && tsc -p scripts/replay/tsconfig.json",
+    "test:web": "pnpm exec playwright test -c tests/web/playwright.config.ts",
+    "test:backup": "python3 tests/operations/restore-readiness.py && python3 tests/operations/backup-drill.py"
   },
   "devDependencies": {
+    "@fair-platform/accounting": "workspace:*",
+    "@fair-platform/calendar": "workspace:*",
     "@fair-platform/pasarguard": "workspace:*",
+    "@fair-platform/pricing": "workspace:*",
+    "@playwright/test": "^1.65.1",
     "@testcontainers/postgresql": "^12.2.0",
     "@types/node": "^24.13.6",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^5.0.2",
-    "eslint": "^10.12.0",
-    "prettier": "^3.6.2",
-    "testcontainers": "^12.2.0",
+    "eslint": "^10.15.0",
+    "prettier": "^3.10.1",
+    "testcontainers": "^12.2.1",
     "tsx": "^4.20.6",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.71.1",
-    "vitest": "^5.0.2",
-    "@fair-platform/accounting": "workspace:*"
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.0.2"
   }
 }

@@ -68,10 +68,16 @@ export class BatchProcessor {
               // Date conversion would discard sub-millisecond source precision.
               source_enqueued_at: () => 'CAST(:enqueued AS timestamptz)',
               source_send_at: () => 'CAST(:sent AS timestamptz)',
+              source_user_created_at: () => 'CAST(:userCreated AS timestamptz)',
+              source_user_expire_at: () => 'CAST(:userExpires AS timestamptz)',
+              source_user_edit_at: () => 'CAST(:userEdited AS timestamptz)',
             })
             .setParameters({
               enqueued: event.source_enqueued_at,
               sent: event.source_send_at,
+              userCreated: event.source_user_created_at,
+              userExpires: event.source_user_expire_at,
+              userEdited: event.source_user_edit_at,
             })
             .orIgnore()
             .returning('id')

@@ -1,0 +1,15 @@
+# Install as ~/.local/bin/fair-agent-models.conf for both launchers and the runner.
+IMPLEMENTATION_MODEL=gpt-6-sol
+IMPLEMENTATION_EFFORT=low
+REVIEW_MODEL=gpt-6-sol
+REVIEW_EFFORT=low
+QA_MODEL=gpt-6-luna
+QA_EFFORT=low
+LAB_MODEL=gpt-6-luna
+LAB_EFFORT=low
+REPLAY_MODEL=gpt-6-luna
+REPLAY_EFFORT=low
+FALLBACK_MODEL=gpt-6-luna
+FALLBACK_EFFORT=low
+REPORT_MODEL=gpt-6-luna
+REPORT_EFFORT=none

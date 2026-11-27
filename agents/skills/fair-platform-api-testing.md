@@ -12,4 +12,4 @@ Use this skill for HTTP/API feature verification.
 - request/response boundaries stay transport-focused
 - failure behavior when PostgreSQL or other required dependencies are unavailable
 
-For webhook endpoints, explicitly verify duplicate delivery and malformed payload behavior. Keep fixtures sanitized.
+For webhook endpoints, explicitly verify duplicate delivery and malformed payload behavior. For FP-003B Owner API, verify no public registration, login/logout/session CSRF and cookie boundaries, auth denial for all operational endpoints, bounded source/time/cursor filters, safe response allowlists, no secrets and that no webhook controller was registered in the public Owner runtime. Keep fixtures synthetic and sanitized.

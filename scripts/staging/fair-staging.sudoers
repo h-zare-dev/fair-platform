@@ -1,0 +1,5 @@
+# Operator-installed template; validate with visudo before installing.
+# The executable, its modules and /opt/fair-staging must remain root-owned.
+Defaults:fair-deploy env_reset
+Defaults:fair-deploy !setenv
+fair-deploy ALL=(root) NOPASSWD: /opt/fair-staging/tooling/release.py ""

@@ -1,0 +1,16 @@
+# Dedicated synthetic FP-003B API image ONLY; never apply to Web/PostgreSQL.
+# NOT a claim of unreachability or remediation. Remove by 2026-12-02.
+vulnerabilities:
+  - id: CVE-2026-112366
+    purls:
+      - pkg:npm/picomatch@4.0.7
+    expired_at: 2026-12-02
+    statement: >-
+      High-severity extglob ReDoS. This dependency IS present in the API
+      production image: TypeORM 1.1.1 -> tinyglobby 0.2.17 -> picomatch
+      4.0.7. No vulnerable untrusted glob input has been identified in the
+      synthetic Owner dashboard, but full runtime unreachability is NOT
+      proven. The official GHSA was withdrawn on 2026-11-18, but the
+      NVD CVE persists and no compatible fixed release is established.
+      Temporary time-limited exception on disposable, non-financial staging
+      only; revisit weekly and remove when upstream fixes it.

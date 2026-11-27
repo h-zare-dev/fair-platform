@@ -2,8 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [development, main]
   pull_request:
+    branches: [development, main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,18 +13,22 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm 12.6.0
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 12.6.0
           run_install: false
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -43,5 +49,334 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Owner merge authorization regression tests
+        run: python3 -m unittest discover -s tests/release -p test_owner_merge.py
+
+      - name: Staging diagnostics regression tests
+        run: python3 -m unittest discover -s tests/release -p test_diagnose_release.py
+
+      - name: Staging release and fast delivery regression tests
+        run: |
+          python3 -m unittest discover -s tests/release -p test_release.py
+          python3 -m unittest discover -s tests/release -p test_fast_delivery.py
+          python3 -m unittest discover -s tests/release -p test_activate_pasarguard_directory.py
+
+      - name: Owner-only migration approval regressions
+        run: |
+          python3 -m unittest discover -s tests/release -p test_fp004_operator_upgrade.py
+          python3 -m unittest discover -s tests/release -p test_password_runtime_grant_approval.py
+
+      - name: Historical source archive exporter regression
+        run: python3 -m unittest discover -s tests/release -p test_legacy_source_replay.py
+
+      - name: Production deployment fail-closed regression tests
+        run: python3 -m unittest discover -s tests/release -p test_production_setup.py
+
       - name: Build
         run: pnpm build
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 12.6.0
+          run_install: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - name: Dependency and secret scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          scan-type: fs
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          trivyignores: .github/security/staging-source-temporary-exceptions.yaml
+          skip-dirs: node_modules,.git
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      config-hash: ${{ steps.config.outputs.hash }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          platforms: linux/amd64
+          load: true
+          cache-from: type=gha,scope=fp-api
+          cache-to: type=gha,scope=fp-api,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          platforms: linux/amd64
+          load: true
+          cache-from: type=gha,scope=fp-web
+          cache-to: type=gha,scope=fp-web,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile.caddy
+          platforms: linux/amd64
+          load: true
+          cache-from: type=gha,scope=fp-caddy
+          cache-to: type=gha,scope=fp-caddy,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          no-cache: true # Refresh the Alpine security packages for every PostgreSQL build.
+          file: docker/Dockerfile.postgres
+          platforms: linux/amd64
+          load: true
+          cache-from: type=gha,scope=fp-postgres
+          cache-to: type=gha,scope=fp-postgres,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/h-zare-dev/fair-platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 12.6.0
+          run_install: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - name: Browser acceptance on local synthetic containers
+        # Complete browser/backup/restore exercises remain mandatory on PRs
+        # and main. A reviewed development merge must not repeat the costly
+        # integration suite before publishing those scanned immutable images.
+        if: github.event_name != 'push' || github.ref != 'refs/heads/development'
+        env:
+          UI_API_IMAGE: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
+          UI_POSTGRES_IMAGE: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
+          UI_CADDY_IMAGE: ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }}
+          UI_WEB_IMAGE: ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test:prepare
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:web
+          sudo apt-get update -qq
+          sudo apt-get install -y age rclone
+          pnpm test:backup
+          RELEASE_TEST_POSTGRES_IMAGE=ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} FAIR_RELEASE_DOCKER_TEST=1 python3 -m unittest discover -s tests/release -p test_compose.py
+      - name: Fast staging release safety regressions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        run: |
+          python3 -m unittest discover -s tests/release -p test_release.py
+          python3 -m unittest discover -s tests/release -p test_fast_delivery.py
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          trivyignores: .github/security/staging-api-picomatch-temporary-exception.yaml
+      - name: Scan Web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Scan Caddy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          trivyignores: .github/security/caddy-go-jose-v3-temporary-exception.yaml
+      - name: Scan PostgreSQL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: SBOM API
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }}
+          format: cyclonedx
+          output: api.sbom.json
+      - name: SBOM Web
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }}
+          format: cyclonedx
+          output: web.sbom.json
+      - name: SBOM Caddy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }}
+          format: cyclonedx
+          output: caddy.sbom.json
+      - name: SBOM PostgreSQL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          version: v0.75.0
+          image-ref: ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }}
+          format: cyclonedx
+          output: postgres.sbom.json
+      - name: Validate Compose and Caddy
+        run: |
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid SECRETS_DIR=/tmp/fair-secrets docker compose -f docker/staging/compose.yml config --quiet
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid OWNER_HOST=panel2.example.com SECRETS_DIR=/tmp/fair-secrets docker compose -f docker/production/compose.yml config --quiet
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid OWNER_HOST=panel2.example.com SECRETS_DIR=/tmp/fair-secrets PASARGUARD_BASE_URL=https://pasar.example.invalid docker compose -f docker/production/compose.yml -f docker/production/compose.directory.yml config --quiet
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid OWNER_HOST=panel2.example.com SECRETS_DIR=/tmp/fair-secrets PASARGUARD_BASE_URL=https://pasar.example.invalid docker compose -f docker/production/compose.yml -f docker/production/compose.directory.yml config --format json | python3 -c 'import json,sys; api=json.load(sys.stdin)["services"]["owner-api"]; assert api["environment"]["FAIR_SHADOW_ENABLED"] == "false"; assert api["environment"]["PASARGUARD_API_KEY_FILE"] == "/run/secrets/pasarguard_api_key"; assert api["environment"]["OWNER_ORIGIN"] == "https://panel2.example.com"; assert len(api["secrets"]) == 2'
+          API_IMAGE=local:test WEB_IMAGE=local:test CADDY_IMAGE=local:test POSTGRES_IMAGE=local:test ACME_EMAIL=operator@example.invalid OWNER_HOST=panel2.example.com SECRETS_DIR=/tmp/fair-secrets PASARGUARD_BASE_URL=https://pasarguard.example.com docker compose -f docker/production/compose.yml -f docker/production/compose.shadow.yml config --quiet
+          docker run --rm --network none -e ACME_EMAIL=operator@example.invalid -v "$PWD/docker/staging/Caddyfile:/etc/caddy/Caddyfile:ro" ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker run --rm --network none -e ACME_EMAIL=operator@example.invalid -e OWNER_HOST=panel2.example.com -v "$PWD/docker/production/Caddyfile:/etc/caddy/Caddyfile:ro" ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - id: config
+        run: echo "hash=$(python3 scripts/staging/config-hash.py)" >> "$GITHUB_OUTPUT"
+      - name: Save scanned images
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main')
+        run: docker save ghcr.io/h-zare-dev/fair-platform-owner-api:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-web:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-caddy:${{ github.sha }} ghcr.io/h-zare-dev/fair-platform-postgres:${{ github.sha }} -o images.tar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main')
+        with:
+          name: scanned-images
+          path: images.tar
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-sboms
+          path: '*.sbom.json'
+          retention-days: 30
+
+  owner-merge:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main') && github.ref_protected
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      authorized: ${{ steps.verify.outputs.authorized }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/staging/verify-owner-merge.py
+
+  publish:
+    concurrency:
+      group: publish-channel-${{ github.ref_name }}
+      cancel-in-progress: false
+    needs: [quality, security, containers, owner-merge]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main') && needs.owner-merge.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+      packages: write
+    outputs:
+      api: ${{ steps.digests.outputs.api }}
+      web: ${{ steps.digests.outputs.web }}
+      caddy: ${{ steps.digests.outputs.caddy }}
+      postgres: ${{ steps.digests.outputs.postgres }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: scanned-images
+      - run: docker load -i images.tar
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: digests
+        run: |
+          for service in owner-api web caddy postgres; do
+            image="ghcr.io/h-zare-dev/fair-platform-$service:${{ github.sha }}"
+            docker push "$image"
+            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image")
+            if [ "$service" = owner-api ]; then key=api; else key="$service"; fi
+            printf '%s=%s\n' "$key" "$digest" >> "$GITHUB_OUTPUT"
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)
+          if [[ "$tip" == "$GITHUB_SHA" ]]; then bash scripts/release/publish-channel.sh; fi
+
+  deploy:
+    needs: [publish, containers]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development' && github.ref_protected
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Already configured by the human Owner, restricted to development.
+    environment: staging-bootstrap
+    concurrency:
+      group: fair-staging-deployment
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install restricted ephemeral deploy key and deploy to staging
+        env:
+          STAGING_BOOTSTRAP_HOST: ${{ secrets.STAGING_BOOTSTRAP_HOST }}
+          STAGING_BOOTSTRAP_ROOT_PASSWORD: ${{ secrets.STAGING_BOOTSTRAP_ROOT_PASSWORD }}
+          STAGING_BOOTSTRAP_HOSTKEY_SHA256: ${{ secrets.STAGING_BOOTSTRAP_HOSTKEY_SHA256 }}
+          API: ${{ needs.publish.outputs.api }}
+          WEB: ${{ needs.publish.outputs.web }}
+          CADDY: ${{ needs.publish.outputs.caddy }}
+          CONFIG_HASH: ${{ needs.containers.outputs.config-hash }}
+          GH_PACKAGES_READ_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          bash scripts/staging/ci-post-merge-local.sh
+      - name: Sanitized failure alert
+        if: failure()
+        run: echo 'STAGING_DEPLOY_FAILED — Owner intervention may be required. See restricted host diagnostics.' >> "$GITHUB_STEP_SUMMARY"

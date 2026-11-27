@@ -10,6 +10,7 @@ import {
   createDataSource,
 } from '@fair-platform/pasarguard/infrastructure';
 import {
+  actorContractBatch,
   fixture,
   nulBearingEvent,
   projectedTextPaths,
@@ -434,4 +435,95 @@ it('FP001-R2: PostgreSQL rounds tiny fractions at the epoch to microseconds with
     (await database.getRepository(BatchEntity).findOneByOrFail({ id: '1' }))
       .processing_status,
   ).toBe('NORMALIZED');
+});
+
+it('FP-001B preserves SQL NULL, isolates malformed siblings and deduplicates across worker restart', async () => {
+  const reset: Record<string, unknown> = {
+    ...fixture(),
+    action: 'data_usage_reset',
+    by: { id: null, username: 'synthetic-actor' },
+  };
+  (reset.user as Record<string, unknown>).data_limit_reset_strategy = 'month';
+  const deleted = {
+    ...fixture(),
+    action: 'user_deleted',
+    by: { id: null, username: 'synthetic-delete-actor' },
+  };
+  const payload = [
+    reset,
+    deleted,
+    { ...fixture(), by: { username: 'malformed' } },
+  ];
+  await inbox.receive(payload);
+  await inbox.receive(payload);
+  await database.destroy();
+  database = await migratedDatabase(container.getConnectionUri());
+  inbox = new DurableInbox(
+    database,
+    encryption,
+    configFor(container.getConnectionUri()),
+  );
+  await processor().processNext();
+  const rows = await database.query<
+    {
+      actor_admin_id: null;
+      actor_admin_username: string;
+      billing_admin_id: string;
+      event_status: string;
+    }[]
+  >(
+    'SELECT actor_admin_id, actor_admin_username, billing_admin_id, event_status FROM pasarguard_events ORDER BY id',
+  );
+  expect(rows).toEqual([
+    {
+      actor_admin_id: null,
+      actor_admin_username: 'synthetic-actor',
+      billing_admin_id: '501',
+      event_status: 'READY_FOR_ACCOUNTING',
+    },
+    {
+      actor_admin_id: null,
+      actor_admin_username: 'synthetic-delete-actor',
+      billing_admin_id: '501',
+      event_status: 'READY_FOR_ACCOUNTING',
+    },
+  ]);
+  expect(await database.getRepository(BatchEntity).count()).toBe(1);
+  expect(await database.getRepository(IssueEntity).count()).toBe(1);
+  await inbox.receive([
+    { ...reset, tries: 2 },
+    { ...deleted, tries: 2 },
+  ]);
+  await processor().processNext();
+  expect(await database.getRepository(EventEntity).count()).toBe(2);
+  expect(
+    (await database.getRepository(EventEntity).find()).map(
+      (row) => row.occurrence_count,
+    ),
+  ).toEqual([2, 2]);
+});
+
+it('FP-001B PostgreSQL validates all Actor shapes and keeps Billing Admin strict', async () => {
+  const { payload, accepted } = actorContractBatch();
+  await inbox.receive(payload);
+  await processor().processNext();
+  const rows = await database
+    .getRepository(EventEntity)
+    .find({ order: { id: 'ASC' } });
+  expect(rows.map((row) => Number(row.external_user_id))).toEqual(accepted);
+  expect(rows.map((row) => row.actor_admin_id)).toEqual([
+    '502',
+    null,
+    null,
+    null,
+  ]);
+  expect(rows.map((row) => row.actor_admin_username)).toEqual([
+    'synthetic-actor',
+    'synthetic-actor',
+    null,
+    null,
+  ]);
+  expect(await database.getRepository(IssueEntity).count()).toBe(
+    payload.length - accepted.length,
+  );
 });

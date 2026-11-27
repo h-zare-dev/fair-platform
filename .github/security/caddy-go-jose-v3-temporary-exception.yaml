@@ -1,0 +1,18 @@
+# Temporary, narrowly scoped owner-requested risk acceptance.
+# NOT a remediation and NOT a declaration that this package is safe.
+# Loaded ONLY by the source and Caddy-image Trivy jobs (the historical
+# PR #55 origin does not limit this current 2026-12-15 expiry).
+# It MUST NOT be used by API/Web/PostgreSQL image scans.
+vulnerabilities:
+  - id: CVE-2026-116587
+    purls:
+      - pkg:golang/github.com/go-jose/go-jose/v3@v3.0.5
+    expired_at: 2026-12-15
+    statement: >-
+      Temporary 30-day acceptance: Caddy v2.11.9 imports Smallstep PKI,
+      which transitively includes unpatched go-jose/v3 3.0.5.
+      The configured reverse proxy uses public ACME TLS, not an
+      untrusted-JWK input endpoint, but runtime unreachability is
+      not proven. High-severity RSA JWK CPU-exhaustion risk remains.
+      Owner requested a time-limited unblock pending upstream remediation.
+      See docs/security/CADDY_CVE_2026_116587_EXCEPTION.md.

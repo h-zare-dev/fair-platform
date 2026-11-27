@@ -16,6 +16,9 @@ interface Summary {
 interface Case {
   eventId: string;
   accountId: string;
+  accountName: string | null;
+  ownerName: string | null;
+  actorName: string | null;
   action: string;
   code: string;
   sourceInstanceId: string;
@@ -360,9 +363,10 @@ export function AccountingAmbiguities({
                     <thead>
                       <tr>
                         <th>انتخاب</th>
+                        <th>حساب و عملیات</th>
                         <th>نوع ابهام</th>
-                        <th>روز و مدیر</th>
-                        <th>پکیج</th>
+                        <th>مدیر مالک و روز</th>
+                        <th>حجم و مدت</th>
                         <th>زمان رویداد</th>
                         <th>شناسهٔ رویداد</th>
                       </tr>
@@ -387,16 +391,35 @@ export function AccountingAmbiguities({
                             />
                           </td>
                           <td>
-                            <strong>{names[item.code] ?? item.code}</strong>
-                            <small dir="ltr">
-                              {item.action} · {item.accountId}
+                            <strong>
+                              <bdi>
+                                {item.accountName || 'نام کاربری ثبت نشده'}
+                              </bdi>
+                            </strong>
+                            <small>
+                              شناسهٔ حساب: {formatInteger(item.accountId)}
+                            </small>
+                            <small>
+                              {item.action === 'user_updated'
+                                ? 'ویرایش کاربر'
+                                : item.action === 'data_usage_reset'
+                                  ? 'بازنشانی مصرف'
+                                  : item.action}
                             </small>
                           </td>
                           <td>
-                            {item.localDay}
+                            <strong>{names[item.code] ?? item.code}</strong>
                             <small>
-                              مدیر: {formatInteger(item.billingAdminId)}
+                              انجام‌دهنده:{' '}
+                              <bdi>{item.actorName || 'ثبت نشده'}</bdi>
                             </small>
+                          </td>
+                          <td>
+                            <strong>
+                              <bdi>{item.ownerName || 'نام مدیر ثبت نشده'}</bdi>{' '}
+                              ({formatInteger(item.billingAdminId)})
+                            </strong>
+                            <small>{item.localDay}</small>
                           </td>
                           <td>
                             {formatGiB(item.dataLimitBytes)}

@@ -902,3 +902,35 @@ it('PostgreSQL container restart retains synthetic rows and server-side sessions
     await db.query('SELECT count(*)::int AS n FROM pasarguard_events'),
   ).toEqual([{ n: 11 }]);
 }, 60000);
+
+it('shows the account, owner and separate actor recorded on a review event', async () => {
+  await seedSynthetic(db, '11'.repeat(32));
+  await db.query(`WITH day AS (
+    INSERT INTO fair_shadow_days (source_instance_id,billing_admin_id,local_day,time_zone,
+      window_start,window_end,source_watermark,status,total_toman,create_count,ambiguity_count)
+    SELECT source_instance_id,billing_admin_id,'1405-09-06','Asia/Tehran',now()-interval '1 day',now(),now(),'SHADOW_READY',0,0,0
+    FROM pasarguard_events WHERE id=1 RETURNING *
+  ) INSERT INTO fair_shadow_late_events (event_id,day_id,source_instance_id,billing_admin_id,local_day)
+    SELECT 1,id,source_instance_id,billing_admin_id,local_day FROM day`);
+  await db.query(
+    "UPDATE pasarguard_events SET username='sample-account', billing_admin_username='sample-owner', actor_admin_username='sample-actor' WHERE id=1",
+  );
+  const { PostgresShadowReader } =
+    await import('../../apps/api/dist/owner/infrastructure/shadow-reader.js');
+  const page = await new PostgresShadowReader(db).ambiguities({
+    source: null,
+    admin: null,
+    date: null,
+    reason: null,
+    limit: 25,
+    offset: 0,
+  });
+  expect(page.rows).toContainEqual(
+    expect.objectContaining({
+      eventId: '1',
+      accountName: 'sample-account',
+      ownerName: 'sample-owner',
+      actorName: 'sample-actor',
+    }),
+  );
+});

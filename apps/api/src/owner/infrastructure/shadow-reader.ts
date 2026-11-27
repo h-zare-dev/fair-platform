@@ -29,7 +29,7 @@ export interface ShadowFilter {
   offset: number;
 }
 
-/** Owner-only projections; never expose usernames, raw JSON, or authentication data. */
+/** Owner-only projections; display event identities without exposing raw JSON or authentication data. */
 export class PostgresShadowReader {
   constructor(
     private readonly db: DataSource,
@@ -604,6 +604,11 @@ export class PostgresShadowReader {
     const rows = await this.db.query<
       {
         eventId: string;
+        accountId: string;
+        accountName: string | null;
+        ownerName: string | null;
+        actorName: string | null;
+        action: string;
         code: string;
         sourceInstanceId: string;
         billingAdminId: string;
@@ -628,19 +633,20 @@ export class PostgresShadowReader {
            e.source_enqueued_at,l.discovered_at
          FROM fair_shadow_late_events l JOIN pasarguard_events e ON e.id=l.event_id
        )
-       SELECT event_id::text AS "eventId", (SELECT external_user_id::text FROM pasarguard_events WHERE id=cases.event_id) AS "accountId",
-         (SELECT action FROM pasarguard_events WHERE id=cases.event_id) AS action, reason_code AS code,
-         source_instance_id AS "sourceInstanceId", billing_admin_id::text AS "billingAdminId",
-         local_day AS "localDay",data_limit_bytes::text AS "dataLimitBytes",
-         duration_days AS "durationDays",source_enqueued_at AS "sourceTimestamp",
-         detected_at AS "detectedAt"
-       FROM cases
-       WHERE NOT EXISTS (SELECT FROM fair_shadow_review_events v WHERE v.event_id=cases.event_id)
-         AND ($1::text IS NULL OR source_instance_id=$1)
-         AND ($2::bigint IS NULL OR billing_admin_id=$2)
-         AND ($3::text IS NULL OR reason_code=$3)
-         AND ($4::text IS NULL OR local_day=$4)
-       ORDER BY detected_at DESC,event_id DESC LIMIT $5 OFFSET $6`,
+       SELECT c.event_id::text AS "eventId", e.external_user_id::text AS "accountId",
+         e.username AS "accountName",e.billing_admin_username AS "ownerName",
+         e.actor_admin_username AS "actorName",e.action,c.reason_code AS code,
+         c.source_instance_id AS "sourceInstanceId", c.billing_admin_id::text AS "billingAdminId",
+         c.local_day AS "localDay",c.data_limit_bytes::text AS "dataLimitBytes",
+         c.duration_days AS "durationDays",c.source_enqueued_at AS "sourceTimestamp",
+         c.detected_at AS "detectedAt"
+       FROM cases c LEFT JOIN pasarguard_events e ON e.id=c.event_id
+       WHERE NOT EXISTS (SELECT FROM fair_shadow_review_events v WHERE v.event_id=c.event_id)
+         AND ($1::text IS NULL OR c.source_instance_id=$1)
+         AND ($2::bigint IS NULL OR c.billing_admin_id=$2)
+         AND ($3::text IS NULL OR c.reason_code=$3)
+         AND ($4::text IS NULL OR c.local_day=$4)
+       ORDER BY c.detected_at DESC,c.event_id DESC LIMIT $5 OFFSET $6`,
       [
         filter.source,
         filter.admin,

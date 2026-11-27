@@ -39,6 +39,11 @@ const querySchema = z
       .transform(Number)
       .refine((v) => v <= 100)
       .default(25),
+    offset: z
+      .string()
+      .regex(/^(0|[1-9][0-9]{0,14})$/)
+      .transform(Number)
+      .optional(),
     cursor: z.string().max(1500).optional(),
   })
   .strict();
@@ -48,6 +53,7 @@ export interface OperationFilter {
   source: string | null;
   actions?: string[];
   limit: number;
+  offset?: number;
   cursor: z.infer<typeof cursorSchema> | null;
 }
 export function operationFilter(
@@ -56,6 +62,8 @@ export function operationFilter(
   now = new Date(),
 ): OperationFilter {
   const query = querySchema.parse(input);
+  if (query.offset !== undefined && (kind !== 'events' || query.cursor))
+    throw new Error('INVALID_FILTER');
   if (kind === 'summary' && query.cursor) throw new Error('INVALID_FILTER');
   const cursor = query.cursor
     ? cursorSchema.parse(
@@ -102,6 +110,7 @@ export function operationFilter(
     source,
     ...(actions ? { actions } : {}),
     limit: query.limit,
+    ...(query.offset !== undefined ? { offset: query.offset } : {}),
     cursor,
   };
 }

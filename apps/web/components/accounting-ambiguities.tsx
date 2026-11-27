@@ -425,7 +425,7 @@ export function AccountingAmbiguities({
                             {formatGiB(item.dataLimitBytes)}
                             <small>
                               {item.durationDays === null
-                                ? 'مدت نامشخص'
+                                ? 'مدت روزانه در رویداد مشخص نیست'
                                 : `${formatInteger(item.durationDays)} روز`}
                             </small>
                           </td>

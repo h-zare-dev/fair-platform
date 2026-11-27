@@ -638,7 +638,9 @@ export class PostgresShadowReader {
          e.actor_admin_username AS "actorName",e.action,c.reason_code AS code,
          c.source_instance_id AS "sourceInstanceId", c.billing_admin_id::text AS "billingAdminId",
          c.local_day AS "localDay",c.data_limit_bytes::text AS "dataLimitBytes",
-         c.duration_days AS "durationDays",c.source_enqueued_at AS "sourceTimestamp",
+         COALESCE(c.duration_days, CASE WHEN e.on_hold_expire_duration_seconds BETWEEN 1 AND 3153600000
+           AND mod(e.on_hold_expire_duration_seconds,86400)=0
+           THEN (e.on_hold_expire_duration_seconds / 86400)::integer END) AS "durationDays",c.source_enqueued_at AS "sourceTimestamp",
          c.detected_at AS "detectedAt"
        FROM cases c LEFT JOIN pasarguard_events e ON e.id=c.event_id
        WHERE NOT EXISTS (SELECT FROM fair_shadow_review_events v WHERE v.event_id=c.event_id)

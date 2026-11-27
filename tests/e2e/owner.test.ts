@@ -540,6 +540,17 @@ it('microsecond receipt-time cursors never skip events or issues, and projection
     pagedIds.push(...page.rows.map((row) => row.id));
     cursor = page.nextCursor;
   } while (cursor);
+  const skipped = await reader.events(
+    operationFilter(
+      {
+        ...query,
+        actions: 'user_created,user_updated,data_usage_reset',
+        offset: '1',
+      },
+      'events',
+    ),
+  );
+  expect(skipped.rows[0]?.id).toBe(filtered.rows[1]?.id);
   expect(pagedIds.length).toBeGreaterThan(1);
   expect(pagedIds).toEqual(filtered.rows.map((row) => row.id));
   for (const row of filtered.rows) {

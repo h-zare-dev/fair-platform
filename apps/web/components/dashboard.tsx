@@ -140,6 +140,10 @@ export function Dashboard() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [eventPage, setEventPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const eventCount = Number(summary?.normalizedEvents ?? 0);
+  const pages = Math.max(1, Math.ceil(eventCount / pageSize));
   const [pageBusy, setPageBusy] = useState(false);
   const [browsingHistory, setBrowsingHistory] = useState(false);
   const displayedQuery = useRef<string | null>(null);
@@ -147,7 +151,7 @@ export function Dashboard() {
     if (browsingHistory) return;
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 10000);
-    const query = windowRange + actionFilter;
+    const query = windowRange + actionFilter + ':' + pageSize;
     if (displayedQuery.current !== query) {
       displayedQuery.current = null;
       setBusy(true);
@@ -170,13 +174,17 @@ export function Dashboard() {
         params.set('start', result.start);
         params.set('end', result.end);
         const [e, i] = await Promise.all([
-          request<Page<EventRow>>(`operations/events?${params}`, abort.signal),
+          request<Page<EventRow>>(
+            `operations/events?${params}&limit=${pageSize}`,
+            abort.signal,
+          ),
           request<Page<IssueRow>>(`operations/issues?${params}`, abort.signal),
         ]);
         if (!abort.signal.aborted) {
           displayedQuery.current = query;
           setError('');
           setSummary(result);
+          setEventPage(1);
           setEvents(e);
           setIssues(i);
         }
@@ -199,7 +207,7 @@ export function Dashboard() {
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [windowRange, refresh, browsingHistory, actionFilter]);
+  }, [windowRange, refresh, browsingHistory, actionFilter, pageSize]);
   useEffect(() => {
     if (browsingHistory || busy || pageBusy) return;
     const timer = window.setInterval(() => {
@@ -207,23 +215,33 @@ export function Dashboard() {
     }, 10000);
     return () => window.clearInterval(timer);
   }, [windowRange, browsingHistory, busy, pageBusy]);
-  async function next(kind: 'events' | 'issues') {
-    const cursor = kind === 'events' ? events.nextCursor : issues.nextCursor;
-    if (!cursor || !summary) return;
+  async function next(kind: 'events' | 'issues', target = eventPage + 1) {
+    const cursor =
+      kind === 'issues'
+        ? issues.nextCursor
+        : target === eventPage + 1
+          ? events.nextCursor
+          : null;
+    if (!summary || pageBusy || (kind === 'issues' && !cursor)) return;
     setBrowsingHistory(true);
     setPageBusy(true);
     setError('');
     const params = new URLSearchParams({
       start: summary.start,
       end: summary.end,
-      cursor,
       source: 'primary',
       actions: actionFilter,
     });
+    if (cursor) params.set('cursor', cursor);
+    if (kind === 'events') {
+      params.set('limit', String(pageSize));
+      if (!cursor) params.set('offset', String((target - 1) * pageSize));
+    }
     try {
-      if (kind === 'events')
+      if (kind === 'events') {
         setEvents(await request<Page<EventRow>>(`operations/events?${params}`));
-      else
+        setEventPage(target);
+      } else
         setIssues(await request<Page<IssueRow>>(`operations/issues?${params}`));
     } catch {
       setError('صفحهٔ بعد بارگیری نشد؛ دوباره تلاش کنید.');
@@ -473,18 +491,64 @@ export function Dashboard() {
                   جداگانه نمایش داده می‌شود. «آمادهٔ حسابداری» به معنی ثبت هزینه
                   نیست.
                 </span>
-                {events.nextCursor && (
-                  <button
-                    className="secondary"
+              </div>
+              <nav className="event-pages" aria-label="صفحه‌بندی رویدادها">
+                <label>
+                  تعداد در صفحه
+                  <select
+                    value={pageSize}
                     disabled={pageBusy}
-                    onClick={() => {
-                      void next('events');
+                    onChange={(e) => {
+                      setBrowsingHistory(false);
+                      setPageSize(Number(e.target.value));
                     }}
                   >
-                    رویدادهای بعدی ←
-                  </button>
-                )}
-              </div>
+                    {[10, 25, 50, 100].map((n) => (
+                      <option key={n} value={n}>
+                        {formatInteger(n)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span aria-live="polite">
+                  {eventCount
+                    ? `رویداد ${formatInteger((eventPage - 1) * pageSize + 1)} تا ${formatInteger((eventPage - 1) * pageSize + events.rows.length)} از ${formatInteger(eventCount)}`
+                    : '۰ رویداد'}
+                </span>
+                <button
+                  className="secondary"
+                  disabled={pageBusy || eventPage === 1}
+                  onClick={() => void next('events', eventPage - 1)}
+                >
+                  قبلی
+                </button>
+                {Array.from(
+                  new Set([1, eventPage - 1, eventPage, eventPage + 1, pages]),
+                )
+                  .filter((n) => n >= 1 && n <= pages)
+                  .sort((a, b) => a - b)
+                  .map((n, index, items) => (
+                    <span key={n}>
+                      {index > 0 && n - items[index - 1]! > 1 && ' … '}
+                      <button
+                        className="secondary"
+                        aria-label={`صفحهٔ ${formatInteger(n)}`}
+                        aria-current={n === eventPage ? 'page' : undefined}
+                        disabled={pageBusy || n === eventPage}
+                        onClick={() => void next('events', n)}
+                      >
+                        {formatInteger(n)}
+                      </button>
+                    </span>
+                  ))}
+                <button
+                  className="secondary"
+                  disabled={pageBusy || !events.nextCursor}
+                  onClick={() => void next('events')}
+                >
+                  رویدادهای بعدی ←
+                </button>
+              </nav>
               <div id="issues" className="anchor-section">
                 <DataTable
                   title="خطاهای اخیر دریافت داده"

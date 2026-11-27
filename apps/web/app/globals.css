@@ -1904,3 +1904,20 @@ footer {
   min-height: 0;
   margin: 0;
 }
+
+.event-pages,
+.event-pages label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.event-pages {
+  margin-block: 1rem;
+}
+.event-pages select {
+  width: auto;
+}
+.event-pages [aria-current='page'] {
+  border-color: currentColor;
+}

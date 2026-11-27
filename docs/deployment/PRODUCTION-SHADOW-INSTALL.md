@@ -15,7 +15,7 @@ Without an argument it shows a menu on existing installations. Download and
 inspect it before executing:
 
 ```bash
-curl -fsSLo /root/fair-platform-install.sh https://raw.githubusercontent.com/h-zare-dev/fair-platform/development/scripts/production/bootstrap.sh && bash /root/fair-platform-install.sh
+curl -fsSLo /root/fair-platform-install.sh https://github.com/h-zare-dev/fair-platform/releases/latest/download/bootstrap.sh && bash /root/fair-platform-install.sh
 ```
 
 For explicit actions (after the script has been downloaded):
@@ -27,8 +27,7 @@ bash /root/fair-platform-install.sh host     # Change configured DNS name, IPv4 
 ```
 
 The installer asks permission to install missing Ubuntu Docker prerequisites.
-On a **new host**, it fetches only production Compose/scripts with a sparse Git
-checkout (not application source), asks for the access host (DNS, IPv4 or
+On a **new host**, it pulls the deployment image from GHCR and extracts the production Compose files and scripts, asks for the access host (DNS, IPv4 or
 `localhost` for tunneling), shows the reviewed SHA, asks for the ACME email,
 pins immutable GHCR images, provisions secrets, installs the UI, and
 prompts for the one-time Owner password with **hidden terminal input**.

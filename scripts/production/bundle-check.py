@@ -30,12 +30,22 @@ def verify(candidate, previous, old_sha):
     new = json.loads((candidate / 'bundle.json').read_text())
     if not old or {p:s for p,s in old.items() if protected(p)} != {p:s for p,s in new.items() if protected(p)}:
         raise ValueError('SCHEMA_OR_POSTGRES_CHANGED')
+    close_time = None
     for path, expected in old.items():
         if path.startswith(('docker/production/', 'scripts/production/')):
             data = (previous / path).read_bytes()
+            if path == 'docker/production/compose.shadow.yml':
+                pattern = rb"^      FAIR_SHADOW_CLOSE_TIME: '((?:[01][0-9]|2[0-3]):[0-5][0-9])'$"
+                times = re.findall(pattern, data, re.M)
+                if len(times) == 1:
+                    close_time = times[0].decode()
+                    if close_time != '02:10':
+                        data = re.sub(pattern, b"      FAIR_SHADOW_CLOSE_TIME: '02:10'", data, flags=re.M)
             if hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() != expected:
                 raise ValueError('Modified installed file: ' + path)
 
+    return close_time or ''
+
 
 if __name__ == '__main__':
-    verify(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+    print(verify(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]))

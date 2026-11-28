@@ -1,30 +1,23 @@
-'use client';
-import { useEffect, useState } from 'react';
-import { ReportAdminFilter } from './report-admin-filter';
-import { ReportDateRangePicker } from './report-date-range-picker';
-import { shadowReasons as names } from '../lib/shadow-reasons';
-import { OwnerHeader } from './owner-header';
-import { formatGiB, formatInteger, formatUtc } from '../lib/traffic';
+"use client";
+import { useEffect, useState } from "react";
+import { ReportAdminFilter } from "./report-admin-filter";
+import { ReportDateRangePicker } from "./report-date-range-picker";
+import { shadowReasons as names } from "../lib/shadow-reasons";
+import { OwnerHeader } from "./owner-header";
+import { formatGiB, formatInteger, formatUtc } from "../lib/traffic";
 
 const diagnosticText: Record<string, string> = {
   MULTIPLE_CHANGES:
-    'در زمان بستن روز، بیش از دو رویداد ویرایش یا ریست برای این حساب وجود داشت.',
-  NO_SINGLE_PAIR: 'در زمان بستن روز دقیقاً یک ویرایش و یک ریست وجود نداشت.',
-  SOURCE_REVIEW: 'حداقل یکی از دو وبهوک برای بررسی حسابداری آماده نبود.',
-  PAIR_WINDOW: 'فاصلهٔ دو رویداد بیش از پنج دقیقه است.',
-  DURATION_CONFLICT: 'وبهوک‌ها دو مدت متفاوت ثبت کرده‌اند.',
+    "در زمان بستن روز، بیش از دو رویداد ویرایش یا ریست برای این حساب وجود داشت.",
+  NO_SINGLE_PAIR: "در زمان بستن روز دقیقاً یک ویرایش و یک ریست وجود نداشت.",
+  SOURCE_REVIEW: "حداقل یکی از دو وبهوک برای بررسی حسابداری آماده نبود.",
+  PAIR_WINDOW: "فاصلهٔ دو رویداد بیش از پنج دقیقه است.",
+  DURATION_CONFLICT: "وبهوک‌ها دو مدت متفاوت ثبت کرده‌اند.",
   CHECK_CLOSE_TARIFF:
-    'در زمان بستن روز، نرخ گیگی یکتا برای این مدیر یافت نشد. تخصیص تعرفه و عضویت مدیر در آن تاریخ را بررسی کنید.',
+    "در زمان بستن روز، نرخ گیگی یکتا برای این مدیر یافت نشد. تخصیص تعرفه و عضویت مدیر در آن تاریخ را بررسی کنید.",
   CHECK_CLOSE_PAIR:
-    'یک ویرایش و یک ریست در بازه پیدا شد. علت دقیق در ثبت قدیمی ذخیره نشده است.',
+    "یک ویرایش و یک ریست در بازه پیدا شد. علت دقیق در ثبت قدیمی ذخیره نشده است.",
 };
-interface Summary {
-  closedDays: string;
-  pendingDays: string;
-  ambiguityCount: string;
-  chargeCount: string;
-  lateCount: string;
-}
 interface Case {
   eventId: string;
   accountId: string;
@@ -50,41 +43,41 @@ interface Page {
 }
 async function get<T>(url: string): Promise<T> {
   const result = await fetch(url, {
-    cache: 'no-store',
+    cache: "no-store",
     signal: AbortSignal.timeout(10000),
   });
   if (result.status === 401) {
-    window.location.assign('/login');
-    throw new Error('نشست منقضی شده است.');
+    window.location.assign("/login");
+    throw new Error("نشست منقضی شده است.");
   }
-  if (!result.ok) throw new Error('دریافت داده‌ها ناموفق بود.');
+  if (!result.ok) throw new Error("دریافت داده‌ها ناموفق بود.");
   return result.json() as Promise<T>;
 }
 export function AccountingAmbiguities({
   reports = false,
 }: { reports?: boolean } = {}) {
-  const [admin, setAdmin] = useState('');
-  const [adminName, setAdminName] = useState('');
-  const [reason, setReason] = useState('');
-  const [day, setDay] = useState('');
+  const [admin, setAdmin] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [reason, setReason] = useState("");
+  const [day, setDay] = useState("");
   const [applied, setApplied] = useState({
-    source: 'primary',
-    admin: '',
-    reason: '',
-    date: '',
+    source: "primary",
+    admin: "",
+    reason: "",
+    date: "",
   });
-  const [period, setPeriod] = useState('day');
+  const [period, setPeriod] = useState("day");
   const [reportOffset, setReportOffset] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [page, setPage] = useState<Page>({ rows: [], nextOffset: null });
   const [selected, setSelected] = useState<string[]>([]);
-  const [packageId, setPackageId] = useState('');
+  const [packageId, setPackageId] = useState("");
   const [packages, setPackages] = useState<{ id: string; name: string }[]>([]);
   const [days, setDays] = useState<
     {
       source: string;
       admin: string;
+      ownerName?: string | null;
       day: string;
       amountToman: string;
       soldBytes: string;
@@ -96,50 +89,43 @@ export function AccountingAmbiguities({
   const [revision, setRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     setBusy(true);
     setSelected([]);
-    setError('');
+    setError("");
     const params = new URLSearchParams({
       ...Object.fromEntries(Object.entries(applied).filter(([, v]) => v)),
       offset: String(offset),
-      limit: '25',
+      limit: "25",
     });
-    const counts = new URLSearchParams(
-      applied.source ? { source: applied.source } : {},
-    );
     void Promise.all([
-      reports
-        ? null
-        : get<Summary>(`/api/v1/owner/operations/accounting/summary?${counts}`),
       reports
         ? { rows: [], nextOffset: null }
         : get<Page>(
             `/api/v1/owner/operations/accounting/ambiguities?${params}`,
           ),
       get<typeof days>(
-        `/api/v1/owner/operations/accounting/days?${new URLSearchParams({ ...Object.fromEntries(params), period, offset: String(reportOffset) })}`,
+        `/api/v1/owner/operations/accounting/${reports ? "days" : "ambiguity-days"}?${new URLSearchParams({ ...Object.fromEntries(params), ...(reports ? { period } : {}), limit: "26", offset: String(reportOffset) })}`,
       ),
       reports
         ? { packages: [] }
         : get<{ packages: { id: string; name: string }[] }>(
-            `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || 'primary')}`,
+            `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || "primary")}`,
           ),
     ])
-      .then(([s, p, daily, catalog]) => {
+      .then(([p, daily, catalog]) => {
         if (active) {
           setDays(daily);
           setPackages(catalog.packages);
-          setSummary(s);
           setPage(p);
         }
       })
       .catch(() => {
         if (active)
           setError(
-            'فهرست ابهامات در دسترس نیست؛ اتصال و اجرای شبانه را بررسی کنید.',
+            "فهرست ابهامات در دسترس نیست؛ اتصال و اجرای شبانه را بررسی کنید.",
           );
       })
       .finally(() => {
@@ -168,13 +154,13 @@ export function AccountingAmbiguities({
       : null;
   async function decide(chosen: string | null, rateAssignmentId?: string) {
     setSaving(true);
-    setError('');
+    setError("");
     try {
       const response = await fetch(
-        '/api/v1/owner/operations/accounting/review',
+        "/api/v1/owner/operations/accounting/review",
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-fair-csrf': '1' },
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-fair-csrf": "1" },
           body: JSON.stringify({
             id: crypto.randomUUID(),
             eventIds: selected,
@@ -187,7 +173,7 @@ export function AccountingAmbiguities({
       setRevision((v) => v + 1);
     } catch {
       setError(
-        'تصمیم ثبت نشد. رویدادهای یک حساب، یک مدیر و یک روز را انتخاب کنید.',
+        "تصمیم ثبت نشد. رویدادهای یک حساب، یک مدیر و یک روز را انتخاب کنید.",
       );
     } finally {
       setSaving(false);
@@ -195,14 +181,14 @@ export function AccountingAmbiguities({
   }
   return (
     <>
-      <OwnerHeader active={reports ? 'reports' : 'dashboard'} />
+      <OwnerHeader active={reports ? "reports" : "dashboard"} />
       <main className="dashboard webhook-accounting" dir="rtl">
         <div className="stage">
           حسابداری سایه · بدون صدور صورتحساب یا ارسال گزارش
         </div>
         <div className="intro">
           <div>
-            <h1>{reports ? 'گزارش‌های جامع حسابداری' : 'ابهامات ثبت شبانه'}</h1>
+            <h1>{reports ? "گزارش‌های جامع حسابداری" : "ابهامات ثبت شبانه"}</h1>
           </div>
         </div>
         <form
@@ -211,7 +197,7 @@ export function AccountingAmbiguities({
             event.preventDefault();
             setReportOffset(0);
             setOffset(0);
-            setApplied({ source: 'primary', admin, reason, date: day });
+            setApplied({ source: "primary", admin, reason, date: day });
           }}
         >
           <ReportAdminFilter
@@ -256,43 +242,28 @@ export function AccountingAmbiguities({
             {error}
           </div>
         )}
-        {!reports && (
-          <div className="kpis">
-            {(
-              [
-                ['روزهای پردازش‌شده', summary?.closedDays],
-                ['روزهای متوقف‌شده', summary?.pendingDays],
-                ['ابهامات شبانه', summary?.ambiguityCount],
-                ['رویدادهای دیرهنگام', summary?.lateCount],
-              ] as [string, string | undefined][]
-            ).map(([title, value]) => (
-              <section className="kpi" key={title}>
-                <h2>{title}</h2>
-                <p className="number">
-                  {busy ? '…' : value ? formatInteger(value) : '—'}
-                </p>
-              </section>
-            ))}
-          </div>
-        )}
         <section className="table-card statement-card">
           <div className="section-heading">
-            <h2>صورتحساب وبهوک</h2>
-            <label>
-              بازه{' '}
-              <select
-                aria-label="بازه"
-                value={period}
-                onChange={(e) => {
-                  setPeriod(e.target.value);
-                  setReportOffset(0);
-                }}
-              >
-                <option value="day">روزانه</option>
-                <option value="week">هفتگی</option>
-                <option value="month">ماهانه</option>
-              </select>
-            </label>
+            <h2>
+              {reports ? "صورتحساب وبهوک" : "خلاصهٔ روزهای دارای سابقهٔ ابهام"}
+            </h2>
+            {reports && (
+              <label>
+                بازه{" "}
+                <select
+                  aria-label="بازه"
+                  value={period}
+                  onChange={(e) => {
+                    setPeriod(e.target.value);
+                    setReportOffset(0);
+                  }}
+                >
+                  <option value="day">روزانه</option>
+                  <option value="week">هفتگی</option>
+                  <option value="month">ماهانه</option>
+                </select>
+              </label>
+            )}
           </div>
           <div className="table-scroll">
             <table>
@@ -302,27 +273,31 @@ export function AccountingAmbiguities({
                   <th>مدیر</th>
                   <th>حجم تأییدشده</th>
                   <th>مبلغ (تومان)</th>
-                  <th>جمع مدیران انتخاب‌شده در بازه</th>
+                  {reports && <th>جمع مدیران انتخاب‌شده در بازه</th>}
                   <th>وضعیت</th>
                 </tr>
               </thead>
               <tbody>
-                {days.map((d) => (
+                {days.slice(0, 25).map((d) => (
                   <tr key={JSON.stringify([d.source, d.admin, d.day])}>
                     <td>{d.day}</td>
-                    <td>{formatInteger(d.admin)}</td>
+                    <td>{d.ownerName || formatInteger(d.admin)}</td>
                     <td>{formatGiB(d.soldBytes)}</td>
                     <td>{formatInteger(d.amountToman)}</td>
-                    <td>
-                      {formatGiB(d.periodSoldBytes)} ·{' '}
-                      {formatInteger(d.periodAmountToman)} تومان
-                    </td>
+                    {reports && (
+                      <td>
+                        {formatGiB(d.periodSoldBytes)} ·{" "}
+                        {formatInteger(d.periodAmountToman)} تومان
+                      </td>
+                    )}
                     <td>
                       {d.pending
                         ? `جمع موقت · ${formatInteger(String(d.pending))} مورد در انتظار تصمیم`
-                        : period === 'day'
-                          ? 'آمادهٔ ارسال'
-                          : 'بدون ابهام ثبت‌شده'}
+                        : !reports
+                          ? "رفع ابهام شده"
+                          : period === "day"
+                            ? "آمادهٔ ارسال"
+                            : "بدون ابهام ثبت‌شده"}
                     </td>
                   </tr>
                 ))}
@@ -332,8 +307,10 @@ export function AccountingAmbiguities({
           {!days.length && !error && (
             <p className="empty">
               {busy
-                ? 'در حال بارگیری…'
-                : 'صورتحسابی برای این بازه ثبت نشده است.'}
+                ? "در حال بارگیری…"
+                : reports
+                  ? "صورتحسابی برای این بازه ثبت نشده است."
+                  : "روزی با سابقهٔ ابهام برای این فیلتر پیدا نشد."}
             </p>
           )}
           <div className="statement-pagination">
@@ -344,7 +321,7 @@ export function AccountingAmbiguities({
               قبلی
             </button>
             <button
-              disabled={busy || days.length < 25}
+              disabled={busy || days.length <= 25}
               onClick={() => setReportOffset(reportOffset + 25)}
             >
               بعدی
@@ -361,22 +338,22 @@ export function AccountingAmbiguities({
                     disabled={saving || busy}
                     onClick={() => void decide(null, rate.rateAssignmentId!)}
                   >
-                    تأیید یک تمدید · {formatGiB(rate.dataLimitBytes)} ×{' '}
-                    {formatInteger(rate.rateTomanPerGib!)} تومان ={' '}
+                    تأیید یک تمدید · {formatGiB(rate.dataLimitBytes)} ×{" "}
+                    {formatInteger(rate.rateTomanPerGib!)} تومان ={" "}
                     {formatInteger(
                       (BigInt(rate.dataLimitBytes) *
                         BigInt(rate.rateTomanPerGib!) +
                         1073741823n) /
                         1073741824n,
-                    )}{' '}
+                    )}{" "}
                     تومان
                   </button>
                 )}
                 {packages.length > 0 && (
                   <>
-                    {' '}
+                    {" "}
                     <label>
-                      بسته{' '}
+                      بسته{" "}
                       <select
                         value={packageId}
                         onChange={(e) => setPackageId(e.target.value)}
@@ -449,17 +426,17 @@ export function AccountingAmbiguities({
                           <td>
                             <strong>
                               <bdi>
-                                {item.accountName || 'نام کاربری ثبت نشده'}
+                                {item.accountName || "نام کاربری ثبت نشده"}
                               </bdi>
                             </strong>
                             <small>
                               شناسهٔ حساب: {formatInteger(item.accountId)}
                             </small>
                             <small>
-                              {item.action === 'user_updated'
-                                ? 'ویرایش کاربر'
-                                : item.action === 'data_usage_reset'
-                                  ? 'بازنشانی مصرف'
+                              {item.action === "user_updated"
+                                ? "ویرایش کاربر"
+                                : item.action === "data_usage_reset"
+                                  ? "بازنشانی مصرف"
                                   : item.action}
                             </small>
                           </td>
@@ -469,13 +446,13 @@ export function AccountingAmbiguities({
                               <small>{diagnosticText[item.diagnostic]}</small>
                             )}
                             <small>
-                              انجام‌دهنده:{' '}
-                              <bdi>{item.actorName || 'ثبت نشده'}</bdi>
+                              انجام‌دهنده:{" "}
+                              <bdi>{item.actorName || "ثبت نشده"}</bdi>
                             </small>
                           </td>
                           <td>
                             <strong>
-                              <bdi>{item.ownerName || 'نام مدیر ثبت نشده'}</bdi>{' '}
+                              <bdi>{item.ownerName || "نام مدیر ثبت نشده"}</bdi>{" "}
                               ({formatInteger(item.billingAdminId)})
                             </strong>
                             <small>{item.localDay}</small>
@@ -484,7 +461,7 @@ export function AccountingAmbiguities({
                             {formatGiB(item.dataLimitBytes)}
                             <small>
                               {item.durationDays === null
-                                ? 'مدت روزانه در رویداد مشخص نیست'
+                                ? "مدت روزانه در رویداد مشخص نیست"
                                 : `${formatInteger(item.durationDays)} روز`}
                             </small>
                           </td>

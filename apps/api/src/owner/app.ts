@@ -1,4 +1,4 @@
-import "reflect-metadata";
+import 'reflect-metadata';
 import {
   Controller,
   Get,
@@ -10,53 +10,53 @@ import {
   HttpException,
   HttpCode,
   type ArgumentsHost,
-} from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+} from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
   type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
-import type { FastifyRequest, FastifyReply } from "fastify";
-import type { DurableInbox } from "@fair-platform/pasarguard/infrastructure";
-import { z } from "zod";
-import { isValidGregorianDate, parseJalaliDate } from "@fair-platform/calendar";
-import { PricingError } from "@fair-platform/pricing";
+} from '@nestjs/platform-fastify';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { DurableInbox } from '@fair-platform/pasarguard/infrastructure';
+import { z } from 'zod';
+import { isValidGregorianDate, parseJalaliDate } from '@fair-platform/calendar';
+import { PricingError } from '@fair-platform/pricing';
 import {
   DirectoryUnavailable,
   type AdminDirectory,
-} from "./infrastructure/admin-directory.js";
-import type { PricingReader } from "./infrastructure/pricing-store.js";
+} from './infrastructure/admin-directory.js';
+import type { PricingReader } from './infrastructure/pricing-store.js';
 import {
   CatalogError,
   type PostgresCatalogStore,
-} from "./infrastructure/catalog-store.js";
-import type { OwnerAuth } from "./application/auth.js";
-import type { PostgresShadowReader } from "./infrastructure/shadow-reader.js";
-import { STATIC_CATALOG_SHAPES } from "./application/static-catalog-bootstrap.js";
+} from './infrastructure/catalog-store.js';
+import type { OwnerAuth } from './application/auth.js';
+import type { PostgresShadowReader } from './infrastructure/shadow-reader.js';
+import { STATIC_CATALOG_SHAPES } from './application/static-catalog-bootstrap.js';
 import {
   OpeningBaselineBusy,
   OpeningBaselineCutoverLocked,
   type PostgresOpeningBaseline,
-} from "./infrastructure/opening-baseline.js";
+} from './infrastructure/opening-baseline.js';
 import {
   ReplayShadowBusy,
   ReplayShadowNotReady,
   type PostgresReplayShadowJournal,
-} from "./infrastructure/replay-shadow-journal.js";
+} from './infrastructure/replay-shadow-journal.js';
 import {
   ShadowAuditIncomplete,
   ShadowAuditNotFound,
   type PostgresReplayShadowAudit,
-} from "./infrastructure/replay-shadow-audit.js";
+} from './infrastructure/replay-shadow-audit.js';
 import {
   ReceiveWebhook,
   WebhookFailure,
-} from "../modules/webhooks/application/receive-webhook.js";
+} from '../modules/webhooks/application/receive-webhook.js';
 import {
   OwnerOperations,
   type OperationsReader,
-} from "./application/operations.js";
-export const COOKIE = "__Host-fair_owner";
+} from './application/operations.js';
+export const COOKIE = '__Host-fair_owner';
 const decimal = z.string().regex(/^(0|[1-9][0-9]{0,18})$/);
 const positive = z.string().regex(/^[1-9][0-9]{0,18}$/);
 const source = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/);
@@ -72,7 +72,7 @@ const version = z
     sourceInstanceId: source,
     planId: positive.optional(),
     billingAdminId: decimal.optional(),
-    mode: z.enum(["PER_GIB", "FIXED", "MIXED"]),
+    mode: z.enum(['PER_GIB', 'FIXED', 'MIXED']),
     rateTomanPerGiB: positive.nullable(),
     fixedPackages: z
       .record(positive, positive)
@@ -95,7 +95,7 @@ const quoteInput = z
     billingAdminId: decimal,
     occurredAt: stamp,
     billableBytes: positive,
-    purpose: z.enum(["FULL_PACKAGE", "POSITIVE_DELTA"]),
+    purpose: z.enum(['FULL_PACKAGE', 'POSITIVE_DELTA']),
     unlimited: z.boolean().optional(),
   })
   .strict();
@@ -122,7 +122,7 @@ const directoryQuery = z
       .max(64)
       .regex(/^[^\x00-\x1f\x7f]*$/)
       .transform((v) => v.trim())
-      .default(""),
+      .default(''),
     offset: z
       .string()
       .regex(/^(0|[1-9]\d{0,4})$/)
@@ -139,7 +139,7 @@ const directoryQuery = z
 const catalogAssignment = z
   .object({
     sourceInstanceId: source,
-    targetKind: z.enum(["GROUP", "ADMIN"]),
+    targetKind: z.enum(['GROUP', 'ADMIN']),
     targetId: decimal,
     packageId: positive.optional(),
     rateTomanPerGiB: positive.optional(),
@@ -159,14 +159,14 @@ const shadowQuery = z
     admin: decimal.optional(),
     reason: z
       .enum([
-        "DURATION_CONFLICT",
-        "MISSING_DURATION",
-        "PRICING_MISSING",
-        "UNEXPECTED_UNLIMITED",
-        "AMBIGUOUS_CORRELATION",
-        "AMBIGUOUS_CORRECTION",
-        "PRICING_CONFIG_CONFLICT",
-        "LATE_EVENT_AFTER_CLOSE",
+        'DURATION_CONFLICT',
+        'MISSING_DURATION',
+        'PRICING_MISSING',
+        'UNEXPECTED_UNLIMITED',
+        'AMBIGUOUS_CORRELATION',
+        'AMBIGUOUS_CORRECTION',
+        'PRICING_CONFIG_CONFLICT',
+        'LATE_EVENT_AFTER_CLOSE',
       ])
       .optional(),
     date: z
@@ -181,7 +181,7 @@ const auditDate = z
   .string()
   .regex(/^\d{4}-\d\d-\d\d$/)
   .refine((date) => {
-    const [year, month, day] = date.split("-").map(Number);
+    const [year, month, day] = date.split('-').map(Number);
     if (isValidGregorianDate({ year: year!, month: month!, day: day! }))
       return true;
     try {
@@ -202,9 +202,9 @@ const auditQuery = z
       .regex(/^[A-Z_]{2,64}$/)
       .optional(),
     kind: z
-      .enum(["CREATE", "UPDATE_INCREASE", "RENEWAL", "RESET", "DELETE_CREDIT"])
+      .enum(['CREATE', 'UPDATE_INCREASE', 'RENEWAL', 'RESET', 'DELETE_CREDIT'])
       .optional(),
-    period: z.enum(["day", "week", "month"]).optional(),
+    period: z.enum(['day', 'week', 'month']).optional(),
     search: z
       .string()
       .max(64)
@@ -217,7 +217,7 @@ const auditQuery = z
   .refine((v) => !v.from || !v.to || v.from <= v.to);
 // One exact Owner-supplied legacy export; never a second live webhook source.
 const REPLAY_SHA256 =
-  "fa845d0a2276e65ff7ca4c77fc253c289309541ed3367d752ab3ee4af190e242";
+  'fa845d0a2276e65ff7ca4c77fc253c289309541ed3367d752ab3ee4af190e242';
 const replayRecords = z
   .object({
     records: z
@@ -239,7 +239,7 @@ const replayRecords = z
 export function sessionToken(cookie: string | undefined): string | null {
   const matches =
     cookie
-      ?.split(";")
+      ?.split(';')
       .map((v) => v.trim())
       .filter((v) => v.startsWith(`${COOKIE}=`)) ?? [];
   return matches.length === 1 ? matches[0]!.slice(COOKIE.length + 1) : null;
@@ -262,11 +262,11 @@ export async function createOwnerApi(
   const operations = new OwnerOperations(reader);
   async function requireOwner(req: FastifyRequest) {
     if (!(await auth.authenticated(sessionToken(req.headers.cookie))))
-      throw new HttpException("Unauthorized", 401);
+      throw new HttpException('Unauthorized', 401);
   }
   function input<T>(schema: z.ZodType<T>, raw: unknown): T {
     const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new HttpException("Invalid request", 400);
+    if (!parsed.success) throw new HttpException('Invalid request', 400);
     return parsed.data;
   }
   async function priceWrite<T>(
@@ -276,31 +276,31 @@ export async function createOwnerApi(
   ) {
     csrf(req);
     await requireOwner(req);
-    if (!pricing) throw new HttpException("Unavailable", 503);
+    if (!pricing) throw new HttpException('Unavailable', 503);
     try {
       return await fn(input(schema, req.body));
     } catch (e) {
       if (e instanceof PricingError)
         throw new HttpException(
           e.code,
-          e.code === "PRICING_MISSING" ? 422 : 400,
+          e.code === 'PRICING_MISSING' ? 422 : 400,
         );
       if (e instanceof CatalogError)
         throw new HttpException(
           e.code,
-          e.code === "CATALOG_NOT_FOUND" ? 404 : 409,
+          e.code === 'CATALOG_NOT_FOUND' ? 404 : 409,
         );
       if (e instanceof RangeError)
-        throw new HttpException("Invalid calendar date or timezone", 400);
-      if (e instanceof Error && e.message === "ASSIGNMENT_CLOSED_PERIOD")
-        throw new HttpException("ASSIGNMENT_CLOSED_PERIOD", 409);
+        throw new HttpException('Invalid calendar date or timezone', 400);
+      if (e instanceof Error && e.message === 'ASSIGNMENT_CLOSED_PERIOD')
+        throw new HttpException('ASSIGNMENT_CLOSED_PERIOD', 409);
       if (
-        typeof e === "object" &&
+        typeof e === 'object' &&
         e !== null &&
-        "code" in e &&
-        ["23P01", "23505", "23503", "23514", "22003"].includes(String(e.code))
+        'code' in e &&
+        ['23P01', '23505', '23503', '23514', '22003'].includes(String(e.code))
       )
-        throw new HttpException("Pricing conflict or invalid reference", 409);
+        throw new HttpException('Pricing conflict or invalid reference', 409);
       throw e;
     }
   }
@@ -309,27 +309,27 @@ export async function createOwnerApi(
   function csrf(req: FastifyRequest) {
     if (
       req.headers.origin !== origin ||
-      req.headers["x-fair-csrf"] !== "1" ||
-      !req.headers["content-type"]?.startsWith("application/json")
+      req.headers['x-fair-csrf'] !== '1' ||
+      !req.headers['content-type']?.startsWith('application/json')
     )
-      throw new HttpException("Forbidden", 403);
+      throw new HttpException('Forbidden', 403);
   }
   const cookie = (token: string, maxAge: number) =>
     `${COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`;
-  @Controller("api/v1/owner")
+  @Controller('api/v1/owner')
   class OwnerController {
-    @Post("settings/webhook/credential") async webhookCredential(
+    @Post('settings/webhook/credential') async webhookCredential(
       @Req() req: FastifyRequest,
       @Res({ passthrough: true }) reply: FastifyReply,
     ) {
       csrf(req);
       await requireOwner(req);
-      reply.header("Cache-Control", "no-store");
+      reply.header('Cache-Control', 'no-store');
       if (!webhook || !webhookSecret)
-        throw new HttpException("Webhook is not configured", 503);
+        throw new HttpException('Webhook is not configured', 503);
       return { secret: webhookSecret };
     }
-    @Post("auth/login") async login(
+    @Post('auth/login') async login(
       @Req() req: FastifyRequest,
       @Res({ passthrough: true }) reply: FastifyReply,
     ) {
@@ -338,32 +338,32 @@ export async function createOwnerApi(
         .object({ password: z.string().min(1).max(1024) })
         .strict()
         .safeParse(req.body);
-      if (!input.success) throw new HttpException("Invalid request", 400);
+      if (!input.success) throw new HttpException('Invalid request', 400);
       const result = await auth.login(
         input.data.password,
         sessionToken(req.headers.cookie),
       );
-      if (result.kind !== "ok") {
-        if (result.kind === "limited") reply.header("Retry-After", "60");
+      if (result.kind !== 'ok') {
+        if (result.kind === 'limited') reply.header('Retry-After', '60');
         throw new HttpException(
-          "Invalid credentials",
-          result.kind === "limited" ? 429 : 401,
+          'Invalid credentials',
+          result.kind === 'limited' ? 429 : 401,
         );
       }
-      reply.header("Set-Cookie", cookie(result.token, 43200));
+      reply.header('Set-Cookie', cookie(result.token, 43200));
       return { authenticated: true };
     }
-    @Post("auth/logout") async logout(
+    @Post('auth/logout') async logout(
       @Req() req: FastifyRequest,
       @Res({ passthrough: true }) reply: FastifyReply,
     ) {
       csrf(req);
       await requireOwner(req);
       await auth.logout(sessionToken(req.headers.cookie));
-      reply.header("Set-Cookie", cookie("", 0));
+      reply.header('Set-Cookie', cookie('', 0));
       return { authenticated: false };
     }
-    @Post("auth/change-password") async changePassword(
+    @Post('auth/change-password') async changePassword(
       @Req() req: FastifyRequest,
       @Res({ passthrough: true }) reply: FastifyReply,
     ) {
@@ -380,32 +380,32 @@ export async function createOwnerApi(
         })
         .strict()
         .safeParse(req.body);
-      if (!input.success) throw new HttpException("Invalid request", 400);
+      if (!input.success) throw new HttpException('Invalid request', 400);
       if (input.data.currentPassword === input.data.newPassword)
-        throw new HttpException("Invalid request", 400);
+        throw new HttpException('Invalid request', 400);
       const result = await auth.changePassword(
         input.data.currentPassword,
         input.data.newPassword,
         sessionToken(req.headers.cookie),
       );
-      if (result !== "ok") {
-        if (result === "limited") reply.header("Retry-After", "60");
+      if (result !== 'ok') {
+        if (result === 'limited') reply.header('Retry-After', '60');
         throw new HttpException(
-          "Invalid credentials",
-          result === "limited" ? 429 : 401,
+          'Invalid credentials',
+          result === 'limited' ? 429 : 401,
         );
       }
-      reply.header("Set-Cookie", cookie("", 0));
+      reply.header('Set-Cookie', cookie('', 0));
       return { changed: true };
     }
-    @Get("auth/session") async session(@Req() req: FastifyRequest) {
+    @Get('auth/session') async session(@Req() req: FastifyRequest) {
       await requireOwner(req);
       return {
         authenticated: true,
-        mode: "STAGING / AUTHENTICATED SHADOW TEST / NO LIVE BILLING",
+        mode: 'STAGING / AUTHENTICATED SHADOW TEST / NO LIVE BILLING',
       };
     }
-    async read(kind: "summary" | "events" | "issues", req: FastifyRequest) {
+    async read(kind: 'summary' | 'events' | 'issues', req: FastifyRequest) {
       await requireOwner(req);
       try {
         return await operations.read(kind, req.query);
@@ -414,70 +414,70 @@ export async function createOwnerApi(
           e instanceof z.ZodError ||
           e instanceof SyntaxError ||
           (e instanceof Error &&
-            ["INVALID_FILTER", "INVALID_CURSOR", "INVALID_RANGE"].includes(
+            ['INVALID_FILTER', 'INVALID_CURSOR', 'INVALID_RANGE'].includes(
               e.message,
             ))
         )
-          throw new HttpException("Invalid filter", 400);
+          throw new HttpException('Invalid filter', 400);
         throw e;
       }
     }
-    @Get("operations/summary") summary(@Req() req: FastifyRequest) {
-      return this.read("summary", req);
+    @Get('operations/summary') summary(@Req() req: FastifyRequest) {
+      return this.read('summary', req);
     }
-    @Get("operations/events") events(@Req() req: FastifyRequest) {
-      return this.read("events", req);
+    @Get('operations/events') events(@Req() req: FastifyRequest) {
+      return this.read('events', req);
     }
-    @Get("operations/issues") issues(@Req() req: FastifyRequest) {
-      return this.read("issues", req);
+    @Get('operations/issues') issues(@Req() req: FastifyRequest) {
+      return this.read('issues', req);
     }
-    @Get("operations/accounting/summary") async accountingSummary(
+    @Get('operations/accounting/summary') async accountingSummary(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       const q = input(
         z.object({ source: source.optional() }).strict(),
         req.query,
       );
       return shadow.summary(q.source ?? null);
     }
-    @Get("operations/accounting/replay-preview") async accountingReplayPreview(
+    @Get('operations/accounting/replay-preview') async accountingReplayPreview(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       input(z.object({}).strict(), req.query);
       return shadow.replayPreview();
     }
-    @Get("operations/accounting/opening-baseline") async openingBaselineStatus(
+    @Get('operations/accounting/opening-baseline') async openingBaselineStatus(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
       input(z.object({}).strict(), req.query);
       if (!openingBaseline)
-        throw new HttpException("OPENING_BASELINE_UNAVAILABLE", 503);
+        throw new HttpException('OPENING_BASELINE_UNAVAILABLE', 503);
       return openingBaseline.summary();
     }
-    @Post("operations/accounting/opening-baseline") async startOpeningBaseline(
+    @Post('operations/accounting/opening-baseline') async startOpeningBaseline(
       @Req() req: FastifyRequest,
     ) {
       csrf(req);
       await requireOwner(req);
       input(z.object({}).strict(), req.body);
       if (!openingBaseline)
-        throw new HttpException("OPENING_BASELINE_UNAVAILABLE", 503);
+        throw new HttpException('OPENING_BASELINE_UNAVAILABLE', 503);
       try {
         return await openingBaseline.start();
       } catch (error) {
         if (error instanceof OpeningBaselineBusy)
-          throw new HttpException("OPENING_BASELINE_ALREADY_RUNNING", 409);
+          throw new HttpException('OPENING_BASELINE_ALREADY_RUNNING', 409);
         if (error instanceof OpeningBaselineCutoverLocked)
-          throw new HttpException("OPENING_BASELINE_CUTOVER_LOCKED", 409);
+          throw new HttpException('OPENING_BASELINE_CUTOVER_LOCKED', 409);
         throw error;
       }
     }
-    @Post("operations/accounting/opening-baseline/reseed")
+    @Post('operations/accounting/opening-baseline/reseed')
     async reseedOpeningBaseline(@Req() req: FastifyRequest) {
       csrf(req);
       await requireOwner(req);
@@ -486,75 +486,75 @@ export async function createOwnerApi(
         req.body,
       );
       if (!openingBaseline)
-        throw new HttpException("OPENING_BASELINE_UNAVAILABLE", 503);
+        throw new HttpException('OPENING_BASELINE_UNAVAILABLE', 503);
       try {
         return await openingBaseline.start(request.requestKey);
       } catch (error) {
         if (error instanceof OpeningBaselineBusy)
-          throw new HttpException("OPENING_BASELINE_ALREADY_RUNNING", 409);
+          throw new HttpException('OPENING_BASELINE_ALREADY_RUNNING', 409);
         if (error instanceof OpeningBaselineCutoverLocked)
-          throw new HttpException("OPENING_BASELINE_CUTOVER_LOCKED", 409);
+          throw new HttpException('OPENING_BASELINE_CUTOVER_LOCKED', 409);
         throw error;
       }
     }
-    @Get("operations/accounting/replay-shadow") async replayShadowStatus(
+    @Get('operations/accounting/replay-shadow') async replayShadowStatus(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
       input(z.object({}).strict(), req.query);
       if (!replayShadow)
-        throw new HttpException("REPLAY_SHADOW_UNAVAILABLE", 503);
+        throw new HttpException('REPLAY_SHADOW_UNAVAILABLE', 503);
       return replayShadow.summary();
     }
-    @Get("operations/accounting/replay-shadow/audit/:view")
+    @Get('operations/accounting/replay-shadow/audit/:view')
     async replayShadowAudit(
       @Req() req: FastifyRequest,
       @Res({ passthrough: true }) reply: FastifyReply,
-      @Param("view") view: string,
+      @Param('view') view: string,
     ) {
       await requireOwner(req);
       const q = input(auditQuery, req.query);
       if (!replayAudit)
-        throw new HttpException("SHADOW_AUDIT_UNAVAILABLE", 503);
-      reply.header("Vary", "Cookie");
+        throw new HttpException('SHADOW_AUDIT_UNAVAILABLE', 503);
+      reply.header('Vary', 'Cookie');
       try {
         switch (view) {
-          case "overview":
+          case 'overview':
             return await replayAudit.overview(q.runId);
-          case "admins":
+          case 'admins':
             return await replayAudit.admins(q);
-          case "periods":
-            return await replayAudit.periods(q, q.period ?? "day");
-          case "entries":
+          case 'periods':
+            return await replayAudit.periods(q, q.period ?? 'day');
+          case 'entries':
             return await replayAudit.entries(q);
-          case "holds":
+          case 'holds':
             return await replayAudit.holds(q);
-          case "manual":
+          case 'manual':
             return await replayAudit.holds(q, true);
-          case "candidates":
+          case 'candidates':
             return await replayAudit.candidates(q);
-          case "ignored":
+          case 'ignored':
             return await replayAudit.ignored(q);
           default:
-            throw new HttpException("Not found", 404);
+            throw new HttpException('Not found', 404);
         }
       } catch (error) {
         if (error instanceof ShadowAuditNotFound)
-          throw new HttpException("SHADOW_AUDIT_RUN_NOT_FOUND", 404);
+          throw new HttpException('SHADOW_AUDIT_RUN_NOT_FOUND', 404);
         if (error instanceof ShadowAuditIncomplete)
-          throw new HttpException("SHADOW_AUDIT_RUN_NOT_COMPLETE", 409);
+          throw new HttpException('SHADOW_AUDIT_RUN_NOT_COMPLETE', 409);
         if (error instanceof RangeError)
-          throw new HttpException("Invalid report range", 400);
+          throw new HttpException('Invalid report range', 400);
         if (
           error instanceof Error &&
-          (error.message === "HISTORICAL_CATALOG_UNAVAILABLE" ||
-            error.message === "SHADOW_AUDIT_ARCHIVE_DRIFT")
+          (error.message === 'HISTORICAL_CATALOG_UNAVAILABLE' ||
+            error.message === 'SHADOW_AUDIT_ARCHIVE_DRIFT')
         )
-          throw new HttpException("SHADOW_AUDIT_INTEGRITY_BLOCKED", 409);
+          throw new HttpException('SHADOW_AUDIT_INTEGRITY_BLOCKED', 409);
         throw error;
       }
     }
-    @Post("operations/accounting/replay-shadow") async replayShadowStart(
+    @Post('operations/accounting/replay-shadow') async replayShadowStart(
       @Req() req: FastifyRequest,
     ) {
       csrf(req);
@@ -569,35 +569,35 @@ export async function createOwnerApi(
         req.body,
       );
       if (!replayShadow)
-        throw new HttpException("REPLAY_SHADOW_UNAVAILABLE", 503);
+        throw new HttpException('REPLAY_SHADOW_UNAVAILABLE', 503);
       try {
         return request.rerunOf
           ? await replayShadow.rerun(request.requestKey, request.rerunOf)
           : await replayShadow.start(request.requestKey);
       } catch (error) {
         if (error instanceof ReplayShadowBusy)
-          throw new HttpException("REPLAY_SHADOW_ALREADY_RUNNING", 409);
+          throw new HttpException('REPLAY_SHADOW_ALREADY_RUNNING', 409);
         if (error instanceof ReplayShadowNotReady)
           throw new HttpException(
-            "REPLAY_SHADOW_CONFIGURATION_INCOMPLETE",
+            'REPLAY_SHADOW_CONFIGURATION_INCOMPLETE',
             409,
           );
         throw error;
       }
     }
-    @Get("operations/accounting/replay-update-reset-preview")
+    @Get('operations/accounting/replay-update-reset-preview')
     async accountingReplayUpdateResetPreview(@Req() req: FastifyRequest) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       input(z.object({}).strict(), req.query);
       return shadow.replayUpdateResetPreview();
     }
-    @Post("operations/accounting/review") async reviewShadow(
+    @Post('operations/accounting/review') async reviewShadow(
       @Req() req: FastifyRequest,
     ) {
       csrf(req);
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       const q = input(
         z
           .object({
@@ -617,14 +617,14 @@ export async function createOwnerApi(
           q.rateAssignmentId,
         ))
       )
-        throw new HttpException("SHADOW_REVIEW_CONFLICT", 409);
+        throw new HttpException('SHADOW_REVIEW_CONFLICT', 409);
       return { saved: true };
     }
-    @Get("operations/accounting/reports") async liveReport(
+    @Get('operations/accounting/reports') async liveReport(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       const date = z.string().refine((value) => {
         try {
           parseJalaliDate(value);
@@ -638,15 +638,15 @@ export async function createOwnerApi(
           .pick({ admin: true, offset: true, limit: true })
           .extend({
             view: z.enum([
-              "admins",
-              "day",
-              "week",
-              "month",
-              "transactions",
-              "ambiguities",
-              "manual",
-              "blocked",
-              "nonfinancial",
+              'admins',
+              'day',
+              'week',
+              'month',
+              'transactions',
+              'ambiguities',
+              'manual',
+              'blocked',
+              'nonfinancial',
             ]),
             search: z.string().max(64).optional(),
             reason: shadowQuery.shape.reason,
@@ -659,14 +659,14 @@ export async function createOwnerApi(
       );
       return shadow.liveReport(query);
     }
-    @Get("operations/accounting/days") async shadowDays(
+    @Get('operations/accounting/days') async shadowDays(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       const q = input(
         shadowQuery.extend({
-          period: z.enum(["day", "week", "month"]).default("day"),
+          period: z.enum(['day', 'week', 'month']).default('day'),
         }),
         req.query,
       );
@@ -682,11 +682,11 @@ export async function createOwnerApi(
         q.period,
       );
     }
-    @Get("operations/accounting/ambiguity-days") async shadowAmbiguityDays(
+    @Get('operations/accounting/ambiguity-days') async shadowAmbiguityDays(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       const q = input(shadowQuery, req.query);
       return shadow.ambiguityDays({
         source: q.source ?? null,
@@ -697,11 +697,11 @@ export async function createOwnerApi(
         offset: q.offset,
       });
     }
-    @Get("operations/accounting/ambiguities") async accountingAmbiguities(
+    @Get('operations/accounting/ambiguities') async accountingAmbiguities(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!shadow) throw new HttpException("Unavailable", 503);
+      if (!shadow) throw new HttpException('Unavailable', 503);
       const q = input(shadowQuery, req.query);
       return shadow.ambiguities({
         source: q.source ?? null,
@@ -712,64 +712,64 @@ export async function createOwnerApi(
         offset: q.offset,
       });
     }
-    @Get("directory/admins") async directoryAdmins(@Req() req: FastifyRequest) {
+    @Get('directory/admins') async directoryAdmins(@Req() req: FastifyRequest) {
       await requireOwner(req);
       const query = input(directoryQuery, req.query);
-      if (!directory) throw new HttpException("DIRECTORY_UNAVAILABLE", 503);
+      if (!directory) throw new HttpException('DIRECTORY_UNAVAILABLE', 503);
       try {
         return await directory.list(query);
       } catch (error) {
         if (error instanceof DirectoryUnavailable)
-          throw new HttpException("DIRECTORY_UNAVAILABLE", 503);
+          throw new HttpException('DIRECTORY_UNAVAILABLE', 503);
         throw error;
       }
     }
-    @Get("pricing/config") async pricingConfig(@Req() req: FastifyRequest) {
+    @Get('pricing/config') async pricingConfig(@Req() req: FastifyRequest) {
       await requireOwner(req);
-      if (!pricing) throw new HttpException("Unavailable", 503);
+      if (!pricing) throw new HttpException('Unavailable', 503);
       const q = input(z.object({ source: source }).strict(), req.query);
       return pricing.list(q.source);
     }
-    @Post("pricing/plans") pricingPlan(@Req() req: FastifyRequest) {
+    @Post('pricing/plans') pricingPlan(@Req() req: FastifyRequest) {
       return priceWrite(req, plan, (v) => pricing!.createPlan(v));
     }
-    @Post("pricing/versions") pricingVersion(@Req() req: FastifyRequest) {
+    @Post('pricing/versions') pricingVersion(@Req() req: FastifyRequest) {
       return priceWrite(req, version, (v) => pricing!.createVersion(v));
     }
-    @Post("pricing/assignments") pricingAssignment(@Req() req: FastifyRequest) {
+    @Post('pricing/assignments') pricingAssignment(@Req() req: FastifyRequest) {
       return priceWrite(req, assignment, (v) => pricing!.assign(v));
     }
-    @Post("pricing/quote")
+    @Post('pricing/quote')
     @HttpCode(200)
     pricingQuote(@Req() req: FastifyRequest) {
       return priceWrite(req, quoteInput, (v) => pricing!.quote(v));
     }
-    @Get("catalog/config") async catalogConfig(@Req() req: FastifyRequest) {
+    @Get('catalog/config') async catalogConfig(@Req() req: FastifyRequest) {
       await requireOwner(req);
-      if (!catalog) throw new HttpException("Unavailable", 503);
+      if (!catalog) throw new HttpException('Unavailable', 503);
       const q = input(z.object({ source }).strict(), req.query);
       return catalog.list(q.source);
     }
-    @Get("catalog/bootstrap/requirements") async catalogBootstrapRequirements(
+    @Get('catalog/bootstrap/requirements') async catalogBootstrapRequirements(
       @Req() req: FastifyRequest,
     ) {
       await requireOwner(req);
-      if (!catalog || !directory) throw new HttpException("Unavailable", 503);
+      if (!catalog || !directory) throw new HttpException('Unavailable', 503);
       input(z.object({}).strict(), req.query);
       return {
-        sourceInstanceId: "primary",
+        sourceInstanceId: 'primary',
         expectedAdmins: 153,
         packages: STATIC_CATALOG_SHAPES,
         pricesRequired: true,
-        postingScope: "NONE",
+        postingScope: 'NONE',
       };
     }
-    @Post("catalog/bootstrap") catalogBootstrap(@Req() req: FastifyRequest) {
+    @Post('catalog/bootstrap') catalogBootstrap(@Req() req: FastifyRequest) {
       return priceWrite(
         req,
         z
           .object({
-            confirmation: z.literal("CONFIRM_25_PACKAGES_153_ADMINS"),
+            confirmation: z.literal('CONFIRM_25_PACKAGES_153_ADMINS'),
             prices: z
               .array(
                 z
@@ -784,12 +784,12 @@ export async function createOwnerApi(
           .strict(),
         async (v) => {
           if (!catalog || !directory)
-            throw new HttpException("Unavailable", 503);
+            throw new HttpException('Unavailable', 503);
           const admins: string[] = [];
           try {
             for (const offset of [0, 50, 100, 150]) {
               const page = await directory.list({
-                search: "",
+                search: '',
                 offset,
                 limit: 50,
               });
@@ -803,10 +803,10 @@ export async function createOwnerApi(
               admins.push(...page.admins.map(({ id }) => id));
             }
           } catch {
-            throw new HttpException("DIRECTORY_UNAVAILABLE_OR_CHANGED", 503);
+            throw new HttpException('DIRECTORY_UNAVAILABLE_OR_CHANGED', 503);
           }
           if (new Set(admins).size !== 153)
-            throw new HttpException("DIRECTORY_UNAVAILABLE_OR_CHANGED", 503);
+            throw new HttpException('DIRECTORY_UNAVAILABLE_OR_CHANGED', 503);
           return catalog.bootstrapStaticCatalog({
             prices: v.prices,
             adminIds: admins,
@@ -814,7 +814,7 @@ export async function createOwnerApi(
         },
       );
     }
-    @Post("catalog/groups") catalogGroup(@Req() req: FastifyRequest) {
+    @Post('catalog/groups') catalogGroup(@Req() req: FastifyRequest) {
       return priceWrite(
         req,
         z
@@ -826,7 +826,7 @@ export async function createOwnerApi(
         (v) => catalog!.createGroup(v),
       );
     }
-    @Post("catalog/groups/delete") catalogDeleteGroup(
+    @Post('catalog/groups/delete') catalogDeleteGroup(
       @Req() req: FastifyRequest,
     ) {
       return priceWrite(
@@ -835,7 +835,7 @@ export async function createOwnerApi(
         (v) => catalog!.deleteGroup(v),
       );
     }
-    @Post("catalog/memberships/bulk") addMembers(@Req() req: FastifyRequest) {
+    @Post('catalog/memberships/bulk') addMembers(@Req() req: FastifyRequest) {
       return priceWrite(
         req,
         z
@@ -849,15 +849,15 @@ export async function createOwnerApi(
           catalog!.addMembers(v.sourceInstanceId, v.groupId, v.billingAdminIds),
       );
     }
-    @Post("catalog/memberships") catalogMembership(@Req() req: FastifyRequest) {
+    @Post('catalog/memberships') catalogMembership(@Req() req: FastifyRequest) {
       return priceWrite(req, catalogMembership, (v) =>
         catalog!.changeMembership(v),
       );
     }
-    @Post("catalog/packages") catalogCreatePackage(@Req() req: FastifyRequest) {
+    @Post('catalog/packages') catalogCreatePackage(@Req() req: FastifyRequest) {
       return priceWrite(req, catalogPackage, (v) => catalog!.createPackage(v));
     }
-    @Post("catalog/packages/edit") catalogEditPackage(
+    @Post('catalog/packages/edit') catalogEditPackage(
       @Req() req: FastifyRequest,
     ) {
       return priceWrite(
@@ -866,7 +866,7 @@ export async function createOwnerApi(
         (v) => catalog!.editPackage(v),
       );
     }
-    @Post("catalog/packages/copy") catalogCopyPackage(
+    @Post('catalog/packages/copy') catalogCopyPackage(
       @Req() req: FastifyRequest,
     ) {
       return priceWrite(
@@ -882,10 +882,10 @@ export async function createOwnerApi(
         (v) => catalog!.copyPackage(v),
       );
     }
-    @Post("catalog/assignments") catalogAssign(@Req() req: FastifyRequest) {
+    @Post('catalog/assignments') catalogAssign(@Req() req: FastifyRequest) {
       return priceWrite(req, catalogAssignment, (v) => catalog!.assign(v));
     }
-    @Post("catalog/assignments/end") catalogChangeEnd(
+    @Post('catalog/assignments/end') catalogChangeEnd(
       @Req() req: FastifyRequest,
     ) {
       return priceWrite(
@@ -904,17 +904,17 @@ export async function createOwnerApi(
       );
     }
   }
-  @Controller("api/v1/owner/webhook")
+  @Controller('api/v1/owner/webhook')
   class ShadowWebhookController {
-    @Post("pasarguard")
+    @Post('pasarguard')
     @HttpCode(202)
     async accept(@Req() req: FastifyRequest) {
-      if (req.headers["x-fair-replay-import"] !== undefined) {
+      if (req.headers['x-fair-replay-import'] !== undefined) {
         csrf(req);
         await requireOwner(req);
-        if (!replayInbox) throw new HttpException("Unavailable", 503);
-        if (req.headers["x-fair-replay-import"] !== REPLAY_SHA256)
-          throw new HttpException("Replay archive mismatch", 400);
+        if (!replayInbox) throw new HttpException('Unavailable', 503);
+        if (req.headers['x-fair-replay-import'] !== REPLAY_SHA256)
+          throw new HttpException('Replay archive mismatch', 400);
         const data = input(replayRecords, req.body);
         // Validate all timestamps before writing any batch in this request.
         const dates = data.records.map((r) => new Date(r.receivedAt));
@@ -922,39 +922,39 @@ export async function createOwnerApi(
           dates.some(
             (d) =>
               !Number.isFinite(d.getTime()) ||
-              d.getTime() < Date.parse("2026-10-21T00:00:00Z") ||
-              d.getTime() > Date.parse("2026-11-21T00:00:00Z"),
+              d.getTime() < Date.parse('2026-10-21T00:00:00Z') ||
+              d.getTime() > Date.parse('2026-11-21T00:00:00Z'),
           )
         )
-          throw new HttpException("Replay date outside approved window", 400);
+          throw new HttpException('Replay date outside approved window', 400);
         for (let i = 0; i < data.records.length; i++)
           await replayInbox.receive(data.records[i]!.payload, dates[i]);
         return { accepted: data.records.length };
       }
       // This is NOT an Owner session endpoint: a distinct long random secret
       // authenticates the upstream source. Never permit an unauthenticated bypass.
-      if (!webhook) throw new HttpException("Unavailable", 503);
+      if (!webhook) throw new HttpException('Unavailable', 503);
       try {
         await webhook.execute(req.body, { headers: req.headers }, new Date());
       } catch (error) {
         if (error instanceof WebhookFailure)
-          throw new HttpException("Webhook rejected", error.status);
+          throw new HttpException('Webhook rejected', error.status);
         throw error;
       }
       return { accepted: true };
     }
   }
-  @Controller("health")
+  @Controller('health')
   class HealthController {
-    @Get("live") live() {
+    @Get('live') live() {
       return { ok: true };
     }
-    @Get("ready") async ready() {
+    @Get('ready') async ready() {
       try {
         await reader.ready();
         return { ok: true };
       } catch {
-        throw new HttpException("Unavailable", 503);
+        throw new HttpException('Unavailable', 503);
       }
     }
   }
@@ -975,9 +975,9 @@ export async function createOwnerApi(
   app
     .getHttpAdapter()
     .getInstance()
-    .addHook("onSend", (_req, reply, payload, done) => {
-      reply.header("Cache-Control", "no-store");
-      reply.header("X-Content-Type-Options", "nosniff");
+    .addHook('onSend', (_req, reply, payload, done) => {
+      reply.header('Cache-Control', 'no-store');
+      reply.header('X-Content-Type-Options', 'nosniff');
       done(null, payload);
     });
   app.useGlobalFilters({
@@ -991,13 +991,13 @@ export async function createOwnerApi(
           statusCode: status,
           message:
             status === 401
-              ? "Invalid credentials or session"
+              ? 'Invalid credentials or session'
               : status === 429
-                ? "Try again later"
+                ? 'Try again later'
                 : e instanceof HttpException &&
-                    e.getResponse() === "DIRECTORY_UNAVAILABLE"
-                  ? "DIRECTORY_UNAVAILABLE"
-                  : "Request failed",
+                    e.getResponse() === 'DIRECTORY_UNAVAILABLE'
+                  ? 'DIRECTORY_UNAVAILABLE'
+                  : 'Request failed',
         });
     },
   });

@@ -18,13 +18,6 @@ const diagnosticText: Record<string, string> = {
   CHECK_CLOSE_PAIR:
     'یک ویرایش و یک ریست در بازه پیدا شد. علت دقیق در ثبت قدیمی ذخیره نشده است.',
 };
-interface Summary {
-  closedDays: string;
-  pendingDays: string;
-  ambiguityCount: string;
-  chargeCount: string;
-  lateCount: string;
-}
 interface Case {
   eventId: string;
   accountId: string;
@@ -76,7 +69,6 @@ export function AccountingAmbiguities({
   const [period, setPeriod] = useState('day');
   const [reportOffset, setReportOffset] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [page, setPage] = useState<Page>({ rows: [], nextOffset: null });
   const [selected, setSelected] = useState<string[]>([]);
   const [packageId, setPackageId] = useState('');
@@ -85,6 +77,7 @@ export function AccountingAmbiguities({
     {
       source: string;
       admin: string;
+      ownerName?: string | null;
       day: string;
       amountToman: string;
       soldBytes: string;
@@ -107,20 +100,14 @@ export function AccountingAmbiguities({
       offset: String(offset),
       limit: '25',
     });
-    const counts = new URLSearchParams(
-      applied.source ? { source: applied.source } : {},
-    );
     void Promise.all([
-      reports
-        ? null
-        : get<Summary>(`/api/v1/owner/operations/accounting/summary?${counts}`),
       reports
         ? { rows: [], nextOffset: null }
         : get<Page>(
             `/api/v1/owner/operations/accounting/ambiguities?${params}`,
           ),
       get<typeof days>(
-        `/api/v1/owner/operations/accounting/days?${new URLSearchParams({ ...Object.fromEntries(params), period, offset: String(reportOffset) })}`,
+        `/api/v1/owner/operations/accounting/${reports ? 'days' : 'ambiguity-days'}?${new URLSearchParams({ ...Object.fromEntries(params), ...(reports ? { period } : {}), limit: '26', offset: String(reportOffset) })}`,
       ),
       reports
         ? { packages: [] }
@@ -128,11 +115,10 @@ export function AccountingAmbiguities({
             `/api/v1/owner/catalog/config?source=${encodeURIComponent(applied.source || 'primary')}`,
           ),
     ])
-      .then(([s, p, daily, catalog]) => {
+      .then(([p, daily, catalog]) => {
         if (active) {
           setDays(daily);
           setPackages(catalog.packages);
-          setSummary(s);
           setPage(p);
         }
       })
@@ -256,43 +242,28 @@ export function AccountingAmbiguities({
             {error}
           </div>
         )}
-        {!reports && (
-          <div className="kpis">
-            {(
-              [
-                ['روزهای پردازش‌شده', summary?.closedDays],
-                ['روزهای متوقف‌شده', summary?.pendingDays],
-                ['ابهامات شبانه', summary?.ambiguityCount],
-                ['رویدادهای دیرهنگام', summary?.lateCount],
-              ] as [string, string | undefined][]
-            ).map(([title, value]) => (
-              <section className="kpi" key={title}>
-                <h2>{title}</h2>
-                <p className="number">
-                  {busy ? '…' : value ? formatInteger(value) : '—'}
-                </p>
-              </section>
-            ))}
-          </div>
-        )}
         <section className="table-card statement-card">
           <div className="section-heading">
-            <h2>صورتحساب وبهوک</h2>
-            <label>
-              بازه{' '}
-              <select
-                aria-label="بازه"
-                value={period}
-                onChange={(e) => {
-                  setPeriod(e.target.value);
-                  setReportOffset(0);
-                }}
-              >
-                <option value="day">روزانه</option>
-                <option value="week">هفتگی</option>
-                <option value="month">ماهانه</option>
-              </select>
-            </label>
+            <h2>
+              {reports ? 'صورتحساب وبهوک' : 'خلاصهٔ روزهای دارای سابقهٔ ابهام'}
+            </h2>
+            {reports && (
+              <label>
+                بازه{' '}
+                <select
+                  aria-label="بازه"
+                  value={period}
+                  onChange={(e) => {
+                    setPeriod(e.target.value);
+                    setReportOffset(0);
+                  }}
+                >
+                  <option value="day">روزانه</option>
+                  <option value="week">هفتگی</option>
+                  <option value="month">ماهانه</option>
+                </select>
+              </label>
+            )}
           </div>
           <div className="table-scroll">
             <table>
@@ -302,27 +273,31 @@ export function AccountingAmbiguities({
                   <th>مدیر</th>
                   <th>حجم تأییدشده</th>
                   <th>مبلغ (تومان)</th>
-                  <th>جمع مدیران انتخاب‌شده در بازه</th>
+                  {reports && <th>جمع مدیران انتخاب‌شده در بازه</th>}
                   <th>وضعیت</th>
                 </tr>
               </thead>
               <tbody>
-                {days.map((d) => (
+                {days.slice(0, 25).map((d) => (
                   <tr key={JSON.stringify([d.source, d.admin, d.day])}>
                     <td>{d.day}</td>
-                    <td>{formatInteger(d.admin)}</td>
+                    <td>{d.ownerName || formatInteger(d.admin)}</td>
                     <td>{formatGiB(d.soldBytes)}</td>
                     <td>{formatInteger(d.amountToman)}</td>
-                    <td>
-                      {formatGiB(d.periodSoldBytes)} ·{' '}
-                      {formatInteger(d.periodAmountToman)} تومان
-                    </td>
+                    {reports && (
+                      <td>
+                        {formatGiB(d.periodSoldBytes)} ·{' '}
+                        {formatInteger(d.periodAmountToman)} تومان
+                      </td>
+                    )}
                     <td>
                       {d.pending
                         ? `جمع موقت · ${formatInteger(String(d.pending))} مورد در انتظار تصمیم`
-                        : period === 'day'
-                          ? 'آمادهٔ ارسال'
-                          : 'بدون ابهام ثبت‌شده'}
+                        : !reports
+                          ? 'رفع ابهام شده'
+                          : period === 'day'
+                            ? 'آمادهٔ ارسال'
+                            : 'بدون ابهام ثبت‌شده'}
                     </td>
                   </tr>
                 ))}
@@ -333,7 +308,9 @@ export function AccountingAmbiguities({
             <p className="empty">
               {busy
                 ? 'در حال بارگیری…'
-                : 'صورتحسابی برای این بازه ثبت نشده است.'}
+                : reports
+                  ? 'صورتحسابی برای این بازه ثبت نشده است.'
+                  : 'روزی با سابقهٔ ابهام برای این فیلتر پیدا نشد.'}
             </p>
           )}
           <div className="statement-pagination">
@@ -344,7 +321,7 @@ export function AccountingAmbiguities({
               قبلی
             </button>
             <button
-              disabled={busy || days.length < 25}
+              disabled={busy || days.length <= 25}
               onClick={() => setReportOffset(reportOffset + 25)}
             >
               بعدی

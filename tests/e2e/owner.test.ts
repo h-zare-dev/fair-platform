@@ -947,6 +947,24 @@ it('shows the account, owner and separate actor recorded on a review event', asy
       actorName: 'sample-actor',
     }),
   );
+  await db.query(`INSERT INTO fair_shadow_days (source_instance_id,billing_admin_id,local_day,time_zone,
+    window_start,window_end,source_watermark,status,total_toman,create_count,ambiguity_count)
+    SELECT source_instance_id,billing_admin_id+1,'1405-09-06',time_zone,window_start,window_end,
+      source_watermark,'SHADOW_READY',0,0,0 FROM fair_shadow_days WHERE local_day='1405-09-06'`);
+  const filter = {
+    source: 'synthetic-fp003b',
+    admin: null,
+    date: '1405-09-06',
+    reason: null,
+    limit: 25,
+    offset: 0,
+  };
+  expect(await reader.ambiguityDays(filter)).toEqual([
+    expect.objectContaining({ ownerName: 'sample-owner', pending: 1 }),
+  ]);
+  expect(
+    await reader.ambiguityDays({ ...filter, reason: 'PRICING_MISSING' }),
+  ).toEqual([]);
   const request = '10000000-0000-4000-8000-000000000001';
   expect(await reader.review(request, ['1'], null, assignment.id)).toBe(true);
   expect(await reader.review(request, ['1'], null, assignment.id)).toBe(true);
@@ -956,4 +974,11 @@ it('shows the account, owner and separate actor recorded on a review event', asy
       [request],
     ),
   ).toEqual([{ rate: '2000', amount: '20000' }]);
+  expect(await reader.ambiguityDays(filter)).toEqual([
+    expect.objectContaining({
+      pending: 0,
+      soldBytes: '10737418240',
+      amountToman: '20000',
+    }),
+  ]);
 });

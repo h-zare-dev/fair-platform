@@ -682,6 +682,21 @@ export async function createOwnerApi(
         q.period,
       );
     }
+    @Get('operations/accounting/ambiguity-days') async shadowAmbiguityDays(
+      @Req() req: FastifyRequest,
+    ) {
+      await requireOwner(req);
+      if (!shadow) throw new HttpException('Unavailable', 503);
+      const q = input(shadowQuery, req.query);
+      return shadow.ambiguityDays({
+        source: q.source ?? null,
+        admin: q.admin ?? null,
+        reason: q.reason ?? null,
+        date: q.date ?? null,
+        limit: q.limit,
+        offset: q.offset,
+      });
+    }
     @Get('operations/accounting/ambiguities') async accountingAmbiguities(
       @Req() req: FastifyRequest,
     ) {

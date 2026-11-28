@@ -585,6 +585,45 @@ export class PostgresShadowReader {
     };
   }
 
+  async ambiguityDays(filter: ShadowFilter) {
+    return this.db.query<
+      {
+        source: string;
+        admin: string;
+        ownerName: string | null;
+        day: string;
+        amountToman: string;
+        soldBytes: string;
+        pending: number;
+      }[]
+    >(
+      `SELECT r.source,r.admin,r.day,e.billing_admin_username AS "ownerName",
+        r.amount_toman::text AS "amountToman",r.sold_bytes::text AS "soldBytes",r.pending
+      FROM fair_shadow_day_reports r
+      JOIN LATERAL (
+        SELECT event_id FROM (
+          SELECT event_id,reason_code FROM fair_shadow_items
+          WHERE day_id=r.day_id AND reason_code NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')
+          UNION ALL
+          SELECT event_id,reason_code FROM fair_shadow_late_events WHERE day_id=r.day_id
+        ) cases WHERE $3::text IS NULL OR reason_code=$3
+        ORDER BY event_id DESC LIMIT 1
+      ) evidence ON true
+      LEFT JOIN pasarguard_events e ON e.id=evidence.event_id
+      WHERE ($1::text IS NULL OR r.source=$1) AND ($2::text IS NULL OR r.admin=$2)
+        AND ($4::text IS NULL OR r.day=$4)
+      ORDER BY r.day DESC,r.day_id DESC LIMIT $5 OFFSET $6`,
+      [
+        filter.source,
+        filter.admin,
+        filter.reason,
+        filter.date,
+        filter.limit,
+        filter.offset,
+      ],
+    );
+  }
+
   async dayReports(filter: ShadowFilter, period: ReportPeriod = 'day') {
     const date = filter.date || localJalaliDate(new Date(), this.timeZone);
     const bounds = shadowPeriodBounds(date, period, this.weekStart);

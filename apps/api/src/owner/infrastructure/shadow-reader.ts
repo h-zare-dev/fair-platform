@@ -1,11 +1,11 @@
-import { localJalaliDate } from '@fair-platform/calendar';
+import { localJalaliDate } from "@fair-platform/calendar";
 import {
   shadowPeriodBounds,
   jalaliToReportDate,
   type ReportPeriod,
   type ReportWeekStart,
-} from '../application/shadow-report-periods.js';
-import type { DataSource } from 'typeorm';
+} from "../application/shadow-report-periods.js";
+import type { DataSource } from "typeorm";
 import {
   evaluateReplayStaticCatalog,
   type PreviewAssignment,
@@ -14,11 +14,11 @@ import {
   type PreviewIngestion,
   type PreviewMembership,
   type PreviewPackage,
-} from './replay-preview.js';
+} from "./replay-preview.js";
 import {
   evaluateReplayUpdateResetPreview,
   type PreviewOperationAggregate,
-} from './replay-update-reset-preview.js';
+} from "./replay-update-reset-preview.js";
 
 export interface ShadowFilter {
   source: string | null;
@@ -46,24 +46,24 @@ const reviewRate = `LEFT JOIN LATERAL (
 export class PostgresShadowReader {
   constructor(
     private readonly db: DataSource,
-    private readonly timeZone: string = 'Asia/Tehran',
+    private readonly timeZone: string = "Asia/Tehran",
     private readonly correlationWindowSeconds: number = 600,
-    private readonly weekStart: ReportWeekStart = 'SATURDAY',
+    private readonly weekStart: ReportWeekStart = "SATURDAY",
   ) {
     if (
       !Number.isInteger(correlationWindowSeconds) ||
       correlationWindowSeconds < 1 ||
       correlationWindowSeconds > 600
     )
-      throw new RangeError('INVALID_CORRELATION_WINDOW');
+      throw new RangeError("INVALID_CORRELATION_WINDOW");
   }
 
   /** Explicit Owner-only, read-only historical pricing experiment. */
   async replayPreview() {
     // Replayed webhook events use a segregated source. Pricing and group
     // membership are configured on the actual PasarGuard source, `primary`.
-    const source = 'replay-30d';
-    const catalogSource = 'primary';
+    const source = "replay-30d";
+    const catalogSource = "primary";
     const [
       packages,
       memberships,
@@ -150,7 +150,7 @@ export class PostgresShadowReader {
       memberships.length > 2000 ||
       assignments.length > 500
     )
-      throw new Error('REPLAY_PREVIEW_BOUNDS_EXCEEDED');
+      throw new Error("REPLAY_PREVIEW_BOUNDS_EXCEEDED");
     return evaluateReplayStaticCatalog(
       packages,
       memberships,
@@ -159,9 +159,9 @@ export class PostgresShadowReader {
       actions,
       this.timeZone,
       ingestionRows[0] ?? {
-        batchCount: '0',
-        childCount: '0',
-        unfinishedBatches: '0',
+        batchCount: "0",
+        childCount: "0",
+        unfinishedBatches: "0",
       },
     );
   }
@@ -171,7 +171,7 @@ export class PostgresShadowReader {
    * individual historical events are returned from SQL, and no writes occur.
    */
   async replayUpdateResetPreview() {
-    const source = 'replay-30d';
+    const source = "replay-30d";
     const [createPreview, operationGroups] = await Promise.all([
       this.replayPreview(),
       this.db.query<PreviewOperationAggregate[]>(
@@ -350,7 +350,7 @@ export class PostgresShadowReader {
       ),
     ]);
     if (operationGroups.length > 70000)
-      throw new Error('REPLAY_PREVIEW_BOUNDS_EXCEEDED');
+      throw new Error("REPLAY_PREVIEW_BOUNDS_EXCEEDED");
     return evaluateReplayUpdateResetPreview(
       createPreview,
       operationGroups,
@@ -381,8 +381,8 @@ export class PostgresShadowReader {
     );
     return {
       ...row,
-      lateCount: late?.count ?? '0',
-      mode: 'SHADOW_ONLY',
+      lateCount: late?.count ?? "0",
+      mode: "SHADOW_ONLY",
       financeReportsSent: false,
     };
   }
@@ -453,15 +453,15 @@ export class PostgresShadowReader {
 
   async liveReport(q: {
     view:
-      | 'admins'
-      | 'day'
-      | 'week'
-      | 'month'
-      | 'transactions'
-      | 'ambiguities'
-      | 'manual'
-      | 'blocked'
-      | 'nonfinancial';
+      | "admins"
+      | "day"
+      | "week"
+      | "month"
+      | "transactions"
+      | "ambiguities"
+      | "manual"
+      | "blocked"
+      | "nonfinancial";
     search?: string | undefined;
     reason?: string | undefined;
     action?: string | undefined;
@@ -493,32 +493,32 @@ export class PostgresShadowReader {
     };
     let rows: Row[];
     if (
-      q.view === 'admins' ||
-      q.view === 'day' ||
-      q.view === 'week' ||
-      q.view === 'month'
+      q.view === "admins" ||
+      q.view === "day" ||
+      q.view === "week" ||
+      q.view === "month"
     ) {
       const weekday = [
-        'SUNDAY',
-        'MONDAY',
-        'TUESDAY',
-        'WEDNESDAY',
-        'THURSDAY',
-        'FRIDAY',
-        'SATURDAY',
+        "SUNDAY",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
       ].indexOf(this.weekStart);
       const group = {
-        admins: 'r.admin',
-        day: 'r.day',
-        month: 'left(r.day,7)',
+        admins: "r.admin",
+        day: "r.day",
+        month: "left(r.day,7)",
         week: `(local_date - ((extract(dow from local_date)::int - ${weekday} + 7) % 7))`,
       }[q.view];
-      const byAdmin = q.view === 'admins';
+      const byAdmin = q.view === "admins";
       rows = await this.db.query<Row[]>(
         `WITH scoped AS (SELECT r.*,(d.window_start AT TIME ZONE d.time_zone)::date AS local_date
         FROM fair_shadow_day_reports r JOIN fair_shadow_days d ON d.id=r.day_id WHERE ${dayScope}
         AND ($6::text IS NULL OR r.admin=$6 OR EXISTS(SELECT 1 FROM pasarguard_events e WHERE e.source_instance_id=r.source AND e.billing_admin_id=r.admin::bigint AND strpos(lower(e.billing_admin_username),lower($6))>0))), grouped AS (
-        SELECT min(r.day) AS day,${byAdmin ? 'r.admin' : 'NULL::text'} AS admin,
+        SELECT min(r.day) AS day,${byAdmin ? "r.admin" : "NULL::text"} AS admin,
         sum(sold_bytes)::text AS bytes,sum(amount_toman)::text AS amount,sum(pending)::int AS pending,
         sum(sum(sold_bytes)) over()::text AS "totalBytes",sum(sum(amount_toman)) over()::text AS "totalAmount"
         FROM scoped r GROUP BY ${group} ORDER BY min(r.day) DESC,admin LIMIT $4 OFFSET $5)
@@ -528,20 +528,20 @@ export class PostgresShadowReader {
         ORDER BY g.day DESC,g.admin`,
         args,
       );
-      if (q.view === 'week' || q.view === 'month')
+      if (q.view === "week" || q.view === "month")
         for (const row of rows) {
           const bounds = shadowPeriodBounds(row.day, q.view, this.weekStart);
-          row.day = bounds.start + ' — ' + bounds.end;
+          row.day = bounds.start + " — " + bounds.end;
         }
-      if (q.view === 'admins') for (const row of rows) row.day = '';
+      if (q.view === "admins") for (const row of rows) row.day = "";
     } else {
       const predicate = {
-        transactions: 'true',
+        transactions: "true",
         blocked:
-          'EXISTS(SELECT 1 FROM fair_shadow_day_reports d WHERE d.day_id=entries.day_id AND d.pending>0)',
+          "EXISTS(SELECT 1 FROM fair_shadow_day_reports d WHERE d.day_id=entries.day_id AND d.pending>0)",
         ambiguities:
           "decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED'))",
-        manual: 'decision IS NOT NULL AND review_amount=0',
+        manual: "decision IS NOT NULL AND review_amount=0",
         nonfinancial:
           "event_status='IGNORED_NON_FINANCIAL' OR reason IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')",
       }[q.view];
@@ -564,8 +564,8 @@ export class PostgresShadowReader {
         CASE WHEN decision IS NULL AND (late OR reason NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')) THEN 1 ELSE 0 END AS pending FROM entries WHERE (${predicate}) AND ($7::text IS NULL OR strpos(lower(concat_ws(' ',admin,name,account,action)),lower($7))>0) AND ($8::text IS NULL OR coalesce(reason,CASE WHEN late THEN 'LATE_EVENT_AFTER_CLOSE' END)=$8) AND ($9::text IS NULL OR action=$9) ORDER BY stamp DESC,id DESC LIMIT $4 OFFSET $5`,
         [
           q.admin ?? null,
-          q.from ? jalaliToReportDate(q.from, 'gregorian') : null,
-          q.to ? jalaliToReportDate(q.to, 'gregorian') : null,
+          q.from ? jalaliToReportDate(q.from, "gregorian") : null,
+          q.to ? jalaliToReportDate(q.to, "gregorian") : null,
           q.limit + 1,
           q.offset,
           this.timeZone,
@@ -585,10 +585,49 @@ export class PostgresShadowReader {
     };
   }
 
-  async dayReports(filter: ShadowFilter, period: ReportPeriod = 'day') {
+  async ambiguityDays(filter: ShadowFilter) {
+    return this.db.query<
+      {
+        source: string;
+        admin: string;
+        ownerName: string | null;
+        day: string;
+        amountToman: string;
+        soldBytes: string;
+        pending: number;
+      }[]
+    >(
+      `SELECT r.source,r.admin,r.day,e.billing_admin_username AS "ownerName",
+        r.amount_toman::text AS "amountToman",r.sold_bytes::text AS "soldBytes",r.pending
+      FROM fair_shadow_day_reports r
+      JOIN LATERAL (
+        SELECT event_id FROM (
+          SELECT event_id,reason_code FROM fair_shadow_items
+          WHERE day_id=r.day_id AND reason_code NOT IN ('RENEWAL_EVIDENCE','UNCHANGED_OR_DECREASED')
+          UNION ALL
+          SELECT event_id,reason_code FROM fair_shadow_late_events WHERE day_id=r.day_id
+        ) cases WHERE $3::text IS NULL OR reason_code=$3
+        ORDER BY event_id DESC LIMIT 1
+      ) evidence ON true
+      LEFT JOIN pasarguard_events e ON e.id=evidence.event_id
+      WHERE ($1::text IS NULL OR r.source=$1) AND ($2::text IS NULL OR r.admin=$2)
+        AND ($4::text IS NULL OR r.day=$4)
+      ORDER BY r.day DESC,r.day_id DESC LIMIT $5 OFFSET $6`,
+      [
+        filter.source,
+        filter.admin,
+        filter.reason,
+        filter.date,
+        filter.limit,
+        filter.offset,
+      ],
+    );
+  }
+
+  async dayReports(filter: ShadowFilter, period: ReportPeriod = "day") {
     const date = filter.date || localJalaliDate(new Date(), this.timeZone);
     const bounds = shadowPeriodBounds(date, period, this.weekStart);
-    if (period !== 'day')
+    if (period !== "day")
       return this.db.query<
         {
           source: string;
